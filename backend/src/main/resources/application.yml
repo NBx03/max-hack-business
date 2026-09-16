@@ -72,7 +72,13 @@ app:
   # В проде выключается. Порядок использования описан в README.
   demo-mode: ${DEMO_MODE:false}
   ai:
-    # Решение E: деградация, если GigaChat недоступен.
+    # Провайдер выбирается конфигурацией, а не правкой кода.
+    # Наш код зависит только от порта DocumentAnalyzer; под ним Spring AI
+    # ChatClient, за которым стоит активный ChatModel.
+    # Поддерживаемые значения: gigachat (по умолчанию), openai-compatible, ollama, none.
+    # Смена провайдера = замена стартера в pom.xml + эти настройки.
+    provider: ${AI_PROVIDER:gigachat}
+    # Решение E: деградация при недоступности модели.
     # Детерминированные проверки правил работают всегда, без LLM.
     enabled: ${AI_ENABLED:true}
     timeout-seconds: ${AI_TIMEOUT_SECONDS:30}
