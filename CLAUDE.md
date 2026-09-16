@@ -53,6 +53,11 @@
   — план после пилота.
 - **MAX Bridge не npm-пакет.** Это `window.WebApp`, подключается скриптом в
   `index.html`. Адрес скрипта **не подтверждён** — сверьте с dev.max.ru до сдачи.
+- **Образы MinIO живут на quay.io, не на Docker Hub.** `minio/minio` на Docker Hub
+  больше не существует, `docker pull` падает с «repository does not exist».
+  Правильные координаты — `quay.io/minio/minio` и `quay.io/minio/mc`.
+- **`dependency:resolve`, а не `go-offline`** в Dockerfile бэкенда: замерено на
+  этом проекте, 162 с против 238 с при лимите 300 с.
 
 ---
 

@@ -7,8 +7,11 @@
 FROM maven:3.9-eclipse-temurin-21 AS deps
 WORKDIR /build
 COPY pom.xml .
+# dependency:resolve, а не go-offline: go-offline дополнительно тянет плагины
+# для всех фаз жизненного цикла. Замерено на этом проекте: go-offline 238 с,
+# dependency:resolve 162 с при лимите кейса 300 с.
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -ntp dependency:go-offline
+    mvn -B -ntp dependency:resolve
 
 # ---------- Этап 2: сборка ----------
 FROM deps AS build
