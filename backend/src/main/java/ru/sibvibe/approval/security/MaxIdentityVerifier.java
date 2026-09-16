@@ -28,8 +28,17 @@ public interface MaxIdentityVerifier {
     Optional<VerifiedIdentity> verify(String rawInitData);
 
     /**
-     * @param maxUserId идентификатор пользователя в MAX - единственный доверенный
-     *                  ключ для поиска сотрудника в нашей базе
+     * @param maxUserId  идентификатор пользователя в MAX - единственный доверенный
+     *                   ключ для поиска пользователя в нашей базе
+     * @param startParam параметр ссылки вида max.ru/бот?startapp=... - например,
+     *                   токен приглашения в компанию. Берётся только отсюда, из
+     *                   проверенной строки, а не из initDataUnsafe на фронтенде.
+     *                   null, если приложение открыто без параметра
      */
-    record VerifiedIdentity(String maxUserId, String displayName, long issuedAtEpochSeconds) {}
+    record VerifiedIdentity(
+            String maxUserId,
+            String displayName,
+            long issuedAtEpochSeconds,
+            String startParam
+    ) {}
 }

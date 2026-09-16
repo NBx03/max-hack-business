@@ -62,6 +62,11 @@ public interface RuleEngine {
 
     /**
      * Замечание всегда несёт ruleId и источник - свободного текста модели здесь нет.
+     *
+     * quote и page - для навигации: перейти к месту в документе, где значение
+     * найдено и оказалось неверным. Для замечаний вида "поле отсутствует" они
+     * пустые по смыслу: у отсутствующего значения нет места в документе.
+     * Движок правил их не вычисляет, а переносит из результата извлечения.
      */
     record ValidationIssue(
             Long ruleId,
@@ -71,6 +76,8 @@ public interface RuleEngine {
             RuleKind kind,
             String sourceTitle,
             String sourceUrl,
-            String sourceRef
+            String sourceRef,
+            String quote,
+            Integer page
     ) {}
 }
