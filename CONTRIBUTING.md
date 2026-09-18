@@ -141,6 +141,19 @@ build(backend): PDFBox 3.0.8, сборка 235 с (#3)
 - Бизнес-правила не дублируем на фронте: что разрешено — решает бэкенд, фронт
   показывает его ответ.
 
+## Бэкенд вне Docker и сертификат Минцифры
+
+Bot API (`platform-api2.max.ru`) и GigaChat работают на сертификате Минцифры. В Docker-образе
+он уже есть. Если запускаете бэкенд **из IDE на своей Java**, один раз добавьте корень в её
+хранилище — команда из корня репозитория (Windows: терминал от имени администратора):
+
+```bash
+keytool -importcert -noprompt -cacerts -storepass changeit -alias russian-trusted-root-ca -file backend/certs/russian_trusted_root_ca.pem
+```
+
+Проверка: `keytool -list -cacerts -storepass changeit -alias russian-trusted-root-ca`.
+Ставить сертификат в Windows или браузер не нужно — мини-приложение к этим адресам не обращается.
+
 ## Контракт между фронтом и бэком
 
 Лежит в `docs/API_CONTRACTS.md`. Меняете эндпоинт или DTO — обновляете контракт
