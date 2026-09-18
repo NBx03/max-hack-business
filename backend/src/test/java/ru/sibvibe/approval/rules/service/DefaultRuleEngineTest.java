@@ -12,6 +12,7 @@ import ru.sibvibe.approval.rules.RuleEngine.*;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -183,6 +184,55 @@ class DefaultRuleEngineTest {
         assertThat(engine.validate(Map.of("field", "x"), List.of(first, second)))
                 .extracting(ValidationIssue::ruleId).containsExactly(15L, 2L);
         assertThat(engine.validate(Map.of(), List.of())).isEmpty();
+    }
+
+    @Test
+    void localTodayNearMidnightIsNotFutureWhenBusinessDateIsProvided() {
+        Instant instant = Instant.parse("2026-09-18T18:30:00Z");
+        Clock localClock = Clock.fixed(instant, ZoneId.of("Asia/Novosibirsk"));
+        RuleEngine localEngine = new DefaultRuleEngine(localClock, new ObjectMapper());
+        RuleEngine utcEngine = new DefaultRuleEngine(Clock.fixed(instant, ZoneOffset.UTC), new ObjectMapper());
+        List<RequirementRule> rules = List.of(rule(CheckType.DATE_NOT_FUTURE, null));
+        Map<String, String> fields = Map.of("field", "2026-09-19");
+
+        assertThat(localEngine.validate(fields, rules)).isEmpty();
+        assertThat(utcEngine.validate(fields, rules)).hasSize(1);
+        ValidationContext context = new ValidationContext(LocalDate.now(localClock), Map.of());
+        assertThat(utcEngine.validate(fields, rules, context)).isEmpty();
+        assertThat(localEngine.validate(fields, rules, context)).isEmpty();
+        assertThat(utcEngine.validate(Map.of("field", "2026-09-20"), rules, context)).hasSize(1);
+    }
+
+    @Test
+    void checksOneDocumentAgainstSeveralRulesAndRechecksCorrections() {
+        List<RequirementRule> rules = List.of(
+                documentRule(1L, "title", CheckType.REQUIRED, null, Severity.BLOCKER),
+                documentRule(2L, "title", CheckType.MIN_LENGTH, "5", Severity.WARNING),
+                documentRule(3L, "date", CheckType.DATE_FORMAT, null, Severity.BLOCKER),
+                documentRule(4L, "date", CheckType.DATE_NOT_FUTURE, null, Severity.BLOCKER),
+                documentRule(5L, "code", CheckType.MATCHES_PATTERN, "[A-Z]{2}-[0-9]{3}", Severity.INFO),
+                documentRule(6L, "category", CheckType.ONE_OF, "[\"INTERNAL\",\"EXTERNAL\"]", Severity.WARNING));
+        ValidationContext context = new ValidationContext(TODAY,
+                Map.of("date", new FieldLocation("2026-09-19", 1)));
+        List<ValidationIssue> issues = engine.validate(Map.of(
+                "title", "", "date", "2026-09-19", "code", "AB-123", "category", "OTHER"), rules, context);
+
+        assertThat(issues).extracting(ValidationIssue::ruleId).containsExactly(1L, 4L, 6L);
+        assertThat(issues).extracting(ValidationIssue::severity)
+                .containsExactly(Severity.BLOCKER, Severity.BLOCKER, Severity.WARNING);
+        assertThat(issues.getFirst().quote()).isNull();
+        assertThat(issues.get(1).quote()).isEqualTo("2026-09-19");
+        assertThat(issues.get(1).page()).isEqualTo(1);
+        assertThat(engine.validate(Map.of(
+                "title", "Тестовый документ", "date", "2026-09-18", "code", "AB-123", "category", "INTERNAL"),
+                rules, new ValidationContext(TODAY, Map.of()))).isEmpty();
+    }
+
+    private static RequirementRule documentRule(long id, String field, CheckType check,
+                                                 String expected, Severity severity) {
+        return new RequirementRule(id, "TEST", field, "Поле не соответствует правилу",
+                check, expected, RuleKind.INTERNAL_POLICY, severity,
+                "Тестовый регламент", null, "п. " + id, Instant.EPOCH);
     }
 
     @Test

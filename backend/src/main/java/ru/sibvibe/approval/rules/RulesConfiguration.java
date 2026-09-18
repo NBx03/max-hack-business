@@ -12,6 +12,8 @@ public class RulesConfiguration {
 
     @Bean
     RuleEngine ruleEngine(ObjectMapper objectMapper) {
-        return new DefaultRuleEngine(Clock.systemUTC(), objectMapper);
+        // Запасной вариант для старого метода — дата сервера, не бизнес-дата пользователя.
+        // Дату пользователя/организации вызывающий код передаёт через ValidationContext.
+        return new DefaultRuleEngine(Clock.systemDefaultZone(), objectMapper);
     }
 }
