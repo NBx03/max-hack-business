@@ -30,7 +30,8 @@ spring:
   servlet:
     multipart:
       max-file-size: ${MAX_UPLOAD_SIZE:10MB}
-      max-request-size: ${MAX_UPLOAD_SIZE:10MB}
+      # Версия документа - основной файл и до 10 приложений, до 30 МБ суммарно.
+      max-request-size: ${MAX_REQUEST_SIZE:30MB}
 
   ai:
     gigachat:
@@ -64,9 +65,9 @@ max:
     # Токен выдаётся организаторами. В репозиторий не попадает никогда.
     # Тем же секретом проверяется подпись данных запуска мини-приложения.
     token: ${MAX_BOT_TOKEN:}
-    # ВНИМАНИЕ: адрес подлежит проверке по dev.max.ru перед сдачей.
-    # Есть сведения о переезде платформы на platform-api.max.ru; не подтверждено.
-    api-url: ${MAX_BOT_API_URL:https://botapi.max.ru}
+    # Проверено 18.09 запросом GET /me: работают platform-api.max.ru и botapi.max.ru.
+    # Токен передаётся только заголовком Authorization - параметр access_token отключён.
+    api-url: ${MAX_BOT_API_URL:https://platform-api.max.ru}
     # polling - для локальной разработки, webhook - для стенда сдачи.
     # Документация MAX прямо называет long polling непригодным для продакшена,
     # и одновременно с webhook он не работает.
@@ -93,7 +94,7 @@ app:
     personal-link-token-bytes: 24
   ai:
     # Провайдер выбирается конфигурацией, а не правкой кода.
-    # Наш код зависит только от порта DocumentAnalyzer; под ним Spring AI
+    # Наш код зависит только от порта DocumentExtractor; под ним Spring AI
     # ChatClient, за которым стоит активный ChatModel.
     # Поддерживаемые значения: gigachat (по умолчанию), openai-compatible, ollama, none.
     # Смена провайдера = замена стартера в pom.xml + эти настройки.
