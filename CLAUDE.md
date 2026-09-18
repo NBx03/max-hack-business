@@ -433,14 +433,17 @@ OpenAI-совместимый эндпоинт или локальную мод�
 | `DocumentTypeField` | id, document_type_id, field_name, field_type, hint — схема только у поддержанных типов |
 | `ApprovalRoute` | id, document_type_id, org_id, **stage_order**, **role_id → Role**, is_mandatory |
 | `RequirementRule` | id, document_type_id, field_name, description, **check_type**, expected, **kind**, severity, **source_title, source_url, source_ref, source_checked_at** |
-| `Document` | id, document_type_id, author_id, org_id, status, **current_stage**, **current_version_no**, visibility, contains_sensitive, created_at, updated_at |
+| `Document` | id, document_type_id, author_id, org_id, **title**, status, **current_stage**, **current_version_no**, visibility, contains_sensitive, created_at, updated_at |
 | `DocumentVersion` | id, document_id, **version_no**, **content (jsonb, у документа-формы)**, created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), check_status |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at; у версии ровно один MAIN, если это не документ-форма, и до 10 ATTACHMENT |
-| `ApprovalStep` | id, document_id, **version_no**, approver_id, **stage_order**, **origin**, decision, comment, created_at, decided_at |
+| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id → Role** (в какой роли согласует), **stage_order**, **origin**, decision, comment, created_at, decided_at |
 
 `status`: `DRAFT` / `IN_APPROVAL` / `APPROVED` (Согласован) / `RETURNED` / `REJECTED`.
 `decision`: `PENDING` / `APPROVED` / `RETURNED` / `REJECTED` / **`SKIPPED`**.
 `origin`: `TEMPLATE` / `ADDED_BY_AUTHOR`. `kind`: `LEGAL` / `INTERNAL_POLICY` / `PRODUCT_RULE`.
+`visibility`: `PRIVATE` (автор и участники маршрута) / `ORG` (вся компания).
+
+Эндпоинты и DTO — в [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md).
 
 Роли — строки в `Role` конкретной организации, а не enum в коде: у разных компаний
 разный набор, а универсальность продукта — его суть. В MVP набор создаётся по
