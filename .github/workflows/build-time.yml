@@ -1,0 +1,42 @@
+name: Build time
+
+# Лимит кейса: сборка в Docker не дольше 5 минут без учёта загрузки базовых образов.
+# Запускается, когда меняются зависимости или Docker-конфигурация, и вручную.
+# Сеть раннера GitHub не равна сети проверяющего, поэтому порог предупреждения
+# ниже лимита: цифра здесь — сигнал о тренде, а не точный прогноз.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - backend/pom.xml
+      - frontend/package.json
+      - frontend/package-lock.json
+      - '**/Dockerfile'
+      - compose.yaml
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Фиктивное окружение для compose
+        run: |
+          printf 'DB_PASSWORD=ci\nMINIO_ACCESS_KEY=ciaccess\nMINIO_SECRET_KEY=cisecret123\n' > .env
+      - name: Загрузка базовых образов (не входит в лимит)
+        run: |
+          docker pull maven:3.9-eclipse-temurin-21
+          docker pull eclipse-temurin:21-jre-alpine
+          docker pull node:22-alpine
+          docker pull nginx:1.27-alpine
+      - name: Полная сборка без кэша
+        run: |
+          start=$(date +%s)
+          docker compose build --no-cache
+          took=$(( $(date +%s) - start ))
+          echo "Сборка: ${took} с (лимит 300)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$took" -gt 300 ]; then
+            echo "::error::Сборка ${took} с — больше лимита кейса 300 с"
+            exit 1
+          elif [ "$took" -gt 240 ]; then
+            echo "::warning::Сборка ${took} с — запас до лимита меньше минуты"
+          fi
