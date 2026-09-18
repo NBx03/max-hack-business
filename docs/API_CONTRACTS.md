@@ -1,6 +1,7 @@
 # Контракт REST API между мини-приложением и бэкендом
 
-Версия 1 — черновик для согласования (задача #10). Внутренний документ разработки:
+Версия 1.1 — с правками по ревью (задача #10). Внутреннее устройство бэкенда,
+транзакции и конкурентность — в [ARCHITECTURE.md](ARCHITECTURE.md). Внутренний документ разработки:
 собственный API в сдаче мы не заявляем (CLAUDE.md, решение C).
 
 **Правило:** меняете эндпоинт или DTO — обновляете этот файл в том же PR. Ломающее
@@ -25,8 +26,8 @@
 
 - Личность — **только** из проверенной подписи `initData`. `max_user_id` в теле
   и параметрах бэкенд игнорирует.
-- `X-Demo-Act-As` принимается, только если `DEMO_MODE=true` **и** пользователь
-  из демо-компании; иначе — 403 `DEMO_ACT_AS_FORBIDDEN`. На сервере «текущий
+- `X-Demo-Act-As` принимается, только если `DEMO_MODE=true` **и** указанный участник
+  из демо-песочницы **самого вызывающего**; иначе — 403 `DEMO_ACT_AS_FORBIDDEN`. На сервере «текущий
   демо-пользователь» не хранится: фронтенд передаёт заголовок в каждом запросе.
 - Локальная разработка без MAX: `Authorization: Dev <maxUserId>` принимается
   **только** при профиле Spring `dev`. В сборке по умолчанию — 401.
@@ -43,12 +44,19 @@
 |---|---|
 | 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED`, `FILE_TOO_LARGE` |
 | 401 | Личность не подтверждена: `INIT_DATA_INVALID`, `INIT_DATA_EXPIRED` |
-| 403 | Нет прав: `FORBIDDEN`, `NOT_ADMIN`, `NOT_YOUR_STEP`, `DEMO_ACT_AS_FORBIDDEN` |
+| 403 | Нет прав: `FORBIDDEN`, `NOT_ADMIN`, `DEMO_ACT_AS_FORBIDDEN` |
 | 404 | Нет такого или не видно вам: `NOT_FOUND`, `INVITE_NOT_FOUND` |
-| 409 | Нельзя в текущем состоянии: `INVALID_STATE`, `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS`, `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED`, `BLOCKING_ISSUES`, `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
+| 409 | Нельзя в текущем состоянии: `INVALID_STATE`, `STEP_NOT_ACTIVE`, `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS`, `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED`, `BLOCKING_ISSUES`, `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
 | 429 | Слишком много попыток ввода кода: `TOO_MANY_ATTEMPTS` |
 
 Чужой документ отвечает **404, а не 403**: сам факт его существования не раскрываем.
+
+### Идентификаторы от клиента
+
+**Любой id из пути или тела ищется только в пределах того, к чему у пользователя есть доступ:**
+заявка и участник — в компании администратора, файл — в текущей версии этого документа,
+шаг — среди шагов этого пользователя. Не нашлось в этих пределах — 404, даже если такой
+id где-то существует. Это защита от подстановки чужих id.
 
 ## Общие объекты
 
@@ -79,6 +87,7 @@ type FileRef = {
 {
   user: UserRef;
   membership: null | { orgId: number; orgName: string; isDemo: boolean; roles: RoleRef[]; isAdmin: boolean };
+                                 // roles — только предметные роли; права администратора — отдельно, isAdmin
   pendingJoinRequest: null | { id: number; orgName: string; createdAt: string };
   demoMode: boolean;             // показывать ли «Открыть демо-компанию» и переключатель
   startParam: string | null;     // из проверенной initData: код компании или токен личной ссылки
@@ -87,26 +96,36 @@ type FileRef = {
 
 `membership = null` — это **не ошибка**, а экран приветствия.
 
-### `GET /demo/users` — демо-участники
+### Демо-режим
 
-404, если демо-режим выключен. Ответ: `[{ user: UserRef, roles: RoleRef[] }]`.
+Оба эндпоинта отвечают 404, если демо-режим выключен.
+
+| Метод и путь | Ответ |
+|---|---|
+| `POST /demo/sandbox` | Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
+| `GET /demo/sandbox` | Та же песочница; 404, если ещё не создана |
+
+`X-Demo-Act-As` принимает id из `users` своей песочницы.
 
 ## Подключение компании
 
 | Метод и путь | Кто | Тело → ответ |
 |---|---|---|
-| `POST /orgs` | Не состоит в компании | `{ name, inn? }` → 201 `{ id, name }`. Создатель — ADMIN, роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
-| `GET /orgs/current/roles` | Участник | → `RoleRef[]` |
+| `POST /orgs` | Не состоит в компании | `{ name, inn? }` → 201 `{ id, name }`. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
+| `GET /orgs/current/roles` | Участник | → `RoleRef[]` — только предметные роли |
+| *SHOULD* `POST /orgs/current/roles` | ADMIN | `{ name }` → 201 `RoleRef` |
+| *SHOULD* `PATCH /orgs/current/roles/{id}` | ADMIN | `{ name }` → `RoleRef` |
 | `GET /orgs/current/invite-code` | ADMIN | → `{ code, link, createdAt }`, `link` = `https://max.ru/t354_hakaton_max_bot?startapp=c_<code>` |
 | `POST /orgs/current/invite-code/regenerate` | ADMIN | → то же; старый код перестаёт работать |
 | `GET /invites/code/{code}` | Любой | → `{ orgName }`. 404 `INVITE_NOT_FOUND`, 429 `TOO_MANY_ATTEMPTS` |
 | `POST /join-requests` | Не состоит в компании | `{ code }` → 201 `{ id, orgName, status, createdAt }`. 409 `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS` |
 | `DELETE /join-requests/{id}` | Автор заявки | → 204 |
 | `GET /orgs/current/join-requests?status=PENDING` | ADMIN | → `[{ id, user: UserRef, status, createdAt }]` |
-| `POST /orgs/current/join-requests/{id}/approve` | ADMIN | `{ roleIds: number[] }` → участник. 409 `INVALID_STATE` |
+| `POST /orgs/current/join-requests/{id}/approve` | ADMIN | `{ roleIds: number[], isAdmin?: boolean }` → участник. 409 `INVALID_STATE` |
 | `POST /orgs/current/join-requests/{id}/reject` | ADMIN | → 200 |
-| `GET /orgs/current/members` | ADMIN | → `[{ memberId, user: UserRef, status, roles: RoleRef[], joinedAt }]` |
-| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → участник. 409 `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS` |
+| `GET /orgs/current/members` | ADMIN | → `[{ memberId, user: UserRef, status, roles: RoleRef[], isAdmin, joinedAt }]` |
+| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → участник. 409 `MEMBER_HAS_PENDING_STEPS` |
+| `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → участник. 409 `LAST_ADMIN` |
 | *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200. 409 `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS` |
 
 Заявка и участник ищутся **в компании администратора**: чужой id — 404.
@@ -115,7 +134,7 @@ type FileRef = {
 
 | Метод и путь | Кто | Тело → ответ |
 |---|---|---|
-| `POST /orgs/current/personal-invites` | ADMIN | `{ roleIds }` → 201 `{ id, link, expiresAt, roles }`. Роль ADMIN — 400 |
+| `POST /orgs/current/personal-invites` | ADMIN | `{ roleIds }` → 201 `{ id, link, expiresAt, roles }`. Права администратора через ссылку не выдаются |
 | `GET /orgs/current/personal-invites` | ADMIN | → неиспользованные и неотозванные |
 | `DELETE /orgs/current/personal-invites/{id}` | ADMIN | → 204 |
 | `GET /invites/personal/{token}` | Любой | → `{ orgName, roles, expiresAt }`. 409 `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
@@ -139,7 +158,7 @@ type FileRef = {
 
 | Часть | Что |
 |---|---|
-| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` |
+| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` — `containsSensitive` относится к этой версии |
 | `main` | Основной файл: PDF или DOCX. Обязателен, если это не документ-форма |
 | `attachments` | *SHOULD.* До 10 файлов: PDF, DOCX, XLSX, PNG, JPG |
 
@@ -147,6 +166,8 @@ type FileRef = {
 
 Ответ 201 — `DocumentCard`. Проверка правил выполняется **в том же запросе**
 и укладывается в `app.ai.timeout-seconds`; фронтенд показывает индикатор.
+Документ сохраняется **до** обращения к модели: сбой или тайм-аут модели не теряет
+документ, а даёт `modelAvailable = false`.
 
 `fields` — поля, введённые вручную: при `containsSensitive = true` или когда модель
 недоступна. Ограничения: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
@@ -173,15 +194,16 @@ type DocumentListItem = {
 ```ts
 type DocumentCard = {
   id: number; title: string; type: { id: number; name: string; isGeneric: boolean };
-  status: DocumentStatus; visibility: Visibility; containsSensitive: boolean;
+  status: DocumentStatus; visibility: Visibility;
   author: UserRef; currentVersionNo: number;
-  versions: { versionNo: number; createdAt: string; createdBy: UserRef; files: FileRef[] }[];
+  versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[] }[];
   check: CheckResult | null;     // для текущей версии; null у generic-типа
   route: RouteView | null;       // null у черновика, который ещё не отправлялся
   permissions: {                 // вычисляет бэкенд — фронтенд правила не дублирует
     canEditFields: boolean; canUploadVersion: boolean; canSubmit: boolean;
-    canDecide: boolean; canAddApprover: boolean;
+    canAddApprover: boolean;
   };
+  myActiveStepIds: number[];     // шаги, по которым текущий пользователь может решить сейчас
 };
 ```
 
@@ -191,15 +213,23 @@ type DocumentCard = {
 
 ### `POST /documents/{id}/versions` — новая версия
 
-Можно в `DRAFT` и `RETURNED`, иначе 409 `INVALID_STATE`. `multipart/form-data`:
-`meta` = `{ fields?, keepFileIds: number[] }`, плюс `main` и `attachments` — только
-то, что меняется. Файлы из `keepFileIds` переиспользуются без повторной загрузки.
+Можно в `DRAFT` и `RETURNED`, иначе 409 `INVALID_STATE`. Из `RETURNED` документ
+переходит в `DRAFT`: автор видит проверку новой версии и отправляет заново.
+`multipart/form-data`: `meta` = `{ fields?, containsSensitive, keepFileIds: number[] }`,
+плюс `main` и `attachments` — только то, что меняется.
+
+- Файлы из `keepFileIds` переиспользуются без повторной загрузки.
+- **Каждый id из `keepFileIds` обязан быть файлом текущей версии этого документа.**
+  Любой другой — 400 `VALIDATION_FAILED` без уточнения, чей это файл.
+- Без нового основного файла в `main` основной файл должен быть в `keepFileIds`.
+
 Ответ — `DocumentCard`.
 
 ### `PUT /documents/{id}/versions/{versionNo}/fields` — поправить поля
 
 `{ fields: Record<string,string> }` → `CheckResult`. Правила проверяются заново.
-Только для текущей версии в `DRAFT` или `RETURNED`.
+Только для текущей версии в `DRAFT`. Возвращённая версия не редактируется —
+она уже в истории; исправление — новая версия.
 
 ### Результат проверки
 
@@ -231,6 +261,10 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
       role: RoleRef; mandatory: boolean;
       candidates: UserRef[];         // автор исключён
       selectedUserId: number | null; // проставлен, если кандидат один
+      resolution: "SELECT" | "AUTO" | "SKIPPED" | "AUTHOR_HOLDS_ROLE";
+      // SELECT — выбрать из кандидатов; AUTO — кандидат один; SKIPPED — необязательный
+      // участник без кандидатов; AUTHOR_HOLDS_ROLE — обязательный, но роль есть
+      // только у автора: шаг будет сразу согласован с отметкой в истории
     }[];
   }[];
   problems: { code: "ROUTE_ROLE_EMPTY" | "BLOCKING_ISSUES"; message: string }[];
@@ -265,21 +299,34 @@ type StepView = {
   role: RoleRef; approver: UserRef;
   origin: "TEMPLATE" | "ADDED_BY_AUTHOR";
   decision: Decision; comment: string | null; decidedAt: string | null;
+  autoReason: "AUTHOR_HOLDS_ROLE" | null;  // показывать «согласовано автором как <роль>»
 };
 ```
 
-### `POST /documents/{id}/decisions` — решение согласующего
+### `POST /approval-steps/{stepId}/decision` — решение согласующего
 
 `{ decision: "APPROVE" | "RETURN" | "REJECT", comment?: string }` → `DocumentCard`.
 
+Решение адресуется **шагу**, а не документу: человек с двумя ролями одного этапа
+имеет два шага и решает по каждому. Номера шагов — в `myActiveStepIds` карточки.
+
 - 400 `COMMENT_REQUIRED` — возврат или отклонение без комментария.
-- 403 `NOT_YOUR_STEP` — у пользователя нет активного шага в этом документе.
-- 409 `INVALID_STATE` — документ не на согласовании.
+- 404 — шаг не найден среди шагов пользователя.
+- 409 `STEP_NOT_ACTIVE` — шаг уже закрыт или его этап не активен, например документ
+  только что вернул другой согласующий.
+- **Повтор того же решения тем же пользователем** — 200 с текущей карточкой, без
+  изменений. Двойной клик безопасен.
 
 ## SHOULD: показатели эффекта
 
 `GET /orgs/current/metrics?from=&to=` →
 `{ medianApprovalHours: number | null; returnRate: number | null; documentsCount: number }`.
+
+## Документация API
+
+`springdoc` генерирует OpenAPI по коду. Перед сдачей выгружаем её в `docs/openapi.yaml`
+как документацию внутреннего API — собственный API в сдаче при этом не заявляем
+(CLAUDE.md, решение C), `DATA-API.yaml` не готовим.
 
 ## Не для фронтенда
 
