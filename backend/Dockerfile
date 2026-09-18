@@ -28,6 +28,16 @@ FROM eclipse-temurin:21-jre-alpine AS runtime
 RUN addgroup -S app && adduser -S -G app app && \
     apk add --no-cache curl
 
+# Корневой сертификат Минцифры (Russian Trusted Root CA). На нём работают
+# platform-api2.max.ru и GigaChat; в стандартном хранилище JRE его нет.
+# Файл публичный, взят с gu-st.ru (Госуслуги). SHA-256:
+# D2:6D:2D:02:31:B7:C3:9F:92:CC:73:85:12:BA:54:10:35:19:E4:40:5D:68:B5:BD:70:3E:97:88:CA:8E:CF:31
+# Отключать проверку сертификатов вместо этого нельзя.
+COPY certs/russian_trusted_root_ca.pem /tmp/russian_trusted_root_ca.pem
+RUN keytool -importcert -noprompt -cacerts -storepass changeit \
+      -alias russian-trusted-root-ca -file /tmp/russian_trusted_root_ca.pem && \
+    rm /tmp/russian_trusted_root_ca.pem
+
 WORKDIR /app
 COPY --from=build /build/app.jar app.jar
 RUN chown -R app:app /app

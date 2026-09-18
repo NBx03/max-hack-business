@@ -65,9 +65,9 @@ max:
     # Токен выдаётся организаторами. В репозиторий не попадает никогда.
     # Тем же секретом проверяется подпись данных запуска мини-приложения.
     token: ${MAX_BOT_TOKEN:}
-    # Проверено 18.09 запросом GET /me: работают platform-api.max.ru и botapi.max.ru.
+    # Официальный адрес с 19.07.2026. Сертификат Минцифры встроен в образ (Dockerfile).
     # Токен передаётся только заголовком Authorization - параметр access_token отключён.
-    api-url: ${MAX_BOT_API_URL:https://platform-api.max.ru}
+    api-url: ${MAX_BOT_API_URL:https://platform-api2.max.ru}
     # polling - для локальной разработки, webhook - для стенда сдачи.
     # Документация MAX прямо называет long polling непригодным для продакшена,
     # и одновременно с webhook он не работает.
