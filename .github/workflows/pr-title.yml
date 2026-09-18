@@ -1,0 +1,25 @@
+name: PR title
+
+# Сливаем через Squash and merge: в main попадает один коммит на PR, и его
+# название — это заголовок PR. Поэтому формат Conventional Commits проверяется
+# здесь, а коммиты внутри ветки можно писать как удобно.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Заголовок в формате «тип(область): описание»
+        # Заголовок передаётся через переменную окружения, а не подставляется
+        # в скрипт напрямую: иначе заголовок вида "$(команда)" выполнился бы на раннере.
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if printf '%s' "$TITLE" | grep -Eq '^(feat|fix|test|refactor|docs|build|ci|chore|perf)(\([a-z0-9-]+\))?!?: .+'; then
+            echo "Заголовок в порядке: $TITLE"
+          else
+            echo "::error::Заголовок PR должен быть вида «тип(область): описание», например «feat(auth): проверка подписи initData». Сейчас: $TITLE"
+            exit 1
+          fi
