@@ -31,7 +31,7 @@ spring:
     multipart:
       max-file-size: ${MAX_UPLOAD_SIZE:10MB}
       # Версия документа - основной файл и до 10 приложений, до 30 МБ суммарно.
-      max-request-size: ${MAX_REQUEST_SIZE:30MB}
+      max-request-size: ${MAX_REQUEST_SIZE:32MB}
 
   ai:
     gigachat:
