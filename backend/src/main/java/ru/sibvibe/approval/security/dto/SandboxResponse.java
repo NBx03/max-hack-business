@@ -1,5 +1,8 @@
 package ru.sibvibe.approval.security.dto;
 
+import ru.sibvibe.approval.common.dto.RoleRef;
+import ru.sibvibe.approval.common.dto.UserRef;
+
 import java.util.List;
 
 public record SandboxResponse(long orgId, String orgName, List<SandboxUser> users) {

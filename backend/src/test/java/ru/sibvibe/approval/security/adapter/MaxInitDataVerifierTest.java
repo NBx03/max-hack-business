@@ -69,8 +69,10 @@ class MaxInitDataVerifierTest {
     }
 
     @Test
-    void rejectsSignedDataIssuedInFuture() {
-        assertThat(verifier(1_799_999_999L, 200).verify(KNOWN_VECTOR)).isEmpty();
+    void allowsSmallClockSkewAndRejectsDataTooFarInFuture() {
+        assertThat(verifier(1_799_999_998L, 200).verify(KNOWN_VECTOR)).isPresent();
+        assertThat(verifier(1_799_999_940L, 200).verify(KNOWN_VECTOR)).isPresent();
+        assertThat(verifier(1_799_999_939L, 200).verify(KNOWN_VECTOR)).isEmpty();
     }
 
     @Test
@@ -89,6 +91,17 @@ class MaxInitDataVerifierTest {
         var identity = verifier(1_800_000_100L, 200).verify(sign(values)).orElseThrow();
 
         assertThat(identity.startParam()).isEqualTo("future.prefix:42");
+    }
+
+    @Test
+    void truncatesLongDisplayNameByUnicodeCodePoints() {
+        Map<String, String> values = validValues();
+        values.put("user", "{\"id\":123456789,\"first_name\":\"" + "😀".repeat(256) + "\"}");
+
+        var identity = verifier(1_800_000_100L, 200).verify(sign(values)).orElseThrow();
+
+        assertThat(identity.displayName().codePointCount(0, identity.displayName().length())).isEqualTo(255);
+        assertThat(identity.displayName()).isEqualTo("😀".repeat(255));
     }
 
     @Test

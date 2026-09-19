@@ -15,7 +15,7 @@ import ru.sibvibe.approval.organization.repository.MemberRoleRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationMemberRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
-import ru.sibvibe.approval.security.DemoActAsForbiddenException;
+import ru.sibvibe.approval.common.api.DemoActAsForbiddenException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -26,6 +26,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -79,15 +80,19 @@ public class OrganizationSecurityService {
 
     @Transactional
     public UserInfo findOrCreateUser(long maxUserId, String displayName) {
-        Long userId = jdbcTemplate.queryForObject("""
+        Optional<AppUser> existing = userRepository.findByMaxUserId(maxUserId);
+        if (existing.isPresent()) {
+            return updateDisplayName(existing.orElseThrow(), displayName);
+        }
+
+        jdbcTemplate.update("""
                 INSERT INTO app_user(max_user_id, full_name, created_at)
                 VALUES (?, ?, ?)
-                ON CONFLICT (max_user_id) DO UPDATE SET full_name = EXCLUDED.full_name
-                RETURNING id
-                """, Long.class, maxUserId, displayName,
+                ON CONFLICT (max_user_id) DO NOTHING
+                """, maxUserId, displayName,
                 OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
-        AppUser user = userRepository.findById(userId).orElseThrow();
-        return userInfo(user);
+        AppUser user = userRepository.findByMaxUserId(maxUserId).orElseThrow();
+        return updateDisplayName(user, displayName);
     }
 
     @Transactional(readOnly = true)
@@ -215,6 +220,13 @@ public class OrganizationSecurityService {
 
     private UserInfo userInfo(AppUser user) {
         return new UserInfo(user.getId(), user.getFullName());
+    }
+
+    private UserInfo updateDisplayName(AppUser user, String displayName) {
+        if (!Objects.equals(user.getFullName(), displayName)) {
+            user.setFullName(displayName);
+        }
+        return userInfo(user);
     }
 
     private long nextSyntheticMaxUserId() {

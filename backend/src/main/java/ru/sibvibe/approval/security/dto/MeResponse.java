@@ -1,5 +1,8 @@
 package ru.sibvibe.approval.security.dto;
 
+import ru.sibvibe.approval.common.dto.RoleRef;
+import ru.sibvibe.approval.common.dto.UserRef;
+
 import java.time.Instant;
 import java.util.List;
 

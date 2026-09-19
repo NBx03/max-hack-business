@@ -57,6 +57,7 @@
 | 404 | Нет такого или не видно вам: `NOT_FOUND`, `INVITE_NOT_FOUND` |
 | 409 | Нельзя в текущем состоянии: `INVALID_STATE`, `STEP_NOT_ACTIVE`, `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS`, `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED`, `BLOCKING_ISSUES`, `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
 | 429 | Слишком много попыток ввода кода: `TOO_MANY_ATTEMPTS`, `details.retryAfterSeconds` — через сколько можно снова |
+| 405, 500 | `INTERNAL_ERROR` — непредвиденная ошибка; HTTP-статус исходной ошибки сохраняется |
 
 Чужой документ отвечает **404, а не 403**: сам факт его существования не раскрываем.
 

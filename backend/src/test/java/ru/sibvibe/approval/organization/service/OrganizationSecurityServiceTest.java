@@ -11,7 +11,7 @@ import ru.sibvibe.approval.organization.repository.MemberRoleRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationMemberRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
-import ru.sibvibe.approval.security.DemoActAsForbiddenException;
+import ru.sibvibe.approval.common.api.DemoActAsForbiddenException;
 
 import java.time.Clock;
 import java.util.List;
@@ -20,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class OrganizationSecurityServiceTest {
@@ -34,6 +35,30 @@ class OrganizationSecurityServiceTest {
     private final OrganizationSecurityService service = new OrganizationSecurityService(
             userRepository, organizationRepository, memberRepository, roleRepository, memberRoleRepository,
             joinRequestRepository, jdbcTemplate, Clock.systemUTC());
+
+    @Test
+    void doesNotWriteWhenExistingUsersDisplayNameIsUnchanged() {
+        AppUser user = user(7, "Проверяющий");
+        when(userRepository.findByMaxUserId(700L)).thenReturn(Optional.of(user));
+
+        var result = service.findOrCreateUser(700, "Проверяющий");
+
+        assertThat(result.id()).isEqualTo(7);
+        assertThat(result.displayName()).isEqualTo("Проверяющий");
+        verifyNoInteractions(jdbcTemplate);
+    }
+
+    @Test
+    void updatesExistingUsersDisplayNameOnlyWhenItChanged() {
+        AppUser user = user(7, "Старое имя");
+        when(userRepository.findByMaxUserId(700L)).thenReturn(Optional.of(user));
+
+        var result = service.findOrCreateUser(700, "Новое имя");
+
+        assertThat(result.displayName()).isEqualTo("Новое имя");
+        assertThat(user.getFullName()).isEqualTo("Новое имя");
+        verifyNoInteractions(jdbcTemplate);
+    }
 
     @Test
     void acceptsOnlyActiveDemoMemberOfOwnersCurrentSandbox() {

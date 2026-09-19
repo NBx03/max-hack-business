@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
+import ru.sibvibe.approval.common.api.DemoActAsForbiddenException;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.security.DemoActAsForbiddenException;
 import ru.sibvibe.approval.security.InitDataExpiredException;
 import ru.sibvibe.approval.security.MaxIdentityVerifier;
 import ru.sibvibe.approval.security.service.CurrentUserService;
@@ -97,7 +97,7 @@ class MaxAuthenticationFilterTest {
     }
 
     @Test
-    void bearerSchemeFromOldIssueTextIsRejected() throws Exception {
+    void rejectsUnsupportedBearerAuthorizationScheme() throws Exception {
         MockHttpServletRequest request = request();
         request.addHeader("Authorization", "Bearer signed-data");
 
@@ -122,12 +122,39 @@ class MaxAuthenticationFilterTest {
         assertThat(response.getContentAsString()).contains("DEMO_ACT_AS_FORBIDDEN");
     }
 
+    @Test
+    void mapsUnexpectedResolutionFailureToInternalError() throws Exception {
+        var identity = new MaxIdentityVerifier.VerifiedIdentity("42", "Иван", 1_800_000_000L, null);
+        when(verifier.verify("signed-data")).thenReturn(Optional.of(identity));
+        when(currentUserService.resolve(identity, null)).thenThrow(new IllegalArgumentException("internal"));
+        MockHttpServletRequest request = request();
+        request.addHeader("Authorization", "MaxInitData signed-data");
+
+        MockHttpServletResponse response = invoke(filter(false), request);
+
+        assertThat(response.getStatus()).isEqualTo(500);
+        assertThat(response.getContentAsString()).contains("INTERNAL_ERROR");
+        assertThat(response.getContentAsString()).doesNotContain("internal");
+    }
+
+    @Test
+    void exposesSwaggerOnlyInDevAndAllHealthEndpointsWithoutAuthentication() throws Exception {
+        assertThat(invoke(filter(false), request("GET", "/v3/api-docs")).getStatus()).isEqualTo(401);
+        assertThat(invoke(filter(true), request("GET", "/v3/api-docs")).getStatus()).isEqualTo(200);
+        assertThat(invoke(filter(false), request("GET", "/actuator/health/liveness")).getStatus()).isEqualTo(200);
+        assertThat(invoke(filter(false), request("GET", "/actuator/health/readiness")).getStatus()).isEqualTo(200);
+    }
+
     private MaxAuthenticationFilter filter(boolean devProfile) {
         return new MaxAuthenticationFilter(verifier, currentUserService, objectMapper, clock, devProfile);
     }
 
     private MockHttpServletRequest request() {
-        return new MockHttpServletRequest("POST", "/api/v1/test");
+        return request("POST", "/api/v1/test");
+    }
+
+    private MockHttpServletRequest request(String method, String path) {
+        return new MockHttpServletRequest(method, path);
     }
 
     private MockHttpServletResponse invoke(MaxAuthenticationFilter filter, MockHttpServletRequest request)

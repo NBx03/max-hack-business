@@ -25,6 +25,8 @@ public final class MaxInitDataVerifier implements MaxIdentityVerifier {
 
     private static final byte[] WEB_APP_DATA = "WebAppData".getBytes(StandardCharsets.UTF_8);
     private static final HexFormat HEX = HexFormat.of();
+    private static final long MAX_FUTURE_SKEW_SECONDS = 60;
+    private static final int MAX_DISPLAY_NAME_CODE_POINTS = 255;
 
     private final byte[] botToken;
     private final long maxAgeSeconds;
@@ -67,7 +69,7 @@ public final class MaxInitDataVerifier implements MaxIdentityVerifier {
 
             long issuedAt = parseIssuedAt(byName.get("auth_date"));
             long now = clock.instant().getEpochSecond();
-            if (issuedAt > now) {
+            if (issuedAt > now && issuedAt - now > MAX_FUTURE_SKEW_SECONDS) {
                 return Optional.empty();
             }
             if (now - issuedAt > maxAgeSeconds) {
@@ -84,10 +86,7 @@ public final class MaxInitDataVerifier implements MaxIdentityVerifier {
                 return Optional.empty();
             }
 
-            String displayName = displayName(user, maxUserId);
-            if (displayName.length() > 255) {
-                return Optional.empty();
-            }
+            String displayName = truncateDisplayName(displayName(user, maxUserId));
             String startParam = optionalValue(byName.get("start_param"));
             return Optional.of(new VerifiedIdentity(Long.toString(maxUserId), displayName, issuedAt, startParam));
         } catch (InitDataExpiredException exception) {
@@ -155,6 +154,14 @@ public final class MaxInitDataVerifier implements MaxIdentityVerifier {
         }
         String username = text(user, "username");
         return username.isBlank() ? "Пользователь MAX " + id : username;
+    }
+
+    private String truncateDisplayName(String value) {
+        if (value.codePointCount(0, value.length()) <= MAX_DISPLAY_NAME_CODE_POINTS) {
+            return value;
+        }
+        int endIndex = value.offsetByCodePoints(0, MAX_DISPLAY_NAME_CODE_POINTS);
+        return value.substring(0, endIndex);
     }
 
     private String text(JsonNode node, String field) {

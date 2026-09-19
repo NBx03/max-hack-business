@@ -3,12 +3,13 @@ package ru.sibvibe.approval.security.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.sibvibe.approval.common.api.NotFoundException;
+import ru.sibvibe.approval.common.dto.RoleRef;
+import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.service.OrganizationSecurityService;
 import ru.sibvibe.approval.security.dto.MeResponse;
-import ru.sibvibe.approval.security.dto.RoleRef;
 import ru.sibvibe.approval.security.dto.SandboxResponse;
-import ru.sibvibe.approval.security.dto.UserRef;
 
 import java.util.List;
 
@@ -52,7 +53,7 @@ public class SessionViewService {
     public SandboxResponse sandbox(long ownerId) {
         return organizationService.findSandbox(ownerId)
                 .map(this::sandbox)
-                .orElseThrow(ru.sibvibe.approval.common.api.NotFoundException::new);
+                .orElseThrow(NotFoundException::new);
     }
 
     @Transactional

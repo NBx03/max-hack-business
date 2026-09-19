@@ -1,6 +1,8 @@
 package ru.sibvibe.approval.security.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.Bean;
@@ -27,6 +29,8 @@ import java.time.Clock;
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration implements EnvironmentAware {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(SecurityConfiguration.class);
+
     private Environment environment;
 
     @Override
@@ -46,6 +50,9 @@ public class SecurityConfiguration implements EnvironmentAware {
             Clock applicationClock,
             ObjectMapper objectMapper
     ) {
+        if (botToken.isBlank()) {
+            LOGGER.warn("MAX_BOT_TOKEN не задан: подписанная MAX-аутентификация будет недоступна");
+        }
         return new MaxInitDataVerifier(botToken, maxAgeSeconds, applicationClock, objectMapper);
     }
 
@@ -56,7 +63,7 @@ public class SecurityConfiguration implements EnvironmentAware {
             ObjectMapper objectMapper,
             Clock applicationClock
     ) {
-        boolean devProfile = environment.acceptsProfiles(Profiles.of("dev"));
+        boolean devProfile = isDevProfile();
         return new MaxAuthenticationFilter(
                 verifier, currentUserService, objectMapper, applicationClock, devProfile);
     }
@@ -83,16 +90,21 @@ public class SecurityConfiguration implements EnvironmentAware {
             MaxAuthenticationFilter maxAuthenticationFilter,
             ObjectMapper objectMapper
     ) throws Exception {
+        boolean devProfile = isDevProfile();
         return http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
-                .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/error", "/actuator/health", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
-                        .permitAll()
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(authorize -> {
+                    authorize.requestMatchers("/error", "/actuator/health/**").permitAll();
+                    if (devProfile) {
+                        authorize.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+                                .permitAll();
+                    }
+                    authorize.anyRequest().authenticated();
+                })
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> {
                             response.setStatus(401);
@@ -110,5 +122,9 @@ public class SecurityConfiguration implements EnvironmentAware {
                         }))
                 .addFilterBefore(maxAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    private boolean isDevProfile() {
+        return environment.acceptsProfiles(Profiles.of("dev"));
     }
 }

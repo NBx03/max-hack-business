@@ -10,8 +10,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 import ru.sibvibe.approval.common.api.ApiError;
+import ru.sibvibe.approval.common.api.DemoActAsForbiddenException;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.security.DemoActAsForbiddenException;
 import ru.sibvibe.approval.security.InitDataExpiredException;
 import ru.sibvibe.approval.security.MaxIdentityVerifier;
 import ru.sibvibe.approval.security.service.CurrentUserService;
@@ -53,9 +53,8 @@ public class MaxAuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return path.equals("/error")
-                || path.equals("/actuator/health")
-                || path.startsWith("/v3/api-docs")
-                || path.startsWith("/swagger-ui");
+                || path.startsWith("/actuator/health")
+                || devProfile && (path.startsWith("/v3/api-docs") || path.startsWith("/swagger-ui"));
     }
 
     @Override
@@ -74,8 +73,11 @@ public class MaxAuthenticationFilter extends OncePerRequestFilter {
         } catch (DemoActAsForbiddenException exception) {
             writeError(response, 403, "DEMO_ACT_AS_FORBIDDEN", "Нельзя действовать от имени этого пользователя");
             return;
-        } catch (InvalidInitDataException | IllegalArgumentException exception) {
+        } catch (InvalidInitDataException exception) {
             writeError(response, 401, "INIT_DATA_INVALID", "Не удалось подтвердить данные запуска MAX");
+            return;
+        } catch (RuntimeException exception) {
+            writeError(response, 500, "INTERNAL_ERROR", "Сервис временно недоступен");
             return;
         }
 

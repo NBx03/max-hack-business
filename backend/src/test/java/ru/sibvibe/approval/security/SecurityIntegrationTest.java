@@ -111,6 +111,19 @@ class SecurityIntegrationTest {
         assertThat(json(get("/api/v1/me", OWNER_ONE, null)).path("actingAs").isNull()).isTrue();
     }
 
+    @Test
+    void allBackendErrorsUseApiErrorFormatAndPreserveStatus() throws Exception {
+        HttpResponse<String> missing = sendAuthorized(
+                "GET", "/api/v1/missing", signedAuthorization(), null);
+        assertThat(missing.statusCode()).isEqualTo(404);
+        assertApiError(missing, "NOT_FOUND");
+
+        HttpResponse<String> wrongMethod = sendAuthorized(
+                "POST", "/api/v1/me", signedAuthorization(), null);
+        assertThat(wrongMethod.statusCode()).isEqualTo(405);
+        assertApiError(wrongMethod, "INTERNAL_ERROR");
+    }
+
     private void createRealMembership(long userId) {
         Long orgId = jdbc.queryForObject("""
                 insert into organization(name, created_by, created_at, is_demo)
@@ -152,6 +165,15 @@ class SecurityIntegrationTest {
     private JsonNode json(HttpResponse<String> response) throws Exception {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         return objectMapper.readTree(response.body());
+    }
+
+    private void assertApiError(HttpResponse<String> response, String code) throws Exception {
+        JsonNode body = objectMapper.readTree(response.body());
+        assertThat(body.path("code").asText()).isEqualTo(code);
+        assertThat(body.path("message").asText()).isNotBlank();
+        assertThat(body.path("details").isObject()).isTrue();
+        assertThat(body.has("timestamp")).isFalse();
+        assertThat(body.has("path")).isFalse();
     }
 
     private String signedAuthorization() throws Exception {

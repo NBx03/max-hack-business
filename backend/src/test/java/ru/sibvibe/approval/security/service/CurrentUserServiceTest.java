@@ -1,8 +1,8 @@
 package ru.sibvibe.approval.security.service;
 
 import org.junit.jupiter.api.Test;
+import ru.sibvibe.approval.common.api.DemoActAsForbiddenException;
 import ru.sibvibe.approval.organization.service.OrganizationSecurityService;
-import ru.sibvibe.approval.security.DemoActAsForbiddenException;
 import ru.sibvibe.approval.security.MaxIdentityVerifier;
 
 import java.util.List;
