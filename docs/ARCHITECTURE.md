@@ -187,15 +187,15 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `ApprovalRoute` | id, document_type_id, org_id, **stage_order**, **role_id**, **is_mandatory** |
 | `RequirementRule` | id, document_type_id, field_name, description, check_type, expected, **kind**, severity, source_title, source_url, source_ref, source_checked_at |
 | `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, created_at, updated_at |
-| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), check_status |
+| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у generic-типа) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |
-| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, decided_at |
+| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at |
 
 Значения:
 - `Document.status`: `DRAFT` / `IN_APPROVAL` / `APPROVED` / `RETURNED` / `REJECTED`.
 - `ApprovalStep.decision`: `PENDING` / `APPROVED` / `RETURNED` / `REJECTED` / `SKIPPED`.
 - `ApprovalStep.auto_reason`: `null` или `AUTHOR_HOLDS_ROLE` — см. «Маршрут».
-- `Document.visibility`: `PRIVATE` (автор и участники маршрута) / `ORG` (вся компания).
+- `Document.visibility`: `PRIVATE` (автор и все, у кого есть шаг по документу в любой версии) / `ORG` (вся компания).
 - `RequirementRule.kind`: `LEGAL` / `INTERNAL_POLICY` / `PRODUCT_RULE`.
 
 Почему так:
