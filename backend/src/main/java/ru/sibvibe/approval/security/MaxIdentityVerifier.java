@@ -24,6 +24,7 @@ public interface MaxIdentityVerifier {
     /**
      * @param rawInitData строка данных запуска, как её отдал MAX Bridge
      * @return личность, если подпись верна и данные не просрочены; иначе пусто
+     * @throws InitDataExpiredException если подпись верна, но данные просрочены
      */
     Optional<VerifiedIdentity> verify(String rawInitData);
 
