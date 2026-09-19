@@ -34,7 +34,8 @@ CREATE TABLE requirement_rule (
     source_url TEXT,
     source_ref TEXT,
     source_checked_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    CONSTRAINT fk_rule_type FOREIGN KEY (document_type_id) REFERENCES document_type(id),
+    CONSTRAINT fk_rule_document_type_field FOREIGN KEY (document_type_id, field_name)
+        REFERENCES document_type_field(document_type_id, field_name),
     CONSTRAINT ck_requirement_rule_check_type CHECK (check_type IN ('REQUIRED', 'DATE_FORMAT', 'DATE_NOT_FUTURE', 'MATCHES_PATTERN', 'MIN_LENGTH', 'ONE_OF')),
     CONSTRAINT ck_requirement_rule_kind CHECK (kind IN ('LEGAL', 'INTERNAL_POLICY', 'PRODUCT_RULE')),
     CONSTRAINT ck_requirement_rule_severity CHECK (severity IN ('BLOCKER', 'WARNING', 'INFO'))

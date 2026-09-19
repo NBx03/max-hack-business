@@ -32,8 +32,8 @@ CREATE TABLE approval_step (
     CONSTRAINT fk_step_approver FOREIGN KEY (approver_id) REFERENCES app_user(id),
     CONSTRAINT fk_step_role FOREIGN KEY (role_id) REFERENCES role(id),
     CONSTRAINT ck_step_stage CHECK (stage_order > 0),
-    CONSTRAINT ck_step_auto_reason CHECK (auto_reason IS NULL OR decision = 'APPROVED'),
+    CONSTRAINT ck_step_auto_reason_requires_approved CHECK (auto_reason IS NULL OR decision = 'APPROVED'),
     CONSTRAINT ck_approval_step_origin CHECK (origin IN ('TEMPLATE', 'ADDED_BY_AUTHOR')),
     CONSTRAINT ck_approval_step_decision CHECK (decision IN ('PENDING', 'APPROVED', 'RETURNED', 'REJECTED', 'SKIPPED')),
-    CONSTRAINT ck_approval_step_auto_reason CHECK (auto_reason IN ('AUTHOR_HOLDS_ROLE'))
+    CONSTRAINT ck_step_auto_reason_value CHECK (auto_reason IS NULL OR auto_reason IN ('AUTHOR_HOLDS_ROLE'))
 );

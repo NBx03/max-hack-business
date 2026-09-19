@@ -145,6 +145,50 @@ class DatabaseSchemaTest {
         accepted(connection, "INSERT INTO document_version(id,document_id,version_no,contains_sensitive,created_by,created_at) VALUES (2,1,2,false,1,CURRENT_TIMESTAMP)");
         // Один storage_key переиспользуется версиями; старый файл остаётся на месте.
         accepted(connection, file(12, 2, "MAIN", 0));
+        checkAutoReason(connection);
+        checkRuleField(connection);
+        checkInviteCodeHistory(connection);
+    }
+
+    private void checkAutoReason(Connection connection) throws SQLException {
+        rejected(connection, "23514", "UPDATE approval_step SET decision='APPROVED', auto_reason='UNKNOWN' WHERE id=1");
+        for (String decision : new String[]{"PENDING", "RETURNED", "REJECTED", "SKIPPED"}) {
+            rejected(connection, "23514", "UPDATE approval_step SET decision='" + decision
+                    + "', auto_reason='AUTHOR_HOLDS_ROLE' WHERE id=1");
+        }
+        accepted(connection, "UPDATE approval_step SET decision='APPROVED', auto_reason='AUTHOR_HOLDS_ROLE' WHERE id=1");
+        accepted(connection, "UPDATE approval_step SET decision='APPROVED', auto_reason=NULL WHERE id=1");
+    }
+
+    private void checkRuleField(Connection connection) throws SQLException {
+        accepted(connection, rule(10, 1, "test"));
+        rejected(connection, "23503", rule(11, 1, "missing"));
+        accepted(connection, "INSERT INTO document_type VALUES (2,'Другой тип','OTHER',false)");
+        accepted(connection, "INSERT INTO document_type_field(id,document_type_id,field_name,field_type,label)"
+                + " VALUES (2,2,'other_field','STRING','Другое поле')");
+        accepted(connection, rule(12, 2, "other_field"));
+        // Совпадение имени поля без совпадения типа документа недостаточно.
+        rejected(connection, "23503", rule(13, 1, "other_field"));
+    }
+
+    private String rule(long id, long type, String field) {
+        return "INSERT INTO requirement_rule(id,document_type_id,field_name,description,check_type,kind,severity,"
+                + "source_title,source_checked_at) VALUES (" + id + "," + type + ",'" + field
+                + "','Тест','REQUIRED','PRODUCT_RULE','INFO','Тестовый источник',CURRENT_TIMESTAMP)";
+    }
+
+    private void checkInviteCodeHistory(Connection connection) throws SQLException {
+        accepted(connection, "UPDATE invite SET revoked_at=CURRENT_TIMESTAMP WHERE id IN (1,2)");
+        // Обе организации свободны от активного кода: отказ вызван исторической уникальностью code.
+        rejected(connection, "23505", "INSERT INTO invite(id,org_id,kind,code,created_by,created_at)"
+                + " VALUES (20,3,'ORG_CODE','TEST0001',1,CURRENT_TIMESTAMP)");
+        rejected(connection, "23505", "INSERT INTO invite(id,org_id,kind,code,created_by,created_at)"
+                + " VALUES (20,1,'ORG_CODE','TEST0001',1,CURRENT_TIMESTAMP)");
+        accepted(connection, "INSERT INTO invite(id,org_id,kind,code,created_by,created_at)"
+                + " VALUES (20,1,'ORG_CODE','NEWCODE1',1,CURRENT_TIMESTAMP)");
+        // Несколько NULL code у личных ссылок допустимы.
+        accepted(connection, "INSERT INTO invite(id,org_id,kind,token,created_by,created_at,expires_at)"
+                + " VALUES (21,1,'PERSONAL_LINK','synthetic-second-token',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP + INTERVAL '72 hours')");
     }
 
     private String file(long id, long version, String kind, int position) {

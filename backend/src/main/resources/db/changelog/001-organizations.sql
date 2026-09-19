@@ -75,6 +75,7 @@ CREATE TABLE invite (
     CONSTRAINT fk_invite_creator FOREIGN KEY (created_by) REFERENCES app_user(id),
     CONSTRAINT fk_invite_user FOREIGN KEY (used_by) REFERENCES app_user(id),
     CONSTRAINT uq_invite_token UNIQUE (token),
+    CONSTRAINT uq_invite_code UNIQUE (code),
     CONSTRAINT uq_invite_id_org UNIQUE (id, org_id),
     CONSTRAINT ck_invite_kind_fields CHECK ((kind = 'ORG_CODE' AND code IS NOT NULL AND token IS NULL AND expires_at IS NULL AND used_at IS NULL AND used_by IS NULL) OR (kind = 'PERSONAL_LINK' AND code IS NULL AND token IS NOT NULL AND expires_at IS NOT NULL)),
     CONSTRAINT ck_invite_used CHECK ((used_at IS NULL) = (used_by IS NULL)),

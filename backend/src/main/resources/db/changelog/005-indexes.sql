@@ -6,8 +6,6 @@ CREATE UNIQUE INDEX uq_member_active_real ON organization_member(user_id)
 CREATE UNIQUE INDEX uq_join_pending ON join_request(user_id) WHERE status = 'PENDING';
 CREATE UNIQUE INDEX uq_invite_active_org_code ON invite(org_id)
     WHERE kind = 'ORG_CODE' AND revoked_at IS NULL;
-CREATE UNIQUE INDEX uq_invite_active_code ON invite(code)
-    WHERE kind = 'ORG_CODE' AND revoked_at IS NULL;
 CREATE UNIQUE INDEX uq_file_main ON document_file(version_id) WHERE kind = 'MAIN';
 
 -- Индексы PK/UNIQUE уже покрывают поиск по ведущим колонкам: не дублируем их.
