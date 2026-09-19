@@ -36,7 +36,8 @@ CREATE TABLE document_version (
     CONSTRAINT fk_version_document FOREIGN KEY (document_id) REFERENCES document(id),
     CONSTRAINT fk_version_creator FOREIGN KEY (created_by) REFERENCES app_user(id),
     CONSTRAINT uq_version_number UNIQUE (document_id, version_no),
-    CONSTRAINT ck_version_number CHECK (version_no > 0)
+    CONSTRAINT ck_version_number CHECK (version_no > 0),
+    CONSTRAINT ck_version_check_status CHECK (check_status IN ('CHECKED', 'FAILED'))
 );
 
 CREATE TABLE document_file (

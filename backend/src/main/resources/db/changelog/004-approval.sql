@@ -27,6 +27,7 @@ CREATE TABLE approval_step (
     auto_reason VARCHAR(32),
     comment TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    activated_at TIMESTAMP WITH TIME ZONE,
     decided_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT fk_step_version FOREIGN KEY (document_id, version_no) REFERENCES document_version(document_id, version_no),
     CONSTRAINT fk_step_approver FOREIGN KEY (approver_id) REFERENCES app_user(id),

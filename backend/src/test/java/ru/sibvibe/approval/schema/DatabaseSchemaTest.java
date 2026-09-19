@@ -14,6 +14,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import ru.sibvibe.approval.ApprovalApplication;
+import ru.sibvibe.approval.approval.entity.ApprovalStep;
 import ru.sibvibe.approval.document.entity.DocumentVersion;
 
 import java.net.URI;
@@ -106,6 +107,8 @@ class DatabaseSchemaTest {
                 }
                 DocumentVersion version = em.find(DocumentVersion.class, 1L);
                 assertThat(version.getContent().get("test").asText()).isEqualTo("значение");
+                assertThat(version.getCheckStatus()).isEqualTo("CHECKED");
+                assertThat(em.find(ApprovalStep.class, 1L).getActivatedAt()).isNotNull();
                 version.setContent(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("test", "новое"));
                 em.flush();
                 em.clear();
@@ -131,12 +134,19 @@ class DatabaseSchemaTest {
         accepted(connection, "INSERT INTO invite(id,org_id,kind,code,created_by,created_at,revoked_at) VALUES (10,1,'ORG_CODE','TEST0010',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
         rejected(connection, "23514", "UPDATE document SET status = 'UNKNOWN' WHERE id = 1");
         rejected(connection, "23505", "INSERT INTO document_version(id,document_id,version_no,contains_sensitive,created_by,created_at) VALUES (10,1,1,false,1,CURRENT_TIMESTAMP)");
+        accepted(connection, "UPDATE document_version SET check_status='FAILED' WHERE id=1");
+        accepted(connection, "UPDATE document_version SET check_status=NULL WHERE id=1");
+        rejected(connection, "23514", "UPDATE document_version SET check_status='UNKNOWN' WHERE id=1");
         rejected(connection, "23505", file(10, 1, "MAIN", 1));
         rejected(connection, "23503", file(10, 999, "ATTACHMENT", 1));
         accepted(connection, file(10, 1, "ATTACHMENT", 1));
         rejected(connection, "23505", file(11, 1, "ATTACHMENT", 1));
         rejected(connection, "23514", "UPDATE document_file SET file_size = -1 WHERE id = 1");
         rejected(connection, "23503", "UPDATE approval_step SET version_no = 999 WHERE id = 1");
+        accepted(connection, "INSERT INTO approval_step(id,document_id,version_no,approver_id,role_id,stage_order,origin,decision,created_at)"
+                + " VALUES (10,1,1,2,1,2,'ADDED_BY_AUTHOR','PENDING',CURRENT_TIMESTAMP)");
+        rejected(connection, "23502", "INSERT INTO approval_step(id,document_id,version_no,approver_id,role_id,stage_order,origin,decision,created_at)"
+                + " VALUES (11,1,1,2,NULL,2,'ADDED_BY_AUTHOR','PENDING',CURRENT_TIMESTAMP)");
         // Параллельная стадия и несколько ролей одного участника допустимы.
         accepted(connection, "INSERT INTO role VALUES (2,1,'TEST2','Тестовая роль 2')");
         accepted(connection, "INSERT INTO member_role VALUES (1,2,1,CURRENT_TIMESTAMP)");

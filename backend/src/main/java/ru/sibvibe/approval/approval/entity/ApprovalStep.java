@@ -51,6 +51,9 @@ public class ApprovalStep {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Column(name = "activated_at")
+    private Instant activatedAt;
+
     @Column(name = "decided_at")
     private Instant decidedAt;
 

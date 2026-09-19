@@ -28,11 +28,11 @@ INSERT INTO document(id, document_type_id, author_id, org_id, title, status,
     current_version_no, visibility, created_at, updated_at) VALUES
     (1, 1, 1, 1, 'Тестовый документ', 'DRAFT', 1, 'PRIVATE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
 INSERT INTO document_version(id, document_id, version_no, contains_sensitive, content,
-    created_by, created_at, extracted_fields, validation_issues) VALUES
-    (1, 1, 1, false, '{"test":"значение"}', 1, CURRENT_TIMESTAMP, '{"test":"значение"}', '[]');
+    created_by, created_at, extracted_fields, validation_issues, check_status) VALUES
+    (1, 1, 1, false, '{"test":"значение"}', 1, CURRENT_TIMESTAMP, '{"test":"значение"}', '[]', 'CHECKED');
 INSERT INTO document_file(id, version_id, kind, position, storage_key, file_name, mime_type, file_size, created_at) VALUES
     (1, 1, 'MAIN', 0, 'synthetic-storage-key', 'test.pdf', 'application/pdf', 0, CURRENT_TIMESTAMP);
 INSERT INTO approval_route(id, document_type_id, org_id, stage_order, role_id, is_mandatory) VALUES
     (1, 1, 1, 1, 1, true);
-INSERT INTO approval_step(id, document_id, version_no, approver_id, role_id, stage_order, origin, decision, created_at) VALUES
-    (1, 1, 1, 2, 1, 1, 'TEMPLATE', 'PENDING', CURRENT_TIMESTAMP);
+INSERT INTO approval_step(id, document_id, version_no, approver_id, role_id, stage_order, origin, decision, created_at, activated_at) VALUES
+    (1, 1, 1, 2, 1, 1, 'TEMPLATE', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
