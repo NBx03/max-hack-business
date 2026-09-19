@@ -120,9 +120,11 @@
 
 Загрузка версии документа:
 1. Файлы кладутся в MinIO — вне транзакции.
-2. Транзакция: документ, версия, файлы версии → commit.
+2. Транзакция: документ, версия, файлы версии → commit. У типа с проверкой
+   `check_status = FAILED` сразу: если процесс упадёт до шага 4, версия честно
+   останется «проверка не выполнена», а не `null`.
 3. Извлечение текста и полей моделью — вне транзакции, с тайм-аутом.
-4. Транзакция: результаты проверки на версию → commit.
+4. Транзакция: результаты проверки на версию, `check_status = CHECKED` → commit.
 5. Ответ клиенту. Упал шаг 3 — документ всё равно сохранён, `modelAvailable = false`,
    правила проверены по полям, введённым вручную.
 
@@ -187,15 +189,15 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `ApprovalRoute` | id, document_type_id, org_id, **stage_order**, **role_id**, **is_mandatory** |
 | `RequirementRule` | id, document_type_id, field_name, description, check_type, expected, **kind**, severity, source_title, source_url, source_ref, source_checked_at |
 | `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, created_at, updated_at |
-| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), check_status |
+| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у generic-типа) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |
-| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, decided_at |
+| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at |
 
 Значения:
 - `Document.status`: `DRAFT` / `IN_APPROVAL` / `APPROVED` / `RETURNED` / `REJECTED`.
 - `ApprovalStep.decision`: `PENDING` / `APPROVED` / `RETURNED` / `REJECTED` / `SKIPPED`.
 - `ApprovalStep.auto_reason`: `null` или `AUTHOR_HOLDS_ROLE` — см. «Маршрут».
-- `Document.visibility`: `PRIVATE` (автор и участники маршрута) / `ORG` (вся компания).
+- `Document.visibility`: `PRIVATE` (автор и все, у кого есть шаг по документу в любой версии) / `ORG` (вся компания).
 - `RequirementRule.kind`: `LEGAL` / `INTERNAL_POLICY` / `PRODUCT_RULE`.
 
 Почему так:
@@ -273,7 +275,9 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 При `DEMO_MODE=true` кнопка «Открыть демо-компанию» создаёт **личную песочницу
 проверяющего**: копию демо-компании с вымышленными участниками — автор, юрист,
 бухгалтер, директор, администратор, — документами в разных состояниях и ожидающей
-заявкой на вступление. Сам проверяющий становится её участником.
+заявкой на вступление. Сам проверяющий её участником **не становится**: он действует
+от имени вымышленных участников через `X-Demo-Act-As`, а его реальная компания
+и экран приветствия остаются независимыми.
 
 - Каждый проверяющий работает в своей песочнице: чужие действия не ломают ему сценарий.
 - `X-Demo-Act-As` принимается только для участников **своей** песочницы.
