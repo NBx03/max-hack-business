@@ -39,3 +39,15 @@ keytool -importcert -noprompt -cacerts -storepass changeit -alias russian-truste
 Проверка: `keytool -list -cacerts -storepass changeit -alias russian-trusted-root-ca`.
 Ставить сертификат в Windows или браузер не нужно — мини-приложение к этим адресам не обращается.
 
+## Локальная аутентификация без MAX
+
+Запустите backend с профилем `dev` и используйте заголовок
+`Authorization: Dev <положительный maxUserId>`. Например:
+
+```powershell
+mvn -Dspring-boot.run.profiles=dev spring-boot:run
+curl.exe -H "Authorization: Dev 123456" http://localhost:8080/api/v1/me
+```
+
+Для демо-песочницы дополнительно задайте `DEMO_MODE=true`. Без профиля `dev`
+такой заголовок всегда получает 401; настоящий `MAX_BOT_TOKEN` локально не нужен.
