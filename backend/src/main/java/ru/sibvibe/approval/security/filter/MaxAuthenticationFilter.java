@@ -5,6 +5,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -26,6 +28,7 @@ import java.util.Optional;
 /** Аутентифицирует каждый API-запрос; не хранит выбранного демо-персонажа. */
 public class MaxAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(MaxAuthenticationFilter.class);
     private static final String MAX_PREFIX = "MaxInitData ";
     private static final String DEV_PREFIX = "Dev ";
 
@@ -77,6 +80,7 @@ public class MaxAuthenticationFilter extends OncePerRequestFilter {
             writeError(response, 401, "INIT_DATA_INVALID", "Не удалось подтвердить данные запуска MAX");
             return;
         } catch (RuntimeException exception) {
+            LOGGER.error("Непредвиденная ошибка при определении текущего пользователя", exception);
             writeError(response, 500, "INTERNAL_ERROR", "Сервис временно недоступен");
             return;
         }
