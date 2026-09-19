@@ -1,6 +1,7 @@
 package ru.sibvibe.approval.rules;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -16,10 +17,30 @@ import java.util.Map;
 public interface RuleEngine {
 
     /**
+     * Проверка относительно текущей даты часов движка, без цитат и страниц.
+     * В Spring-конфигурации это часовой пояс сервера, а не пользователя/организации.
+     * Для бизнес-даты и воспроизводимости используйте перегрузку с контекстом:
+     * вызывающий код определяет referenceDate в нужном часовом поясе.
      * @param fields значения полей: из модели, введённые автором вручную или смешанные
      * @param rules  правила, применимые к типу документа
      */
     List<ValidationIssue> validate(Map<String, String> fields, List<RequirementRule> rules);
+
+    /**
+     * Воспроизводимая проверка относительно явно переданной даты. Порядок замечаний
+     * совпадает с порядком правил. Пустые значения (null, отсутствующие, blank)
+     * проверяет только REQUIRED; остальные проверки их пропускают.
+     * Ошибка конфигурации правила вызывает IllegalArgumentException даже для пустого поля.
+     * Значения непустых полей не обрезаются и не меняют регистр.
+     */
+    List<ValidationIssue> validate(Map<String, String> fields, List<RequirementRule> rules,
+                                   ValidationContext context);
+
+    /** Цитата уже проверена вызывающим кодом; движок не извлекает и не придумывает её. */
+    record FieldLocation(String quote, Integer page) {}
+
+    /** Местоположения относятся именно к переданным значениям, ключ — имя поля. */
+    record ValidationContext(LocalDate referenceDate, Map<String, FieldLocation> locations) {}
 
     /**
      * Требование к документу с обязательным указанием источника - это техническая
@@ -27,6 +48,11 @@ public interface RuleEngine {
      *
      * @param kind          вид правила: закон, внутренний регламент или наше продуктовое допущение
      * @param check         какая проверка выполняется
+     * @param expected      REQUIRED: не используется; DATE_FORMAT/DATE_NOT_FUTURE:
+     *                      шаблон DateTimeFormatter (например dd.MM.uuuu), null/blank — ISO_LOCAL_DATE;
+     *                      MATCHES_PATTERN: Java regex для всей строки;
+     *                      MIN_LENGTH: неотрицательное целое число Unicode code points;
+     *                      ONE_OF: непустой JSON-массив непустых строк, точное сравнение
      * @param sourceTitle   название источника
      * @param sourceUrl     ссылка; null допустим для внутреннего регламента
      * @param sourceRef     точное место: пункт, статья, раздел

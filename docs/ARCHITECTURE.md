@@ -176,7 +176,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 |---|---|
 | `AppUser` | id, **max_user_id** (unique), full_name, created_at — только личность |
 | `Organization` | id, name, inn (необязательный, не проверяется), created_by, created_at, **is_demo**, **demo_owner_id** → AppUser (у демо-песочницы — чья она) |
-| `OrganizationMember` | id, org_id, user_id, **status** (ACTIVE / DISABLED), **is_admin**, joined_at; unique(org_id, user_id); не более одного ACTIVE на пользователя среди реальных компаний |
+| `OrganizationMember` | id, org_id, user_id, **status** (ACTIVE / DISABLED), **is_admin**, joined_at, **is_demo** (техническая копия признака организации); unique(org_id, user_id); не более одного ACTIVE на пользователя среди реальных компаний |
 | `Role` | id, org_id, code, name — **только предметные роли**: Директор, Юрист, Бухгалтер… Права администратора — не роль |
 | `MemberRole` | member_id, role_id, **granted_by, granted_at** |
 | `Invite` | id, org_id, **kind** (ORG_CODE / PERSONAL_LINK), code или token, created_by, created_at, expires_at, used_at, used_by, revoked_at |
@@ -199,6 +199,10 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 - `RequirementRule.kind`: `LEGAL` / `INTERNAL_POLICY` / `PRODUCT_RULE`.
 
 Почему так:
+- `OrganizationMember.is_demo` нужен для частичного уникального индекса по `user_id`
+  при `status = 'ACTIVE' AND NOT is_demo`: предикат индекса PostgreSQL не может читать
+  другую таблицу. Составной FK `(org_id, is_demo) → Organization(id, is_demo)` гарантирует
+  совпадение признака с организацией. Так членство в демо-песочнице не мешает реальной компании.
 - **Права администратора — флаг участника, а не роль.** Роли используются в маршрутах;
   если бы администратор был ролью, его можно было бы поставить согласующим,
   он попадал бы в выбор ролей, и проверки «последнего администратора» и «через

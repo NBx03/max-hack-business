@@ -24,8 +24,7 @@ spring:
 
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
-    # TODO: создать changelog при реализации схемы (см. CLAUDE.md, раздел "Схема БД").
-    enabled: false
+    enabled: true
 
   servlet:
     multipart:

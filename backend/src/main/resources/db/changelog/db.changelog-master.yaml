@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - include:
+      file: 001-organizations.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 002-types-rules.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 003-documents.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 004-approval.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 005-indexes.sql
+      relativeToChangelogFile: true
