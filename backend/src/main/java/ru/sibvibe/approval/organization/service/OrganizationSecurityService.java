@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.concurrent.ThreadLocalRandom;
 
 /** Операции organization, необходимые фильтру безопасности и демо-контексту. */
@@ -116,6 +119,13 @@ public class OrganizationSecurityService {
     public Optional<SandboxInfo> findSandbox(long ownerUserId) {
         return organizationRepository.findFirstByDemoOwnerIdAndDemoTrueOrderByIdDesc(ownerUserId)
                 .map(this::sandboxInfo);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<Long, UserInfo> findUsers(Set<Long> userIds) {
+        return userRepository.findAllById(userIds).stream()
+                .map(user -> new UserInfo(user.getId(), user.getFullName()))
+                .collect(Collectors.toUnmodifiableMap(UserInfo::id, Function.identity()));
     }
 
     @Transactional(readOnly = true)

@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -99,6 +100,7 @@ public class SecurityConfiguration implements EnvironmentAware {
                 .httpBasic(basic -> basic.disable())
                 .authorizeHttpRequests(authorize -> {
                     authorize.requestMatchers("/error", "/actuator/health/**").permitAll();
+                    authorize.requestMatchers(HttpMethod.GET, "/api/v1/files/*/content").permitAll();
                     if (devProfile) {
                         authorize.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
                                 .permitAll();

@@ -47,6 +47,9 @@ class SecurityIntegrationTest {
         registry.add("spring.datasource.password", () -> System.getenv("SCHEMA_TEST_PASSWORD"));
         registry.add("app.demo-mode", () -> "true");
         registry.add("max.bot.token", () -> TEST_TOKEN);
+        registry.add("minio.endpoint", () -> "http://127.0.0.1:9000");
+        registry.add("minio.access-key", () -> "security-test-access-key");
+        registry.add("minio.secret-key", () -> "security-test-secret-key");
         registry.add("spring.autoconfigure.exclude",
                 () -> "chat.giga.springai.autoconfigure.GigaChatAutoConfiguration");
     }
