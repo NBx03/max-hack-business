@@ -189,6 +189,104 @@ class InviteServiceTest {
                         e -> assertThat(e.code()).isEqualTo("INVITE_NOT_FOUND"));
     }
 
+    // ---------- Отзыв личной ссылки: условный UPDATE, а не чтение с последующей записью ----------
+
+    @Test
+    void revocationIsAConditionalUpdateAndDoesNotTouchTheLoadedEntity() {
+        Invite link = invite(Invite.Kind.PERSONAL_LINK);
+        when(inviteRepository.findByIdAndOrgIdAndKind(INVITE_ID, ORG, Invite.Kind.PERSONAL_LINK))
+                .thenReturn(Optional.of(link));
+        when(inviteRepository.revokePersonal(eq(INVITE_ID), eq(ORG), any(), eq(Invite.Kind.PERSONAL_LINK)))
+                .thenReturn(1);
+
+        service.revokePersonal(admin(), INVITE_ID);
+
+        // старое состояние сущности не должно записываться обратно: иначе затрёт used_at при гонке с вступлением
+        assertThat(link.getRevokedAt()).isNull();
+        verify(inviteRepository).revokePersonal(eq(INVITE_ID), eq(ORG), any(), eq(Invite.Kind.PERSONAL_LINK));
+    }
+
+    @Test
+    void revokingALinkThatWasJustUsedReportsInviteUsed() {
+        when(inviteRepository.findByIdAndOrgIdAndKind(INVITE_ID, ORG, Invite.Kind.PERSONAL_LINK))
+                .thenReturn(Optional.of(invite(Invite.Kind.PERSONAL_LINK)));
+        when(inviteRepository.revokePersonal(eq(INVITE_ID), eq(ORG), any(), eq(Invite.Kind.PERSONAL_LINK)))
+                .thenReturn(0);
+        Invite used = invite(Invite.Kind.PERSONAL_LINK);
+        used.setUsedAt(NOW.minusSeconds(1));
+        used.setUsedBy(USER);
+        when(inviteRepository.findById(INVITE_ID)).thenReturn(Optional.of(used));
+
+        assertThatThrownBy(() -> service.revokePersonal(admin(), INVITE_ID))
+                .isInstanceOfSatisfying(DomainException.class, e -> {
+                    assertThat(e.code()).isEqualTo("INVITE_USED");
+                    assertThat(e.httpStatus().value()).isEqualTo(409);
+                });
+    }
+
+    @Test
+    void revokingAnAlreadyRevokedLinkChangesNothing() {
+        when(inviteRepository.findByIdAndOrgIdAndKind(INVITE_ID, ORG, Invite.Kind.PERSONAL_LINK))
+                .thenReturn(Optional.of(invite(Invite.Kind.PERSONAL_LINK)));
+        when(inviteRepository.revokePersonal(eq(INVITE_ID), eq(ORG), any(), eq(Invite.Kind.PERSONAL_LINK)))
+                .thenReturn(0);
+        Invite revoked = invite(Invite.Kind.PERSONAL_LINK);
+        revoked.setRevokedAt(NOW.minusSeconds(60));
+        when(inviteRepository.findById(INVITE_ID)).thenReturn(Optional.of(revoked));
+
+        service.revokePersonal(admin(), INVITE_ID);
+
+        assertThat(revoked.getRevokedAt()).isEqualTo(NOW.minusSeconds(60));
+    }
+
+    @Test
+    void foreignLinkCannotBeRevoked() {
+        when(inviteRepository.findByIdAndOrgIdAndKind(INVITE_ID, ORG, Invite.Kind.PERSONAL_LINK))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.revokePersonal(admin(), INVITE_ID))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("NOT_FOUND"));
+        verify(inviteRepository, never()).revokePersonal(anyLong(), anyLong(), any(), any());
+    }
+
+    // ---------- Подача заявки по коду: проверка кода под блокировкой компании ----------
+
+    @Test
+    void joinCodeIsRecheckedUnderTheCompanyLock() {
+        Invite code = invite(Invite.Kind.ORG_CODE);
+        code.setCode("ABCD2345");
+        when(inviteRepository.findByCodeAndKindAndRevokedAtIsNull("ABCD2345", Invite.Kind.ORG_CODE))
+                .thenReturn(Optional.of(code));
+        when(organizationRepository.findById(ORG)).thenReturn(Optional.of(org(false)));
+        when(organizationRepository.findByIdForShare(ORG)).thenReturn(Optional.of(org(false)));
+
+        InviteService.ResolvedCode resolved = service.resolveOrgCodeForJoin(USER, "ABCD2345");
+
+        assertThat(resolved.invite()).isSameAs(code);
+        var order = org.mockito.Mockito.inOrder(inviteRepository, organizationRepository);
+        order.verify(inviteRepository).findByCodeAndKindAndRevokedAtIsNull("ABCD2345", Invite.Kind.ORG_CODE);
+        order.verify(organizationRepository).findByIdForShare(ORG);
+        order.verify(inviteRepository).findByCodeAndKindAndRevokedAtIsNull("ABCD2345", Invite.Kind.ORG_CODE);
+    }
+
+    @Test
+    void codeRevokedWhileWaitingForTheLockIsRejectedWithoutPenaltyForTheUser() {
+        Invite code = invite(Invite.Kind.ORG_CODE);
+        code.setCode("ABCD2345");
+        when(inviteRepository.findByCodeAndKindAndRevokedAtIsNull("ABCD2345", Invite.Kind.ORG_CODE))
+                .thenReturn(Optional.of(code))            // до блокировки код действует
+                .thenReturn(Optional.empty());            // пока ждали блокировку, его перевыпустили
+        when(organizationRepository.findById(ORG)).thenReturn(Optional.of(org(false)));
+        when(organizationRepository.findByIdForShare(ORG)).thenReturn(Optional.of(org(false)));
+
+        assertThatThrownBy(() -> service.resolveOrgCodeForJoin(USER, "ABCD2345"))
+                .isInstanceOfSatisfying(DomainException.class, e -> {
+                    assertThat(e.code()).isEqualTo("INVITE_NOT_FOUND");
+                    assertThat(e.httpStatus().value()).isEqualTo(404);
+                });
+        verify(limiter, never()).recordFailure(anyLong());
+    }
+
     private void givenPersonalLink() {
         when(userRepository.findByIdForUpdate(USER)).thenReturn(Optional.of(new AppUser()));
         when(inviteRepository.findByToken("token")).thenReturn(Optional.of(invite(Invite.Kind.PERSONAL_LINK)));

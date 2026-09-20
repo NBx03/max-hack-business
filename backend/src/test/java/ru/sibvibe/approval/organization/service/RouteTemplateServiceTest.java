@@ -4,8 +4,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import ru.sibvibe.approval.organization.DocumentTypeDirectory;
 import ru.sibvibe.approval.organization.entity.ApprovalRoute;
+import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.Role;
 import ru.sibvibe.approval.organization.repository.ApprovalRouteRepository;
+import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
 
 import java.util.HashMap;
@@ -28,8 +30,10 @@ class RouteTemplateServiceTest {
 
     private final ApprovalRouteRepository routeRepository = mock(ApprovalRouteRepository.class);
     private final RoleRepository roleRepository = mock(RoleRepository.class);
+    private final OrganizationRepository organizationRepository = mock(OrganizationRepository.class);
     private final DocumentTypeDirectory directory = mock(DocumentTypeDirectory.class);
-    private final RouteTemplateService service = new RouteTemplateService(routeRepository, roleRepository, directory);
+    private final RouteTemplateService service = new RouteTemplateService(
+            routeRepository, roleRepository, organizationRepository, directory);
 
     @Test
     void createsConservativeRoutesOnlyForTypesThatExist() {
@@ -98,6 +102,50 @@ class RouteTemplateServiceTest {
         // роли «Руководитель отдела» в компании нет, поэтому создан только этап директора
         assertThat(created).isEqualTo(1);
         verify(routeRepository, times(1)).save(any());
+    }
+
+    @Test
+    void backfillCoversEveryRealCompanyAndIsIdempotent() {
+        Organization first = org(7);
+        Organization second = org(8);
+        when(organizationRepository.findByDemoFalseOrderById()).thenReturn(List.of(first, second));
+        when(roleRepository.findByOrgIdOrderById(7L)).thenReturn(List.of(role(7, 11, DefaultRoles.DIRECTOR)));
+        when(roleRepository.findByOrgIdOrderById(8L)).thenReturn(List.of(role(8, 21, DefaultRoles.DIRECTOR)));
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of(DefaultRouteTemplates.GENERIC, 400L));
+
+        // у компании 8 маршрут для этого типа уже есть, у компании 7 — ещё нет
+        when(routeRepository.existsByOrgIdAndDocumentTypeId(8L, 400L)).thenReturn(true);
+
+        assertThat(service.backfillAllOrganizations()).isEqualTo(1);
+        List<ApprovalRoute> saved = savedRoutes(1);
+        assertThat(saved.getFirst().getOrgId()).isEqualTo(7L);
+        assertThat(saved.getFirst().getRoleId()).isEqualTo(11L);
+    }
+
+    @Test
+    void backfillWithoutDocumentTypesCreatesNothing() {
+        when(organizationRepository.findByDemoFalseOrderById()).thenReturn(List.of(org(7)));
+        when(roleRepository.findByOrgIdOrderById(7L)).thenReturn(List.of(role(7, 11, DefaultRoles.DIRECTOR)));
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
+
+        assertThat(service.backfillAllOrganizations()).isZero();
+        verify(routeRepository, never()).save(any());
+    }
+
+    private Organization org(long id) {
+        Organization org = new Organization();
+        org.setId(id);
+        org.setName("Компания " + id);
+        return org;
+    }
+
+    private Role role(long orgId, long id, String code) {
+        Role role = new Role();
+        role.setId(id);
+        role.setOrgId(orgId);
+        role.setCode(code);
+        role.setName(code);
+        return role;
     }
 
     private Map<String, Long> roleIds() {

@@ -13,8 +13,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import ru.sibvibe.approval.organization.service.RouteBackfillRunner;
+import ru.sibvibe.approval.organization.service.RouteTemplateService;
 
 import java.net.URI;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Statement;
+import javax.sql.DataSource;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -27,15 +35,21 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Подключение компании на настоящем PostgreSQL: каждая обязательная проверка из CLAUDE.md
- * и из задачи #17, включая гонку двух одновременных вступлений по одной личной ссылке.
+ * и из задачи #17, включая гонки при вступлении по личной ссылке и при перевыпуске кода.
  * Запускается только при заданных {@code SCHEMA_TEST_URL} и {@code SCHEMA_TEST_PASSWORD},
  * как остальные интеграционные тесты (backend/src/test/README.md).
+ *
+ * <p>Тест работает в собственной схеме {@value #SCHEMA}, которая при запуске создаётся заново, а миграции
+ * выполняет настоящее приложение. Поэтому стандартные типы документов и маршруты здесь такие,
+ * какими их делают миграции, а не какими их подготовил тест. Гонки проверяются детерминированно:
+ * отдельная транзакция удерживает блокировку строки, и тест смотрит, что именно ждёт эту блокировку.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("dev")
@@ -44,12 +58,31 @@ class OnboardingIntegrationTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final AtomicLong MAX_IDS = new AtomicLong(930_000_000L);
+    private static final String SCHEMA = "onboarding_it";
     private static final List<String> TYPE_CODES = List.of(
             "OFFICIAL_MEMO", "VACATION_REQUEST", "SUPPORT_MEASURE_REQUEST", "GENERIC");
 
+    static {
+        // Один раз до создания контекста: схема пересоздаётся, и миграции выполняются на пустой базе.
+        String url = System.getenv("SCHEMA_TEST_URL");
+        if (url != null && !url.isBlank()) {
+            try (Connection connection = DriverManager.getConnection(
+                    url, "schema_test", System.getenv("SCHEMA_TEST_PASSWORD"));
+                 Statement statement = connection.createStatement()) {
+                statement.execute("drop schema if exists " + SCHEMA + " cascade");
+                statement.execute("create schema " + SCHEMA);
+            } catch (SQLException exception) {
+                throw new ExceptionInInitializerError(exception);
+            }
+        }
+    }
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", () -> System.getenv("SCHEMA_TEST_URL"));
+        registry.add("spring.datasource.url", () -> {
+            String url = System.getenv("SCHEMA_TEST_URL");
+            return url + (url.contains("?") ? "&" : "?") + "currentSchema=" + SCHEMA;
+        });
         registry.add("spring.datasource.username", () -> "schema_test");
         registry.add("spring.datasource.password", () -> System.getenv("SCHEMA_TEST_PASSWORD"));
         registry.add("app.demo-mode", () -> "true");
@@ -65,17 +98,23 @@ class OnboardingIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private RouteTemplateService routeTemplateService;
+
+    @Autowired
+    private RouteBackfillRunner routeBackfillRunner;
+
     private final HttpClient client = HttpClient.newHttpClient();
 
     @BeforeEach
-    void seedDocumentTypes() {
+    void cleanBefore() {
         cleanDatabase();
-        for (String code : TYPE_CODES) {
-            jdbc.update("insert into document_type(name, code, is_generic) values (?, ?, ?)",
-                    code, code, code.equals("GENERIC"));
-        }
     }
 
+    /** Данные тестов удаляются, а справочник типов остаётся таким, каким его создали миграции. */
     @AfterEach
     void cleanDatabase() {
         for (String table : List.of("approval_step", "document_version", "document", "approval_route",
@@ -83,14 +122,17 @@ class OnboardingIntegrationTest {
                 "organization", "app_user")) {
             jdbc.update("delete from " + table);
         }
-        jdbc.update("delete from document_type where code in ('OFFICIAL_MEMO', 'VACATION_REQUEST',"
-                + " 'SUPPORT_MEASURE_REQUEST', 'GENERIC')");
     }
 
     // ---------- Создание компании ----------
 
     @Test
     void creatorBecomesAdministratorWithDirectorRoleAndCompanyGetsDefaults() {
+        // Типы документов создала миграция, а не тест: без них не было бы и маршрутов по умолчанию.
+        assertThat(jdbc.queryForObject("select count(*) from databasechangelog"
+                + " where id = '17-001-default-document-types'", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForList("select code from document_type", String.class))
+                .containsExactlyInAnyOrderElementsOf(TYPE_CODES);
         long alice = newUser();
 
         Resp created = call(alice, "POST", "/api/v1/orgs", Map.of("name", "  Ромашка ", "inn", ""));
@@ -620,7 +662,215 @@ class OnboardingIntegrationTest {
         assertThat(ok(call(bob, "GET", "/api/v1/orgs/current/roles/" + roleId + "/members", null))).isEmpty();
     }
 
+    // ---------- Маршруты по умолчанию: добор для компаний, созданных до появления типов ----------
+
+    @Test
+    void routesAreBackfilledForCompaniesCreatedBeforeDocumentTypesExisted() {
+        long alice = newUser();
+        long reviewer = newUser();
+        try {
+            // состояние до миграции справочника: типов документов ещё нет
+            jdbc.update("delete from approval_route");
+            jdbc.update("delete from document_type");
+            long orgId = createCompany(alice, "Ромашка");
+            assertThat(roleIds(alice)).hasSize(5);
+            assertThat(countRoutes(orgId)).isZero();
+
+            // типы появились (их создаёт миграция): при следующем старте компания получает маршруты
+            restoreDefaultTypes();
+            routeBackfillRunner.run(null);
+            assertThat(countRoutes(orgId)).isEqualTo(8);
+            // повторный запуск ничего не дублирует
+            assertThat(routeTemplateService.backfillAllOrganizations()).isZero();
+            assertThat(countRoutes(orgId)).isEqualTo(8);
+
+            // у демо-песочницы свой маршрут, его создаёт справочник: по умолчанию ей маршруты не даются
+            ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null));
+            routeTemplateService.backfillAllOrganizations();
+            assertThat(jdbc.queryForObject("select count(*) from approval_route r"
+                    + " join organization o on o.id = r.org_id where o.is_demo", Integer.class)).isZero();
+        } finally {
+            restoreDefaultTypes();
+        }
+    }
+
+    // ---------- Гонки: блокировку удерживает отдельная транзакция, тест смотрит, кто ждёт ----------
+
+    @Test
+    void acceptThatWinsTheRaceAgainstRevokeKeepsTheLinkUsedAndTheMemberJoined() throws Exception {
+        LinkRace race = raceAcceptAndRevoke(true);
+
+        assertThat(race.accept().status()).as(race.accept().body()).isEqualTo(200);
+        assertThat(race.revoke().status()).as(race.revoke().body()).isEqualTo(409);
+        assertThat(race.revoke().code()).isEqualTo("INVITE_USED");
+        // ссылка использована и НЕ выглядит отозванной, участник вступил
+        assertThat(linkState(race.inviteId())).containsEntry("used", true).containsEntry("revoked", false);
+        assertThat(joinedFromLink(race.joiner())).isEqualTo(1);
+    }
+
+    @Test
+    void revokeThatWinsTheRaceAgainstAcceptLeavesTheLinkRevokedAndNobodyJoined() throws Exception {
+        LinkRace race = raceAcceptAndRevoke(false);
+
+        assertThat(race.revoke().status()).as(race.revoke().body()).isEqualTo(204);
+        assertThat(race.accept().status()).as(race.accept().body()).isEqualTo(409);
+        assertThat(race.accept().code()).isEqualTo("INVITE_REVOKED");
+        assertThat(linkState(race.inviteId())).containsEntry("used", false).containsEntry("revoked", true);
+        assertThat(joinedFromLink(race.joiner())).isZero();
+    }
+
+    @Test
+    void joinRequestWaitsForCodeReissueAndIsRejectedWhenTheCodeWasRevokedMeanwhile() throws Exception {
+        long alice = newUser();
+        long bob = newUser();
+        long orgId = createCompany(alice, "Ромашка");
+        String oldCode = inviteCode(alice);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (Connection reissue = holdLock("select id from organization where id = ? for update", orgId)) {
+            Future<Resp> submit = pool.submit(() -> call(bob, "POST", "/api/v1/join-requests", Map.of("code", oldCode)));
+            waitForBlockedSessions(1);
+            Thread.sleep(300);
+            assertThat(submit.isDone()).as("подача заявки должна ждать блокировку компании").isFalse();
+
+            // перевыпуск кода, как в InviteService.regenerate: отозвать старый и выпустить новый
+            execute(reissue, "update invite set revoked_at = now() where org_id = ? and kind = 'ORG_CODE'"
+                    + " and revoked_at is null", orgId);
+            execute(reissue, "insert into invite(org_id, kind, code, created_by, created_at)"
+                    + " values (?, 'ORG_CODE', 'NEWCODE2', (select created_by from organization where id = ?), now())",
+                    orgId, orgId);
+            reissue.commit();
+
+            Resp response = submit.get(20, TimeUnit.SECONDS);
+            assertThat(response.status()).as(response.body()).isEqualTo(404);
+            assertThat(response.code()).isEqualTo("INVITE_NOT_FOUND");
+        } finally {
+            pool.shutdownNow();
+        }
+        // отозванный код не создал заявку
+        assertThat(jdbc.queryForObject("select count(*) from join_request", Integer.class)).isZero();
+    }
+
+    @Test
+    void joinRequestProceedsWhenTheCompanyLockIsReleasedWithoutReissue() throws Exception {
+        long alice = newUser();
+        long bob = newUser();
+        long orgId = createCompany(alice, "Ромашка");
+        String code = inviteCode(alice);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (Connection reissue = holdLock("select id from organization where id = ? for update", orgId)) {
+            Future<Resp> submit = pool.submit(() -> call(bob, "POST", "/api/v1/join-requests", Map.of("code", code)));
+            waitForBlockedSessions(1);
+            reissue.rollback();
+
+            Resp response = submit.get(20, TimeUnit.SECONDS);
+            assertThat(response.status()).as(response.body()).isEqualTo(201);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     // ---------- Вспомогательное ----------
+
+    private record LinkRace(Resp accept, Resp revoke, long inviteId, long joiner) {
+    }
+
+    /**
+     * Вступление и отзыв одной личной ссылки в порядке очереди на блокировку строки: транзакция теста удерживает
+     * строку ссылки, обе операции встают в очередь, затем блокировка снимается. Кто встал первым, тот и выиграл.
+     */
+    private LinkRace raceAcceptAndRevoke(boolean acceptQueuesFirst) throws Exception {
+        long alice = newUser();
+        long bob = newUser();
+        createCompany(alice, "Ромашка");
+        JsonNode invite = ok(call(alice, "POST", "/api/v1/orgs/current/personal-invites",
+                Map.of("roleIds", List.of(roleIds(alice).get("LAWYER")))), 201);
+        long inviteId = invite.path("id").asLong();
+        String token = tokenOf(invite.path("link").asText());
+        java.util.concurrent.Callable<Resp> accept = () ->
+                call(bob, "POST", "/api/v1/invites/personal/" + token + "/accept", null);
+        java.util.concurrent.Callable<Resp> revoke = () ->
+                call(alice, "DELETE", "/api/v1/orgs/current/personal-invites/" + inviteId, null);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try (Connection holder = holdLock("select id from invite where id = ? for update", inviteId)) {
+            Future<Resp> first = pool.submit(acceptQueuesFirst ? accept : revoke);
+            waitForBlockedSessions(1);
+            Future<Resp> second = pool.submit(acceptQueuesFirst ? revoke : accept);
+            waitForBlockedSessions(2);
+            holder.commit();
+            Resp acceptResponse = (acceptQueuesFirst ? first : second).get(20, TimeUnit.SECONDS);
+            Resp revokeResponse = (acceptQueuesFirst ? second : first).get(20, TimeUnit.SECONDS);
+            return new LinkRace(acceptResponse, revokeResponse, inviteId, bob);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private Map<String, Object> linkState(long inviteId) {
+        return jdbc.queryForMap("select used_at is not null as used, revoked_at is not null as revoked"
+                + " from invite where id = ?", inviteId);
+    }
+
+    private int joinedFromLink(long maxUserId) {
+        return jdbc.queryForObject("select count(*) from organization_member m join app_user u on u.id = m.user_id"
+                + " where u.max_user_id = ?", Integer.class, maxUserId);
+    }
+
+    private int countRoutes(long orgId) {
+        return jdbc.queryForObject("select count(*) from approval_route where org_id = ?", Integer.class, orgId);
+    }
+
+    /** Возвращает справочник в состояние после миграции 17-001 (та же вставка, что и в ней). */
+    private void restoreDefaultTypes() {
+        jdbc.update("""
+                insert into document_type(name, code, is_generic) values
+                    ('Служебная записка', 'OFFICIAL_MEMO', false),
+                    ('Заявление на отпуск', 'VACATION_REQUEST', false),
+                    ('Заявка на меру поддержки', 'SUPPORT_MEASURE_REQUEST', false),
+                    ('Любой файл', 'GENERIC', true)
+                on conflict (code) do nothing""");
+    }
+
+    /** Открывает отдельную транзакцию и удерживает блокировку, пока её не завершат commit или rollback. */
+    private Connection holdLock(String sql, Object... args) throws SQLException {
+        Connection connection = dataSource.getConnection();
+        try {
+            connection.setAutoCommit(false);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                for (int i = 0; i < args.length; i++) {
+                    statement.setObject(i + 1, args[i]);
+                }
+                statement.execute();
+            }
+            return connection;
+        } catch (SQLException exception) {
+            connection.close();
+            throw exception;
+        }
+    }
+
+    private void execute(Connection connection, String sql, Object... args) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int i = 0; i < args.length; i++) {
+                statement.setObject(i + 1, args[i]);
+            }
+            statement.executeUpdate();
+        }
+    }
+
+    /** Ждёт, пока в базе будет не меньше {@code expected} сессий, ожидающих блокировку. */
+    private void waitForBlockedSessions(int expected) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            Integer blocked = jdbc.queryForObject("select count(*) from pg_stat_activity"
+                    + " where datname = current_database() and wait_event_type = 'Lock'", Integer.class);
+            if (blocked != null && blocked >= expected) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new AssertionError("Не дождались заблокированных сессий: " + expected);
+    }
 
     private long newUser() {
         return MAX_IDS.incrementAndGet();

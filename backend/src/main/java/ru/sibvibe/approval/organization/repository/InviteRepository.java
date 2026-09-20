@@ -36,4 +36,17 @@ public interface InviteRepository extends JpaRepository<Invite, Long> {
               and i.usedAt is null and i.revokedAt is null and i.expiresAt > :now
             """)
     int markPersonalUsed(Long id, Long userId, Instant now, Invite.Kind kind);
+
+    /**
+     * Атомарный отзыв личной ссылки: только неиспользованной и неотозванной, только своей компании.
+     * Отзыв и вступление по ссылке идут одним условным UPDATE по одной строке, поэтому побеждает
+     * ровно одна операция и вторая не может затереть результат первой.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Invite i set i.revokedAt = :now
+            where i.id = :id and i.orgId = :orgId and i.kind = :kind
+              and i.usedAt is null and i.revokedAt is null
+            """)
+    int revokePersonal(Long id, Long orgId, Instant now, Invite.Kind kind);
 }

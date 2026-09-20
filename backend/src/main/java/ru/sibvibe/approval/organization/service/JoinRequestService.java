@@ -75,7 +75,7 @@ public class JoinRequestService {
     public JoinRequestResponse submit(long userId, String code) {
         userRepository.findByIdForUpdate(userId).orElseThrow(OrganizationErrors::notFound);
         memberService.requireCanOnboard(userId);
-        InviteService.ResolvedCode resolved = inviteService.resolveOrgCode(userId, code);
+        InviteService.ResolvedCode resolved = inviteService.resolveOrgCodeForJoin(userId, code);
 
         JoinRequest request = new JoinRequest();
         request.setOrgId(resolved.org().getId());

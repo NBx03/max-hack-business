@@ -4,8 +4,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.organization.DocumentTypeDirectory;
 import ru.sibvibe.approval.organization.entity.ApprovalRoute;
+import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.Role;
 import ru.sibvibe.approval.organization.repository.ApprovalRouteRepository;
+import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
 
 import java.util.HashMap;
@@ -17,16 +19,35 @@ public class RouteTemplateService {
 
     private final ApprovalRouteRepository routeRepository;
     private final RoleRepository roleRepository;
+    private final OrganizationRepository organizationRepository;
     private final DocumentTypeDirectory typeDirectory;
 
     public RouteTemplateService(
             ApprovalRouteRepository routeRepository,
             RoleRepository roleRepository,
+            OrganizationRepository organizationRepository,
             DocumentTypeDirectory typeDirectory
     ) {
         this.routeRepository = routeRepository;
         this.roleRepository = roleRepository;
+        this.organizationRepository = organizationRepository;
         this.typeDirectory = typeDirectory;
+    }
+
+    /**
+     * Добирает маршруты по умолчанию всем настоящим компаниям. Нужен, когда типы документов появляются
+     * после компаний (миграция справочника): порядок слияния задач не должен оставлять компании без маршрутов.
+     * Идемпотентен; вызывается при старте приложения ({@link RouteBackfillRunner}).
+     *
+     * @return сколько строк маршрутов создано
+     */
+    @Transactional
+    public int backfillAllOrganizations() {
+        int created = 0;
+        for (Organization org : organizationRepository.findByDemoFalseOrderById()) {
+            created += ensureDefaultRoutes(org.getId());
+        }
+        return created;
     }
 
     /**

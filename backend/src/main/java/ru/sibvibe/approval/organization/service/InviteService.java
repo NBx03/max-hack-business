@@ -163,6 +163,25 @@ public class InviteService {
         return new ResolvedCode(invite, org);
     }
 
+    /**
+     * Код для подачи заявки. Отличается от {@link #resolveOrgCode} тем, что берёт общую блокировку компании
+     * и проверяет код ещё раз уже под ней. Перевыпуск кода берёт ту же строку под FOR UPDATE, поэтому
+     * подача заявки и перевыпуск идут по очереди: заявка не сохранится со старым кодом после того, как
+     * перевыпуск его отозвал (CLAUDE.md, проверка №9). Заявка, сохранённая раньше перевыпуска, остаётся.
+     */
+    ResolvedCode resolveOrgCodeForJoin(long userId, String rawCode) {
+        ResolvedCode resolved = resolveOrgCode(userId, rawCode);
+        organizationRepository.findByIdForShare(resolved.org().getId())
+                .orElseThrow(OrganizationErrors::inviteNotFound);
+        boolean stillActive = inviteRepository.findByCodeAndKindAndRevokedAtIsNull(
+                resolved.invite().getCode(), Invite.Kind.ORG_CODE).isPresent();
+        if (!stillActive) {
+            // Код был верным, пока мы ждали блокировку, — это не попытка перебора, штрафовать её не за что.
+            throw OrganizationErrors.inviteNotFound();
+        }
+        return resolved;
+    }
+
     // ---------- Личные ссылки ----------
 
     /**
@@ -215,18 +234,28 @@ public class InviteService {
                 .toList();
     }
 
-    /** Отзыв неиспользованной ссылки; повторный отзыв ничего не меняет, использованную отозвать нельзя. */
+    /**
+     * Отзыв неиспользованной ссылки; повторный отзыв ничего не меняет, использованную отозвать нельзя.
+     *
+     * Отзыв — условный UPDATE, а не чтение с последующей записью: иначе при одновременном вступлении
+     * по ссылке Hibernate записал бы устаревшее состояние поверх {@code used_at/used_by}, и ссылка
+     * выглядела бы отозванной, хотя человек уже вступил.
+     */
     @Transactional
     public void revokePersonal(CurrentUser actor, long inviteId) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
-        Invite invite = inviteRepository.findByIdAndOrgIdAndKind(inviteId, orgId, Invite.Kind.PERSONAL_LINK)
+        // Ссылка ищется только в компании администратора: чужая выглядит несуществующей.
+        inviteRepository.findByIdAndOrgIdAndKind(inviteId, orgId, Invite.Kind.PERSONAL_LINK)
                 .orElseThrow(OrganizationErrors::notFound);
-        if (invite.getUsedAt() != null) {
+        int revoked = inviteRepository.revokePersonal(inviteId, orgId, clock.instant(), Invite.Kind.PERSONAL_LINK);
+        if (revoked == 1) {
+            return;
+        }
+        Invite fresh = inviteRepository.findById(inviteId).orElseThrow(OrganizationErrors::notFound);
+        if (fresh.getUsedAt() != null) {
             throw OrganizationErrors.inviteUsed();
         }
-        if (invite.getRevokedAt() == null) {
-            invite.setRevokedAt(clock.instant());
-        }
+        // Иначе ссылка уже отозвана: повторный отзыв ничего не меняет.
     }
 
     /** Что увидит человек, открывший ссылку: компания и роли. Ничего при этом не происходит. */
