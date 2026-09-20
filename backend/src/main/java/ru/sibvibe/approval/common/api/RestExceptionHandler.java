@@ -2,12 +2,14 @@ package ru.sibvibe.approval.common.api;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -29,7 +31,13 @@ public class RestExceptionHandler {
                 .body(new ApiError("FILE_TOO_LARGE", "Файл или общий размер запроса слишком большой"));
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentNotValidException.class})
+    /** Битый JSON, ошибки полей и параметры не того типа (например, нечисловой id в пути) — это 400, а не сбой сервера. */
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentNotValidException.class,
+            TypeMismatchException.class,
+            MissingServletRequestParameterException.class
+    })
     public ResponseEntity<ApiError> validationFailed() {
         return ResponseEntity.badRequest()
                 .body(new ApiError("VALIDATION_FAILED", "Проверьте правильность заполнения полей"));
