@@ -11,6 +11,7 @@ import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.UpdateFieldsRequest;
 import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.repository.DocumentReadRepository;
 import ru.sibvibe.approval.document.repository.DocumentRepository;
 import ru.sibvibe.approval.storage.FileStorage;
 
@@ -22,6 +23,7 @@ public class DocumentCommandService {
     private static final Logger LOGGER = LoggerFactory.getLogger(DocumentCommandService.class);
 
     private final DocumentRepository documentRepository;
+    private final DocumentReadRepository documentReadRepository;
     private final DocumentFileValidator fileValidator;
     private final DocumentRuleService ruleService;
     private final DocumentPersistenceService persistenceService;
@@ -30,6 +32,7 @@ public class DocumentCommandService {
 
     public DocumentCommandService(
             DocumentRepository documentRepository,
+            DocumentReadRepository documentReadRepository,
             DocumentFileValidator fileValidator,
             DocumentRuleService ruleService,
             DocumentPersistenceService persistenceService,
@@ -37,6 +40,7 @@ public class DocumentCommandService {
             FileStorage fileStorage
     ) {
         this.documentRepository = documentRepository;
+        this.documentReadRepository = documentReadRepository;
         this.fileValidator = fileValidator;
         this.ruleService = ruleService;
         this.persistenceService = persistenceService;
@@ -159,6 +163,9 @@ public class DocumentCommandService {
             throw new NotFoundException();
         }
         if (!document.getAuthorId().equals(userId)) {
+            if (!documentReadRepository.canRead(documentId, orgId, userId)) {
+                throw new NotFoundException();
+            }
             throw DocumentApiException.forbidden("Изменять документ может только автор");
         }
         return document;

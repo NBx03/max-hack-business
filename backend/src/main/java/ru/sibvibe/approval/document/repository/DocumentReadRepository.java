@@ -2,8 +2,8 @@ package ru.sibvibe.approval.document.repository;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
-import ru.sibvibe.approval.document.dto.DocumentListTab;
 import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.service.DocumentListTab;
 
 import java.time.Instant;
 import java.util.List;

@@ -1,4 +1,4 @@
-package ru.sibvibe.approval.document.dto;
+package ru.sibvibe.approval.document.service;
 
 /** Раздел списка документов из REST-контракта. */
 public enum DocumentListTab {

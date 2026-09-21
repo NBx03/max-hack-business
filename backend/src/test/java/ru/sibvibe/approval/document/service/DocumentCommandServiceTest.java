@@ -2,19 +2,25 @@ package ru.sibvibe.approval.document.service;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
+import ru.sibvibe.approval.common.api.DomainException;
+import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
+import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.entity.DocumentType;
+import ru.sibvibe.approval.document.repository.DocumentReadRepository;
 import ru.sibvibe.approval.document.repository.DocumentRepository;
 import ru.sibvibe.approval.storage.FileStorage;
 import ru.sibvibe.approval.storage.FileStorageException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -27,13 +33,15 @@ import static org.mockito.Mockito.when;
 class DocumentCommandServiceTest {
 
     private final DocumentRepository documents = mock(DocumentRepository.class);
+    private final DocumentReadRepository documentReads = mock(DocumentReadRepository.class);
     private final DocumentFileValidator fileValidator = mock(DocumentFileValidator.class);
     private final DocumentRuleService rules = mock(DocumentRuleService.class);
     private final DocumentPersistenceService persistence = mock(DocumentPersistenceService.class);
     private final DocumentViewService views = mock(DocumentViewService.class);
     private final FileStorage storage = mock(FileStorage.class);
     private final DocumentCommandService service =
-            new DocumentCommandService(documents, fileValidator, rules, persistence, views, storage);
+            new DocumentCommandService(
+                    documents, documentReads, fileValidator, rules, persistence, views, storage);
 
     @Test
     void deletesNewObjectWhenMetadataTransactionFails() {
@@ -92,6 +100,32 @@ class DocumentCommandServiceTest {
         verify(storage, never()).delete("new-key");
     }
 
+    @Test
+    void hidesPrivateDocumentFromSameCompanyNonAuthor() {
+        Document document = document(9L);
+        when(documents.findById(1L)).thenReturn(Optional.of(document));
+        when(documentReads.canRead(1L, 10L, 7L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.createVersion(
+                1L, user(), new CreateVersionRequest(Map.of(), false, List.of()), null))
+                .isInstanceOf(NotFoundException.class)
+                .satisfies(exception -> assertThat(((DomainException) exception).code())
+                        .isEqualTo("NOT_FOUND"));
+    }
+
+    @Test
+    void forbidsModificationWhenNonAuthorCanReadDocument() {
+        Document document = document(9L);
+        when(documents.findById(1L)).thenReturn(Optional.of(document));
+        when(documentReads.canRead(1L, 10L, 7L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.createVersion(
+                1L, user(), new CreateVersionRequest(Map.of(), false, List.of()), null))
+                .isInstanceOf(DocumentApiException.class)
+                .satisfies(exception -> assertThat(((DomainException) exception).code())
+                        .isEqualTo("FORBIDDEN"));
+    }
+
     private CreateDocumentRequest request() {
         return new CreateDocumentRequest(5L, "Записка", Document.Visibility.PRIVATE, false, Map.of());
     }
@@ -99,6 +133,14 @@ class DocumentCommandServiceTest {
     private CurrentUser user() {
         var identity = new CurrentUser.UserIdentity(7, "Автор");
         return new CurrentUser(identity, identity, 8L, 10L, Set.of(), false, null);
+    }
+
+    private Document document(long authorId) {
+        Document document = new Document();
+        document.setId(1L);
+        document.setOrgId(10L);
+        document.setAuthorId(authorId);
+        return document;
     }
 
     private DocumentRuleService.PreparedCheck prepared() {

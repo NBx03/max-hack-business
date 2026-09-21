@@ -195,6 +195,22 @@ class DocumentIntegrationTest {
         JsonNode created = createPrivateDocument(pdf());
         long documentId = created.path("id").asLong();
         long fileId = created.path("versions").get(0).path("files").get(0).path("id").asLong();
+
+        mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
+                        .file(textJsonPart("meta", Map.of(
+                                "containsSensitive", false,
+                                "fields", Map.of("number", "43"),
+                                "keepFileIds", new long[]{fileId})))
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mvc.perform(put("/api/v1/documents/{id}/versions/1/fields", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("fields", Map.of("number", "43"))))
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+
         jdbc.update("update document set visibility = 'ORG' where id = ?", documentId);
 
         mvc.perform(get("/api/v1/documents/{id}", documentId)

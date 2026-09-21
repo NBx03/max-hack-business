@@ -11,7 +11,6 @@ import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.DocumentListResponse;
-import ru.sibvibe.approval.document.dto.DocumentListTab;
 import ru.sibvibe.approval.document.dto.DocumentTypeResponse;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.entity.DocumentFile;
