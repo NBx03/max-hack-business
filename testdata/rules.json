@@ -93,14 +93,14 @@
         { "name": "support_type", "type": "STRING", "label": "Вид поддержки", "hint": "Какую поддержку просит заявитель, кратко, как в заявке. Пусто, если не указано." }
       ],
       "rules": [
-        { "code": "S1", "field": "applicant_name", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
-          "description": "Укажите заявителя: наименование организации или ФИО индивидуального предпринимателя." },
-        { "code": "S2", "field": "support_type", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
+        { "code": "S1", "field": "support_type", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
           "description": "Укажите, какую поддержку запрашиваете: без этого заявку не к чему приложить." },
-        { "code": "S3", "field": "applicant_inn", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
-          "description": "Укажите ИНН заявителя: по нему организация поддержки проверяет заявителя в едином реестре субъектов МСП." },
-        { "code": "S4", "field": "applicant_inn", "check": "MATCHES_PATTERN", "expected": "\\d{10}|\\d{12}", "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
+        { "code": "S2", "field": "applicant_inn", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
+          "description": "Укажите ИНН заявителя: он однозначно определяет заявителя, по нему организация поддержки проверяет его в едином реестре субъектов МСП." },
+        { "code": "S3", "field": "applicant_inn", "check": "MATCHES_PATTERN", "expected": "\\d{10}|\\d{12}", "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
           "description": "ИНН — 10 цифр у организации или 12 цифр у индивидуального предпринимателя." },
+        { "code": "S4", "field": "smb_category", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
+          "description": "Укажите категорию субъекта МСП: от неё зависит, на какую поддержку заявитель может претендовать." },
         { "code": "S5", "field": "smb_category", "check": "ONE_OF", "expected": "[\"микропредприятие\",\"малое предприятие\",\"среднее предприятие\"]", "kind": "LEGAL", "severity": "BLOCKER", "source": "LAW_209_ART_4_1", "sourceRef": "ст. 4.1, ч. 3, п. 5",
           "description": "По закону категорий субъектов МСП три: микропредприятие, малое предприятие, среднее предприятие. «Индивидуальный предприниматель» — это форма, а не категория." }
       ]

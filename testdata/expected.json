@@ -124,9 +124,55 @@
       },
       "normalized": [],
       "issues": [
-        "S2",
-        "S4",
+        "S1",
+        "S3",
         "S5"
+      ]
+    },
+    {
+      "file": "documents/08_memo_missing.pdf",
+      "type": "OFFICIAL_MEMO",
+      "about": "PDF. Нет даты и нет текста записки: пустые поля ловят только правила «Заполнено».",
+      "fields": {
+        "addressee": "Генеральному директору ООО «Демо-компания» Орлову В.П.",
+        "author_name": "А.С. Петрова",
+        "reg_number": "СЗ-120",
+        "subject": "О закупке ноутбуков для отдела продаж",
+        "signer_position": "Руководитель отдела продаж",
+        "signer_name": "А.С. Петрова"
+      },
+      "normalized": [],
+      "issues": [
+        "M2",
+        "M7"
+      ]
+    },
+    {
+      "file": "documents/09_vacation_missing.docx",
+      "type": "VACATION_REQUEST",
+      "about": "Не указаны сотрудник и дата начала отпуска.",
+      "fields": {
+        "vacation_type": "ежегодный оплачиваемый",
+        "days_count": "14"
+      },
+      "normalized": [],
+      "issues": [
+        "V1",
+        "V3"
+      ]
+    },
+    {
+      "file": "documents/10_support_missing.pdf",
+      "type": "SUPPORT_MEASURE_REQUEST",
+      "about": "PDF. Не указаны ИНН и категория МСП: пустые поля ловят только правила «Заполнено».",
+      "fields": {
+        "applicant_name": "ООО «Демо-компания»",
+        "support_type": "консультационная поддержка по вопросам бухгалтерского учёта"
+      },
+      "normalized": [],
+      "issues": [
+        "S2",
+        "S4"
       ]
     }
   ]

@@ -157,6 +157,20 @@ class TestdataRulesTest {
         });
     }
 
+    @Test
+    void everyRuleFiresInAtLeastOneDocument() throws IOException {
+        Set<String> fired = new HashSet<>();
+        for (JsonNode document : read("expected.json").get("documents")) {
+            document.get("issues").forEach(code -> fired.add(code.asText()));
+        }
+        Set<String> all = new HashSet<>();
+        for (JsonNode type : read("rules.json").get("types")) {
+            type.get("rules").forEach(rule -> all.add(rule.get("code").asText()));
+        }
+        // Правило, которое ни разу не срабатывает, можно сломать или удалить незаметно.
+        assertThat(fired).as("каждое правило срабатывает хотя бы в одном документе").containsAll(all);
+    }
+
     private static String extractText(Path path) throws IOException {
         String name = path.getFileName().toString();
         if (name.endsWith(".pdf")) {

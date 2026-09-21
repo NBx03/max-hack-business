@@ -9,10 +9,10 @@
     python testdata/generate.py           # перегенерировать файлы
     python testdata/generate.py --check   # проверить, что файлы в репозитории актуальны (CI)
 
-Генерация воспроизводима: шрифт лежит в testdata/fonts, время внутри DOCX
-фиксировано, PDF пишется без сжатия потоков, поэтому его байты не зависят
-от версии zlib. DOCX в --check сравнивается по распакованному содержимому:
-сжатие zip может отличаться между платформами, а содержимое — нет.
+Генерация воспроизводима побайтно: шрифт лежит в testdata/fonts, все зависимости,
+включая транзитивные, зафиксированы в requirements.txt, время внутри DOCX
+фиксировано, а DOCX и PDF пишутся без сжатия — байты не зависят от версии zlib.
+--check сравнивает файлы побайтно.
 
 Источник истины для замечаний — Java-тест TestdataRulesTest с настоящим
 DefaultRuleEngine. Здесь лишь предварительная проверка подмножества его логики
@@ -62,14 +62,6 @@ MEMO_BODY = (
     "закупку пяти ноутбуков для новых сотрудников. Ориентировочная стоимость — "
     "450 000 рублей, средства предусмотрены бюджетом отдела на IV квартал."
 )
-SUPPORT_DECLARATIONS = [
-    ("", "Заявитель подтверждает, что не является кредитной организацией, страховой "
-         "организацией, инвестиционным фондом, негосударственным пенсионным фондом, "
-         "профессиональным участником рынка ценных бумаг, ломбардом, участником "
-         "соглашения о разделе продукции, не осуществляет деятельность в сфере "
-         "игорного бизнеса и не является нерезидентом Российской Федерации."),
-    ("", "Заявитель подтверждает, что аналогичная поддержка ему ранее не оказывалась."),
-]
 VACATION_HEAD = [
     ("right", "Генеральному директору ООО «Демо-компания» Орлову В.П."),
     ("right", "от менеджера по продажам Кузнецова Игоря Олеговича"),
@@ -222,8 +214,6 @@ DOCS = [
             ("", "Категория субъекта МСП: малое предприятие"),
             ("", "Вид поддержки: консультационная поддержка по вопросам бухгалтерского учёта"),
             ("", ""),
-            *SUPPORT_DECLARATIONS,
-            ("", ""),
             ("", "Генеральный директор        В.П. Орлов        15.09.2026"),
         ],
         "fields": {
@@ -248,8 +238,6 @@ DOCS = [
             ("", "ИНН: 001234567"),
             ("", "Категория субъекта МСП: индивидуальный предприниматель"),
             ("", ""),
-            *SUPPORT_DECLARATIONS,
-            ("", ""),
             ("", "Генеральный директор        В.П. Орлов        15.09.2026"),
         ],
         "fields": {
@@ -258,7 +246,75 @@ DOCS = [
             "smb_category": "индивидуальный предприниматель",
         },
         "normalized": [],
-        "issues": ["S2", "S4", "S5"],
+        "issues": ["S1", "S3", "S5"],
+    },
+    {
+        "file": "08_memo_missing.pdf",
+        "type": "OFFICIAL_MEMO",
+        "about": "PDF. Нет даты и нет текста записки: пустые поля ловят только правила «Заполнено».",
+        "lines": [
+            ("right", "Генеральному директору ООО «Демо-компания» Орлову В.П."),
+            ("", ""),
+            ("bold", "СЛУЖЕБНАЯ ЗАПИСКА"),
+            ("", "№ СЗ-120"),
+            ("", ""),
+            ("", "О закупке ноутбуков для отдела продаж"),
+            ("", ""),
+            ("", "Руководитель отдела продаж"),
+            ("", "А.С. Петрова"),
+        ],
+        "fields": {
+            "addressee": "Генеральному директору ООО «Демо-компания» Орлову В.П.",
+            "author_name": "А.С. Петрова",
+            "reg_number": "СЗ-120",
+            "subject": "О закупке ноутбуков для отдела продаж",
+            "signer_position": "Руководитель отдела продаж",
+            "signer_name": "А.С. Петрова",
+        },
+        "normalized": [],
+        "issues": ["M2", "M7"],
+    },
+    {
+        "file": "09_vacation_missing.docx",
+        "type": "VACATION_REQUEST",
+        "about": "Не указаны сотрудник и дата начала отпуска.",
+        "lines": [
+            ("right", "Генеральному директору ООО «Демо-компания» Орлову В.П."),
+            ("", ""),
+            ("bold", "ЗАЯВЛЕНИЕ"),
+            ("", ""),
+            ("", "Прошу предоставить мне ежегодный оплачиваемый отпуск "
+                 "продолжительностью 14 календарных дней."),
+            ("", ""),
+            ("", "15.09.2026"),
+        ],
+        "fields": {
+            "vacation_type": "ежегодный оплачиваемый",
+            "days_count": "14",
+        },
+        "normalized": [],
+        "issues": ["V1", "V3"],
+    },
+    {
+        "file": "10_support_missing.pdf",
+        "type": "SUPPORT_MEASURE_REQUEST",
+        "about": "PDF. Не указаны ИНН и категория МСП: пустые поля ловят только правила «Заполнено».",
+        "lines": [
+            ("right", "В центр поддержки предпринимательства (вымышленный)"),
+            ("", ""),
+            ("bold", "ЗАЯВКА НА ПОЛУЧЕНИЕ МЕРЫ ПОДДЕРЖКИ"),
+            ("", ""),
+            ("", "Заявитель: ООО «Демо-компания»"),
+            ("", "Вид поддержки: консультационная поддержка по вопросам бухгалтерского учёта"),
+            ("", ""),
+            ("", "Генеральный директор        В.П. Орлов        15.09.2026"),
+        ],
+        "fields": {
+            "applicant_name": "ООО «Демо-компания»",
+            "support_type": "консультационная поддержка по вопросам бухгалтерского учёта",
+        },
+        "normalized": [],
+        "issues": ["S2", "S4"],
     },
 ]
 
@@ -356,13 +412,13 @@ def write_docx(doc: dict, path: Path) -> None:
 
 
 def fix_zip_times(path: Path) -> None:
-    """python-docx ставит записям zip текущее время — заменяем на фиксированное."""
+    """Фиксированное время записей и хранение без сжатия: байты не зависят ни от часов, ни от версии zlib."""
     with zipfile.ZipFile(path) as source:
         entries = [(info.filename, source.read(info.filename)) for info in source.infolist()]
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as target:
         for name, data in entries:
             info = zipfile.ZipInfo(name, date_time=FIXED_TIME.timetuple()[:6])
-            info.compress_type = zipfile.ZIP_DEFLATED
+            info.compress_type = zipfile.ZIP_STORED
             info.external_attr = 0o644 << 16
             target.writestr(info, data)
 
@@ -533,17 +589,8 @@ def generate(testdata_dir: Path, docs_dir: Path) -> None:
     (docs_dir / "RULES.md").write_text(rules_md(), encoding="utf-8", newline="\n")
 
 
-def docx_entries(path: Path) -> dict:
-    with zipfile.ZipFile(path) as archive:
-        return {info.filename: archive.read(info.filename) for info in archive.infolist()}
-
-
 def same(generated: Path, committed: Path) -> bool:
-    if not committed.exists():
-        return False
-    if generated.suffix == ".docx":
-        return docx_entries(generated) == docx_entries(committed)
-    return generated.read_bytes() == committed.read_bytes()
+    return committed.exists() and generated.read_bytes() == committed.read_bytes()
 
 
 def check() -> None:
