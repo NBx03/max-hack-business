@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeMap;
 import javax.crypto.Mac;
@@ -65,11 +66,11 @@ class SecurityIntegrationTest {
 
     @AfterEach
     void cleanDatabase() {
-        jdbc.update("delete from member_role");
-        jdbc.update("delete from organization_member");
-        jdbc.update("delete from role");
-        jdbc.update("delete from organization");
-        jdbc.update("delete from app_user");
+        for (String table : List.of("approval_step", "document_file", "document_version", "document",
+                "approval_route", "invite_role", "join_request", "invite", "member_role",
+                "organization_member", "role", "organization", "app_user")) {
+            jdbc.update("delete from " + table);
+        }
     }
 
     @Test
@@ -85,6 +86,8 @@ class SecurityIntegrationTest {
         JsonNode secondSandbox = json(post("/api/v1/demo/sandbox", OWNER_TWO, null));
         assertThat(firstSandbox.path("users").size()).isEqualTo(5);
         assertThat(secondSandbox.path("users").size()).isEqualTo(5);
+        assertDemoContent(firstSandbox.path("orgId").asLong());
+        assertDemoContent(secondSandbox.path("orgId").asLong());
         long firstActor = firstSandbox.path("users").get(0).path("user").path("id").asLong();
         long secondActor = secondSandbox.path("users").get(0).path("user").path("id").asLong();
         assertThat(firstActor).isNotEqualTo(secondActor);
@@ -104,6 +107,7 @@ class SecurityIntegrationTest {
         assertThat(realUser.statusCode()).isEqualTo(403);
 
         JsonNode reset = json(post("/api/v1/demo/sandbox", OWNER_ONE, null));
+        assertDemoContent(reset.path("orgId").asLong());
         Set<Long> resetIds = new HashSet<>();
         reset.path("users").forEach(user -> resetIds.add(user.path("user").path("id").asLong()));
         assertThat(resetIds).doesNotContain(firstActor);
@@ -112,6 +116,55 @@ class SecurityIntegrationTest {
         JsonNode secondStillOwn = json(get("/api/v1/demo/sandbox", OWNER_TWO, null));
         assertThat(secondStillOwn.path("orgId").asLong()).isEqualTo(secondSandbox.path("orgId").asLong());
         assertThat(json(get("/api/v1/me", OWNER_ONE, null)).path("actingAs").isNull()).isTrue();
+    }
+
+    private void assertDemoContent(long orgId) {
+        assertThat(jdbc.queryForObject("select count(*) from role where org_id = ?", Integer.class, orgId))
+                .isEqualTo(5);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from organization_member
+                where org_id = ? and status = 'ACTIVE' and is_demo = true
+                """, Integer.class, orgId)).isEqualTo(5);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from join_request
+                where org_id = ? and status = 'PENDING'
+                """, Integer.class, orgId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select count(*)
+                from app_user user_account
+                where user_account.id in (
+                    select member.user_id from organization_member member where member.org_id = ?
+                    union
+                    select request.user_id from join_request request where request.org_id = ?
+                ) and user_account.max_user_id >= 0
+                """, Integer.class, orgId, orgId)).isZero();
+        assertThat(jdbc.queryForList("""
+                select route.stage_order, role.code
+                from approval_route route
+                join role on role.id = route.role_id
+                join document_type type on type.id = route.document_type_id
+                where route.org_id = ? and type.code = 'OFFICIAL_MEMO'
+                order by route.stage_order, role.code
+                """, orgId))
+                .containsExactly(
+                        Map.of("stage_order", 1, "code", "ACCOUNTANT"),
+                        Map.of("stage_order", 1, "code", "LAWYER"),
+                        Map.of("stage_order", 2, "code", "DIRECTOR"));
+        assertThat(jdbc.queryForList("""
+                select status, count(*) as amount
+                from document where org_id = ? group by status order by status
+                """, orgId))
+                .containsExactlyInAnyOrder(
+                        Map.of("status", "DRAFT", "amount", 1L),
+                        Map.of("status", "IN_APPROVAL", "amount", 1L),
+                        Map.of("status", "APPROVED", "amount", 1L),
+                        Map.of("status", "RETURNED", "amount", 1L),
+                        Map.of("status", "REJECTED", "amount", 1L));
+        assertThat(jdbc.queryForObject("""
+                select count(*) from document_version version
+                join document on document.id = version.document_id
+                where document.org_id = ? and version.check_status = 'CHECKED'
+                """, Integer.class, orgId)).isEqualTo(5);
     }
 
     @Test
