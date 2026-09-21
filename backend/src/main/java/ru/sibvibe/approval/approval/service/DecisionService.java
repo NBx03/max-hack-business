@@ -10,7 +10,7 @@ import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
 import ru.sibvibe.approval.approval.repository.ApprovalStepRepository;
 import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.service.DocumentState;
 import ru.sibvibe.approval.document.service.DocumentStateService;
 import ru.sibvibe.approval.document.service.DocumentStateService.DocumentSnapshot;
 
@@ -37,6 +37,9 @@ import java.util.stream.Collectors;
 @Service
 public class DecisionService {
 
+    /** Предел длины комментария после обрезки пробелов по краям (контракт: до 2000 символов). */
+    static final int MAX_COMMENT_LENGTH = 2000;
+
     private final DocumentStateService documents;
     private final ApprovalStepRepository steps;
     private final ApplicationEventPublisher events;
@@ -58,9 +61,12 @@ public class DecisionService {
     @Transactional
     public long decide(CurrentUser user, long stepId, DecisionRequest request) {
         DecisionRequest.Action action = request.decision();
-        String comment = request.comment() == null || request.comment().isBlank() ? null : request.comment().trim();
+        String comment = request.comment() == null || request.comment().isBlank() ? null : request.comment().strip();
         if (action != DecisionRequest.Action.APPROVE && comment == null) {
             throw ApprovalErrors.commentRequired();
+        }
+        if (comment != null && comment.length() > MAX_COMMENT_LENGTH) {
+            throw ApprovalErrors.validation("Комментарий не длиннее " + MAX_COMMENT_LENGTH + " символов");
         }
         if (user.orgId() == null) {
             throw ApprovalErrors.forbidden("Для работы с документами нужно состоять в компании");
@@ -81,7 +87,7 @@ public class DecisionService {
         if (step.getDecision() != ApprovalStep.Decision.PENDING) {
             throw ApprovalErrors.stepNotActive(closedStepMessage(step, document));
         }
-        if (document.status() != Document.Status.IN_APPROVAL
+        if (document.status() != DocumentState.IN_APPROVAL
                 || step.getVersionNo() != document.currentVersionNo()
                 || document.currentStage() == null
                 || step.getStageOrder().intValue() != document.currentStage()

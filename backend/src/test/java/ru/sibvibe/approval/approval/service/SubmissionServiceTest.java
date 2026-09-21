@@ -13,8 +13,8 @@ import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.service.DocumentCheckRules;
+import ru.sibvibe.approval.document.service.DocumentState;
 import ru.sibvibe.approval.document.service.DocumentStateService;
 import ru.sibvibe.approval.document.service.DocumentStateService.DocumentSnapshot;
 import ru.sibvibe.approval.organization.service.RoleService;
@@ -68,7 +68,7 @@ class SubmissionServiceTest {
 
     @Test
     void onlyDraftCanBeSubmittedAndNothingIsWrittenOtherwise() {
-        givenDocument(Document.Status.IN_APPROVAL);
+        givenDocument(DocumentState.IN_APPROVAL);
 
         assertThatThrownBy(() -> service.submit(author(), DOC, empty()))
                 .isInstanceOfSatisfying(DomainException.class, e -> {
@@ -80,7 +80,7 @@ class SubmissionServiceTest {
 
     @Test
     void blockingIssuesStopTheSubmission() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         when(documents.submissionBlocker(DOC, 3)).thenReturn(Optional.of(DocumentCheckRules.Reason.BLOCKER_ISSUES));
 
         assertThatThrownBy(() -> service.submit(author(), DOC, empty()))
@@ -90,7 +90,7 @@ class SubmissionServiceTest {
 
     @Test
     void mandatoryRoleWithNoHolderBlocksSubmissionWithTheRoleName() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 22, true)), Map.of());
 
         assertThatThrownBy(() -> service.submit(author(), DOC, empty()))
@@ -103,7 +103,7 @@ class SubmissionServiceTest {
 
     @Test
     void severalCandidatesRequireAChoice() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 21, true)), Map.of(21L, List.of(BOB, CAROL)));
 
         assertThatThrownBy(() -> service.submit(author(), DOC, empty()))
@@ -116,7 +116,7 @@ class SubmissionServiceTest {
 
     @Test
     void choiceMustBeOneOfTheCandidatesAndOnlyWhereAChoiceIsNeeded() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 21, true), row(2, 22, true)),
                 Map.of(21L, List.of(BOB, CAROL), 22L, List.of(BOB)));
 
@@ -136,7 +136,7 @@ class SubmissionServiceTest {
 
     @Test
     void sequentialRouteActivatesOnlyTheFirstStageAndNotifiesItsApprovers() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 21, true), row(2, 22, true)),
                 Map.of(21L, List.of(BOB, CAROL), 22L, List.of(CAROL)));
 
@@ -165,7 +165,7 @@ class SubmissionServiceTest {
 
     @Test
     void firstStageWithoutAnyoneIsSkippedAndTheNextOneBecomesActive() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 20, false), row(2, 22, true)), Map.of(22L, List.of(CAROL)));
 
         service.submit(author(), DOC, empty());
@@ -179,7 +179,7 @@ class SubmissionServiceTest {
 
     @Test
     void authorHoldingTheOnlyMandatoryRoleApprovesItAutomaticallyAndTheDocumentIsApprovedAtOnce() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 20, false), row(2, 22, true)), Map.of(22L, List.of(AUTHOR_REF)));
 
         service.submit(author(), DOC, empty());
@@ -201,7 +201,7 @@ class SubmissionServiceTest {
 
     @Test
     void authorStepInALaterStageDoesNotDelayTheFirstRealApproval() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 21, true), row(2, 22, true)),
                 Map.of(21L, List.of(BOB), 22L, List.of(AUTHOR_REF)));
 
@@ -217,7 +217,7 @@ class SubmissionServiceTest {
 
     @Test
     void addedApproverBecomesAnExtraStepInTheirRoleAndTheRouteOnlyGrows() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 21, true), row(2, 22, true)),
                 Map.of(21L, List.of(BOB), 22L, List.of(CAROL)));
         when(roles.rolesById(eq(ORG), any())).thenReturn(Map.of(21L, LAWYER));
@@ -242,10 +242,10 @@ class SubmissionServiceTest {
 
     @Test
     void invalidExtraApproversAreRejected() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 21, true)), Map.of(21L, List.of(BOB)));
         when(roles.rolesById(eq(ORG), any())).thenReturn(Map.of(21L, LAWYER));
-        when(roles.carriersOf(ORG, 21)).thenReturn(List.of(BOB, AUTHOR_REF));
+        when(roles.carriersOf(ORG, 21)).thenReturn(List.of(BOB, CAROL, AUTHOR_REF));
 
         // не автор и не тот, кто не носит роль
         assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(1, 21, AUTHOR))))
@@ -258,14 +258,52 @@ class SubmissionServiceTest {
         assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(1, 777, 2))))
                 .isInstanceOf(NotFoundException.class);
         // один и тот же дважды
-        assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(1, 21, 2), choice(1, 21, 2))))
+        assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(1, 21, 3), choice(1, 21, 3))))
                 .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("VALIDATION_FAILED"));
         verify(steps, never()).saveAll(any());
     }
 
     @Test
+    void extraApproverThatIsAlreadyInTheRouteIsRejectedInsteadOfDoublingTheStep() {
+        givenDocument(DocumentState.DRAFT);
+        // 21 — подставляется автоматически (Боб единственный), 22 — несколько кандидатов, автор выбирает Карол
+        givenRoute(List.of(row(1, 21, true), row(1, 22, true)),
+                Map.of(21L, List.of(BOB), 22L, List.of(BOB, CAROL)));
+        when(roles.rolesById(eq(ORG), any())).thenReturn(Map.of(21L, LAWYER, 22L, DIRECTOR));
+        when(roles.carriersOf(ORG, 21)).thenReturn(List.of(BOB, CAROL));
+        when(roles.carriersOf(ORG, 22)).thenReturn(List.of(BOB, CAROL));
+
+        // тот, кого подставили автоматически
+        assertThatThrownBy(() -> service.submit(author(), DOC,
+                new SubmitRequest(List.of(choice(1, 22, 3)), List.of(choice(1, 21, 2)))))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("VALIDATION_FAILED"));
+        // тот, кого автор выбрал в этой же отправке
+        assertThatThrownBy(() -> service.submit(author(), DOC,
+                new SubmitRequest(List.of(choice(1, 22, 3)), List.of(choice(1, 22, 3)))))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("VALIDATION_FAILED"));
+        verify(steps, never()).saveAll(any());
+    }
+
+    @Test
+    void sameApproverInAnotherRoleOrAnotherSelectedCandidateIsAValidExtra() {
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 21, true), row(1, 22, true)),
+                Map.of(21L, List.of(BOB), 22L, List.of(BOB, CAROL)));
+        when(roles.rolesById(eq(ORG), any())).thenReturn(Map.of(21L, LAWYER, 22L, DIRECTOR));
+        when(roles.carriersOf(ORG, 21)).thenReturn(List.of(BOB, CAROL));
+        when(roles.carriersOf(ORG, 22)).thenReturn(List.of(BOB, CAROL));
+
+        // Боб стоит в роли 21, но в роли 22 он — другой шаг (один человек с двумя ролями решает дважды), а Боб
+        // как не выбранный кандидат роли 22 — обычное добавление
+        service.submit(author(), DOC, new SubmitRequest(List.of(choice(1, 22, 3)),
+                List.of(choice(1, 21, 3), choice(1, 22, 2))));
+
+        assertThat(savedSteps()).hasSize(4);
+    }
+
+    @Test
     void missingBodyMeansNoSelections() {
-        givenDocument(Document.Status.DRAFT);
+        givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 22, true)), Map.of(22L, List.of(CAROL)));
 
         service.submit(author(), DOC, new SubmitRequest(null, null));
@@ -275,7 +313,7 @@ class SubmissionServiceTest {
 
     // ---------- вспомогательное ----------
 
-    private void givenDocument(Document.Status status) {
+    private void givenDocument(DocumentState status) {
         when(documents.lockForAuthor(eq(DOC), any(), any())).thenReturn(new DocumentSnapshot(
                 DOC, ORG, AUTHOR, TYPE, status, 3, null));
         when(documents.submissionBlocker(DOC, 3)).thenReturn(Optional.empty());

@@ -552,6 +552,167 @@ class ApprovalIntegrationTest {
         assertThat(status(support)).isEqualTo("IN_APPROVAL");
     }
 
+    // ============ ревью #48: найденные инварианты ============
+
+    @Test
+    void addedApproverWhoIsAlreadyInTheRouteIsRejectedAndNoStepIsDoubled() throws Exception {
+        long support = createDocument(company.frank, "SUPPORT_MEASURE_REQUEST");
+        String submit = "/api/v1/documents/" + support + "/submit";
+        long lawyer = company.roles.get("LAWYER");
+        long accountant = company.roles.get("ACCOUNTANT");
+        List<Object> carolChosen = List.of(choice(1, lawyer, company.carol.dbId));
+
+        // Эрин подставлена автоматически (единственный бухгалтер): «добавить» её нельзя
+        Resp auto = call(company.frank, "POST", submit, Map.of("selections", carolChosen,
+                "extraApprovers", List.of(choice(1, accountant, company.erin.dbId))));
+        assertThat(auto.status()).isEqualTo(400);
+        assertThat(auto.code()).isEqualTo("VALIDATION_FAILED");
+        // Карол выбрана автором в этой же отправке
+        Resp selected = call(company.frank, "POST", submit, Map.of("selections", carolChosen,
+                "extraApprovers", List.of(choice(1, lawyer, company.carol.dbId))));
+        assertThat(selected.status()).isEqualTo(400);
+        assertThat(selected.code()).isEqualTo("VALIDATION_FAILED");
+        assertThat(count("approval_step")).as("ничего не сохранено").isZero();
+        assertThat(status(support)).isEqualTo("DRAFT");
+
+        // Дэйв — второй юрист, не выбранный автором: настоящее добавление, шагов ровно четыре
+        ok(call(company.frank, "POST", submit, Map.of("selections", carolChosen,
+                "extraApprovers", List.of(choice(1, lawyer, company.dave.dbId)))));
+        assertThat(count("approval_step")).isEqualTo(4);
+        assertThat(jdbc.queryForObject("select count(distinct (stage_order, role_id, approver_id)) from approval_step"
+                + " where document_id = ?", Integer.class, support)).as("одинаковых шагов нет").isEqualTo(4);
+    }
+
+    @Test
+    void stageWaitsForEveryStepThatWasCreatedWhetherTheTemplateCallsItMandatoryOrNot() throws Exception {
+        // этап из обязательного бухгалтера и необязательного юриста, у которого носитель нашёлся
+        jdbc.update("update approval_route set is_mandatory = true where role_id = ?", company.roles.get("ACCOUNTANT"));
+        List<Object> carolChosen = List.of(choice(1, company.roles.get("LAWYER"), company.carol.dbId));
+
+        long first = createDocument(company.frank, "SUPPORT_MEASURE_REQUEST");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + first + "/submit",
+                Map.of("selections", carolChosen)));
+        long carolStep = stepOf(submitted, company.carol);
+        long erinStep = stepOf(submitted, company.erin);
+        assertThat(stageStates(ok(decide(company.erin, erinStep, "APPROVE", null))))
+                .as("обязательный одобрил, необязательный с носителем ещё не решил").containsExactly("ACTIVE", "WAITING");
+        assertThat(stageStates(ok(decide(company.carol, carolStep, "APPROVE", null)))).containsExactly("DONE", "ACTIVE");
+
+        long second = createDocument(company.frank, "SUPPORT_MEASURE_REQUEST");
+        submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + second + "/submit", Map.of("selections", carolChosen)));
+        assertThat(stageStates(ok(decide(company.carol, stepOf(submitted, company.carol), "APPROVE", null))))
+                .as("необязательный одобрил, обязательный ещё нет").containsExactly("ACTIVE", "WAITING");
+        assertThat(stageStates(ok(decide(company.erin, stepOf(submitted, company.erin), "APPROVE", null))))
+                .containsExactly("DONE", "ACTIVE");
+    }
+
+    @Test
+    void optionalRoleWithNoHolderIsSkippedAndTheStageClosesOnTheOthers() throws Exception {
+        jdbc.update("delete from member_role where role_id = ?", company.roles.get("LAWYER"));
+        long support = createDocument(company.frank, "SUPPORT_MEASURE_REQUEST");
+
+        JsonNode preview = ok(call(company.frank, "GET", "/api/v1/documents/" + support + "/route-preview", null));
+        assertThat(preview.path("stages").get(0).path("participants").get(0).path("resolution").asText()).isEqualTo("SKIPPED");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit", null));
+        assertThat(count("approval_step")).as("Эрин и Алиса, шага юриста нет").isEqualTo(2);
+
+        assertThat(stageStates(ok(decide(company.erin, stepOf(submitted, company.erin), "APPROVE", null))))
+                .containsExactly("DONE", "ACTIVE");
+    }
+
+    @Test
+    void personWithoutCompanyCannotTellAnExistingDocumentFromAMissingOne() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        Person outsider = newUser();
+
+        for (String tail : List.of("/submit", "/route-preview")) {
+            Resp existing = call(outsider, tail.equals("/submit") ? "POST" : "GET", "/api/v1/documents/" + memo + tail, null);
+            Resp missing = call(outsider, tail.equals("/submit") ? "POST" : "GET", "/api/v1/documents/987654321" + tail, null);
+            assertThat(existing.status()).as(tail).isEqualTo(403);
+            assertThat(missing.status()).as(tail).isEqualTo(403);
+            assertThat(existing.body()).as("ответы неотличимы").isEqualTo(missing.body());
+        }
+        assertThat(status(memo)).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void firstRequestsFromTwoDocumentsCreateTheDefaultRouteOnceAndBothSucceed() throws Exception {
+        long docA = createDocument(company.frank, "OFFICIAL_MEMO");
+        long docB = createDocument(company.frank, "OFFICIAL_MEMO");
+        long orgId = jdbc.queryForObject("select id from organization limit 1", Long.class);
+        long typeId = jdbc.queryForObject("select id from document_type where code = 'OFFICIAL_MEMO'", Long.class);
+        List<Map<String, Object>> template = jdbc.queryForList("select stage_order, role_id, is_mandatory from approval_route"
+                + " where org_id = ? and document_type_id = ? order by stage_order, id", orgId, typeId);
+        assertThat(template).hasSize(2);
+        jdbc.update("delete from approval_route where org_id = ? and document_type_id = ?", orgId, typeId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        // «другая транзакция» уже вставила маршрут, но ещё не зафиксировала: обе проверки «маршрута нет» это не видят
+        try (Connection other = dataSource.getConnection()) {
+            other.setAutoCommit(false);
+            for (Map<String, Object> row : template) {
+                try (PreparedStatement insert = other.prepareStatement("insert into approval_route"
+                        + " (org_id, document_type_id, stage_order, role_id, is_mandatory) values (?, ?, ?, ?, ?)")) {
+                    insert.setLong(1, orgId);
+                    insert.setLong(2, typeId);
+                    insert.setInt(3, ((Number) row.get("stage_order")).intValue());
+                    insert.setLong(4, ((Number) row.get("role_id")).longValue());
+                    insert.setBoolean(5, (Boolean) row.get("is_mandatory"));
+                    insert.executeUpdate();
+                }
+            }
+            Future<Resp> first = pool.submit(() -> call(company.frank, "GET", "/api/v1/documents/" + docA + "/route-preview", null));
+            Future<Resp> second = pool.submit(() -> call(company.frank, "GET", "/api/v1/documents/" + docB + "/route-preview", null));
+            waitForBlockedSessions(2);
+            other.commit();
+
+            for (Future<Resp> response : List.of(first, second)) {
+                Resp resp = response.get(20, TimeUnit.SECONDS);
+                assertThat(resp.status()).as(resp.body()).isEqualTo(200);
+                assertThat(resp.json().path("stages")).hasSize(2);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject("select count(*) from approval_route where org_id = ? and document_type_id = ?",
+                Integer.class, orgId, typeId)).isEqualTo(2);
+    }
+
+    @Test
+    void routeMissingForAnEmptyCompanyIsCreatedOnFirstPreviewAndSubmitStillWorks() throws Exception {
+        long orgId = jdbc.queryForObject("select id from organization limit 1", Long.class);
+        jdbc.update("delete from approval_route where org_id = ?", orgId);
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+
+        ok(call(company.frank, "GET", "/api/v1/documents/" + memo + "/route-preview", null));
+        assertThat(jdbc.queryForObject("select count(*) from approval_route where org_id = ?", Integer.class, orgId))
+                .as("маршруты по умолчанию всех четырёх типов: 2 + 2 + 3 + 1").isEqualTo(8);
+        assertThat(count("approval_step")).as("предпросмотр шагов не создаёт").isZero();
+        assertThat(status(memo)).isEqualTo("DRAFT");
+        assertThat(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null).status()).isEqualTo(200);
+    }
+
+    @Test
+    void commentLengthIsMeasuredAfterTrimmingAndABlankCommentIsMissingNotTooLong() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null));
+        long bobStep = stepOf(submitted, company.bob);
+        String limit = "я".repeat(2000);
+
+        Resp tooLong = decide(company.bob, bobStep, "RETURN", limit + "я");
+        assertThat(tooLong.status()).isEqualTo(400);
+        assertThat(tooLong.code()).isEqualTo("VALIDATION_FAILED");
+        Resp blank = decide(company.bob, bobStep, "RETURN", " ".repeat(5000));
+        assertThat(blank.status()).isEqualTo(400);
+        assertThat(blank.code()).isEqualTo("COMMENT_REQUIRED");
+        assertThat(stepDecisions(memo)).containsExactly("PENDING", "PENDING");
+
+        ok(decide(company.bob, bobStep, "RETURN", "  " + limit + "  "));
+        assertThat(jdbc.queryForObject("select length(comment) from approval_step where id = ?", Integer.class, bobStep))
+                .isEqualTo(2000);
+    }
+
     // ============ вспомогательное: гонка ============
 
     private record Race(long documentId, Resp carol, Resp erin) {

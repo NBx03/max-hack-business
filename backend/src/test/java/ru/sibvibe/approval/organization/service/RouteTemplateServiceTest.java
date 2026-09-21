@@ -1,27 +1,25 @@
 package ru.sibvibe.approval.organization.service;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import ru.sibvibe.approval.organization.DocumentTypeDirectory;
-import ru.sibvibe.approval.organization.entity.ApprovalRoute;
 import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.Role;
 import ru.sibvibe.approval.organization.repository.ApprovalRouteRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RouteTemplateServiceTest {
@@ -34,6 +32,17 @@ class RouteTemplateServiceTest {
     private final DocumentTypeDirectory directory = mock(DocumentTypeDirectory.class);
     private final RouteTemplateService service = new RouteTemplateService(
             routeRepository, roleRepository, organizationRepository, directory);
+    /** Строки, которые сервис пытался вставить, в порядке вставки. */
+    private final List<InsertedRoute> inserted = new ArrayList<>();
+
+    @BeforeEach
+    void recordInserts() {
+        when(routeRepository.insertIfAbsent(anyLong(), anyLong(), anyInt(), anyLong(), anyBoolean())).thenAnswer(call -> {
+            inserted.add(new InsertedRoute(call.getArgument(0), call.getArgument(1), call.getArgument(2),
+                    call.getArgument(3), call.getArgument(4)));
+            return 1;
+        });
+    }
 
     @Test
     void createsConservativeRoutesOnlyForTypesThatExist() {
@@ -44,13 +53,13 @@ class RouteTemplateServiceTest {
         int created = service.createDefaultRoutes(ORG, roleIds());
 
         assertThat(created).isEqualTo(3);
-        List<ApprovalRoute> routes = savedRoutes(3);
+        List<InsertedRoute> routes = savedRoutes(3);
         // служебная записка: руководитель отдела (необязательно) -> директор
         assertRoute(routes, 100, 1, DefaultRoles.DEPARTMENT_HEAD, false);
         assertRoute(routes, 100, 2, DefaultRoles.DIRECTOR, true);
         // любой файл: директор
         assertRoute(routes, 400, 1, DefaultRoles.DIRECTOR, true);
-        assertThat(routes).allSatisfy(route -> assertThat(route.getOrgId()).isEqualTo(ORG));
+        assertThat(routes).allSatisfy(route -> assertThat(route.orgId()).isEqualTo(ORG));
     }
 
     @Test
@@ -59,7 +68,7 @@ class RouteTemplateServiceTest {
 
         service.createDefaultRoutes(ORG, roleIds());
 
-        List<ApprovalRoute> routes = savedRoutes(3);
+        List<InsertedRoute> routes = savedRoutes(3);
         assertRoute(routes, 300, 1, DefaultRoles.LAWYER, false);
         assertRoute(routes, 300, 1, DefaultRoles.ACCOUNTANT, false);
         assertRoute(routes, 300, 2, DefaultRoles.DIRECTOR, true);
@@ -83,7 +92,29 @@ class RouteTemplateServiceTest {
         when(routeRepository.existsByOrgIdAndDocumentTypeId(ORG, 400L)).thenReturn(true);
 
         assertThat(service.createDefaultRoutes(ORG, roleIds())).isZero();
-        verify(routeRepository, never()).save(any());
+        assertThat(inserted).isEmpty();
+    }
+
+    @Test
+    void routeAlreadyCreatedByAParallelTransactionIsNotAnError() {
+        // проигравшая гонку вставка получает 0 строк вместо нарушения уникальности: ничего не создано, но и не упало
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of(DefaultRouteTemplates.GENERIC, 400L));
+        when(routeRepository.insertIfAbsent(anyLong(), anyLong(), anyInt(), anyLong(), anyBoolean())).thenReturn(0);
+
+        assertThat(service.createDefaultRoutes(ORG, roleIds())).isZero();
+    }
+
+    @Test
+    void typesAreInsertedInAFixedOrderSoParallelTransactionsWaitForEachOtherInsteadOfDeadlocking() {
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of(
+                DefaultRouteTemplates.OFFICIAL_MEMO, 100L, DefaultRouteTemplates.VACATION_REQUEST, 200L,
+                DefaultRouteTemplates.SUPPORT_MEASURE_REQUEST, 300L, DefaultRouteTemplates.GENERIC, 400L));
+
+        service.createDefaultRoutes(ORG, roleIds());
+
+        // GENERIC < OFFICIAL_MEMO < SUPPORT_MEASURE_REQUEST < VACATION_REQUEST
+        assertThat(inserted).extracting(InsertedRoute::typeId)
+                .containsExactly(400L, 100L, 100L, 300L, 300L, 300L, 200L, 200L);
     }
 
     @Test
@@ -101,7 +132,7 @@ class RouteTemplateServiceTest {
 
         // роли «Руководитель отдела» в компании нет, поэтому создан только этап директора
         assertThat(created).isEqualTo(1);
-        verify(routeRepository, times(1)).save(any());
+        assertThat(inserted).hasSize(1);
     }
 
     @Test
@@ -117,9 +148,9 @@ class RouteTemplateServiceTest {
         when(routeRepository.existsByOrgIdAndDocumentTypeId(8L, 400L)).thenReturn(true);
 
         assertThat(service.backfillAllOrganizations()).isEqualTo(1);
-        List<ApprovalRoute> saved = savedRoutes(1);
-        assertThat(saved.getFirst().getOrgId()).isEqualTo(7L);
-        assertThat(saved.getFirst().getRoleId()).isEqualTo(11L);
+        List<InsertedRoute> saved = savedRoutes(1);
+        assertThat(saved.getFirst().orgId()).isEqualTo(7L);
+        assertThat(saved.getFirst().roleId()).isEqualTo(11L);
     }
 
     @Test
@@ -129,7 +160,7 @@ class RouteTemplateServiceTest {
         when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
 
         assertThat(service.backfillAllOrganizations()).isZero();
-        verify(routeRepository, never()).save(any());
+        assertThat(inserted).isEmpty();
     }
 
     private Organization org(long id) {
@@ -157,19 +188,21 @@ class RouteTemplateServiceTest {
         return ids;
     }
 
-    private List<ApprovalRoute> savedRoutes(int expected) {
-        ArgumentCaptor<ApprovalRoute> captor = ArgumentCaptor.forClass(ApprovalRoute.class);
-        verify(routeRepository, times(expected)).save(captor.capture());
-        return captor.getAllValues();
+    private List<InsertedRoute> savedRoutes(int expected) {
+        assertThat(inserted).hasSize(expected);
+        return inserted;
     }
 
-    private void assertRoute(List<ApprovalRoute> routes, long typeId, int stage, String roleCode, boolean mandatory) {
+    private void assertRoute(List<InsertedRoute> routes, long typeId, int stage, String roleCode, boolean mandatory) {
         long roleId = roleIds().get(roleCode);
         assertThat(routes).anySatisfy(route -> {
-            assertThat(route.getDocumentTypeId()).isEqualTo(typeId);
-            assertThat(route.getStageOrder()).isEqualTo(stage);
-            assertThat(route.getRoleId()).isEqualTo(roleId);
-            assertThat(route.isMandatory()).isEqualTo(mandatory);
+            assertThat(route.typeId()).isEqualTo(typeId);
+            assertThat(route.stageOrder()).isEqualTo(stage);
+            assertThat(route.roleId()).isEqualTo(roleId);
+            assertThat(route.mandatory()).isEqualTo(mandatory);
         });
+    }
+
+    private record InsertedRoute(long orgId, long typeId, int stageOrder, long roleId, boolean mandatory) {
     }
 }

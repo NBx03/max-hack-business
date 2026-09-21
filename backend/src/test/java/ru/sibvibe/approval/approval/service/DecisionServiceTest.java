@@ -13,7 +13,7 @@ import ru.sibvibe.approval.approval.repository.ApprovalStepRepository;
 import ru.sibvibe.approval.common.api.DomainException;
 import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.service.DocumentState;
 import ru.sibvibe.approval.document.service.DocumentStateService;
 import ru.sibvibe.approval.document.service.DocumentStateService.DocumentSnapshot;
 
@@ -147,6 +147,32 @@ class DecisionServiceTest {
     }
 
     @Test
+    void commentLengthIsCheckedAfterTrimmingAndABlankOneIsNotALongOne() {
+        ApprovalStep mine = pending(1, 1, ME);
+        givenInApproval(1, mine);
+        String limit = "я".repeat(2000);
+
+        // пробелы по краям не считаются: ровно 2000 полезных символов проходят
+        service.decide(user(), 1, new DecisionRequest(Action.RETURN, " \t" + limit + "\n "));
+        assertThat(mine.getComment()).isEqualTo(limit);
+
+        ApprovalStep other = pending(1, 1, ME);
+        givenInApproval(1, other);
+        assertThatThrownBy(() -> service.decide(user(), 1, new DecisionRequest(Action.RETURN, limit + "я")))
+                .isInstanceOfSatisfying(DomainException.class, e -> {
+                    assertThat(e.code()).isEqualTo("VALIDATION_FAILED");
+                    assertThat(e.httpStatus().value()).isEqualTo(400);
+                });
+        // длинная строка из одних пробелов — это отсутствие комментария, а не «слишком длинный»
+        assertThatThrownBy(() -> service.decide(user(), 1, new DecisionRequest(Action.RETURN, " ".repeat(5000))))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("COMMENT_REQUIRED"));
+        // и у согласования комментарий необязателен, но предел тот же
+        assertThatThrownBy(() -> service.decide(user(), 1, new DecisionRequest(Action.APPROVE, limit + "я")))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("VALIDATION_FAILED"));
+        assertThat(other.getDecision()).isEqualTo(Decision.PENDING);
+    }
+
+    @Test
     void repeatingTheSameDecisionIsHarmless() {
         ApprovalStep mine = pending(1, 1, ME);
         mine.setDecision(Decision.APPROVED);
@@ -164,7 +190,7 @@ class DecisionServiceTest {
     void stepSkippedByAnotherApproversReturnExplainsWhy() {
         ApprovalStep mine = pending(1, 1, ME);
         mine.setDecision(Decision.SKIPPED);
-        givenDocument(Document.Status.RETURNED, null, mine);
+        givenDocument(DocumentState.RETURNED, null, mine);
 
         assertThatThrownBy(() -> service.decide(user(), 1, approve()))
                 .isInstanceOfSatisfying(DomainException.class, e -> {
@@ -184,7 +210,7 @@ class DecisionServiceTest {
 
         ApprovalStep skipped = pending(1, 1, ME);
         skipped.setDecision(Decision.SKIPPED);
-        givenDocument(Document.Status.REJECTED, null, skipped);
+        givenDocument(DocumentState.REJECTED, null, skipped);
         assertThatThrownBy(() -> service.decide(user(), 1, approve()))
                 .hasMessage("Документ уже отклонён");
     }
@@ -203,12 +229,12 @@ class DecisionServiceTest {
     void stepOfAnOlderVersionOrOfANonActiveDocumentIsNotActive() {
         ApprovalStep old = pending(1, 1, ME);
         old.setVersionNo(1);
-        givenDocument(Document.Status.IN_APPROVAL, 1, 2, old);
+        givenDocument(DocumentState.IN_APPROVAL, 1, 2, old);
         assertThatThrownBy(() -> service.decide(user(), 1, approve()))
                 .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("STEP_NOT_ACTIVE"));
 
         ApprovalStep draftStep = pending(1, 1, ME);
-        givenDocument(Document.Status.DRAFT, null, draftStep);
+        givenDocument(DocumentState.DRAFT, null, draftStep);
         assertThatThrownBy(() -> service.decide(user(), 1, approve()))
                 .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("STEP_NOT_ACTIVE"));
     }
@@ -233,14 +259,14 @@ class DecisionServiceTest {
     // ---------- вспомогательное ----------
 
     private void givenInApproval(int currentStage, ApprovalStep... all) {
-        givenDocument(Document.Status.IN_APPROVAL, currentStage, 1, all);
+        givenDocument(DocumentState.IN_APPROVAL, currentStage, 1, all);
     }
 
-    private void givenDocument(Document.Status status, Integer currentStage, ApprovalStep... all) {
+    private void givenDocument(DocumentState status, Integer currentStage, ApprovalStep... all) {
         givenDocument(status, currentStage, 1, all);
     }
 
-    private void givenDocument(Document.Status status, Integer currentStage, int versionNo, ApprovalStep... all) {
+    private void givenDocument(DocumentState status, Integer currentStage, int versionNo, ApprovalStep... all) {
         version.clear();
         version.addAll(List.of(all));
         ApprovalStep target = all[0];

@@ -12,7 +12,7 @@ import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.service.DocumentState;
 import ru.sibvibe.approval.document.service.DocumentStateService;
 import ru.sibvibe.approval.document.service.DocumentStateService.DocumentSnapshot;
 import ru.sibvibe.approval.organization.service.RoleService;
@@ -66,7 +66,7 @@ public class SubmissionService {
     public void submit(CurrentUser user, long documentId, SubmitRequest request) {
         DocumentSnapshot document = documents.lockForAuthor(
                 documentId, user, "Отправить документ на согласование может только автор");
-        if (document.status() != Document.Status.DRAFT) {
+        if (document.status() != DocumentState.DRAFT) {
             throw ApprovalErrors.invalidState("Отправить можно только черновик");
         }
         documents.submissionBlocker(documentId, document.currentVersionNo()).ifPresent(reason -> {
@@ -82,7 +82,7 @@ public class SubmissionService {
                 });
 
         Map<StageRole, Long> chosen = validateSelections(route, request.selectionsOrEmpty());
-        List<Extra> extras = validateExtras(document, route, request.extraApproversOrEmpty());
+        List<Assignment> extras = validateExtras(document, route, chosen, request.extraApproversOrEmpty());
 
         Instant now = clock.instant();
         List<ApprovalStep> planned = buildSteps(document, route, chosen, extras, now);
@@ -153,14 +153,21 @@ public class SubmissionService {
 
     /**
      * Добавленный согласующий (SHOULD) согласует в роли: он активный носитель этой роли и не автор. Этап должен
-     * существовать в шаблоне: маршрут только расширяется внутри своих этапов и никогда не урезается.
+     * существовать в шаблоне: маршрут только расширяется внутри своих этапов и никогда не урезается. Тот, кто уже
+     * стоит в маршруте той же ролью на том же этапе (подставлен автоматически или выбран автором), «добавленным»
+     * быть не может: маршрут от этого не вырос бы, а этап ждал бы одного человека дважды.
      */
-    private List<Extra> validateExtras(DocumentSnapshot document, RouteResolver.ResolvedRoute route, List<SubmitRequest.Choice> extras) {
+    private List<Assignment> validateExtras(
+            DocumentSnapshot document,
+            RouteResolver.ResolvedRoute route,
+            Map<StageRole, Long> chosen,
+            List<SubmitRequest.Choice> extras
+    ) {
         Set<Integer> stageOrders = route.stages().stream().map(RouteResolver.Stage::stageOrder).collect(Collectors.toSet());
         Set<Long> roleIds = extras.stream().map(SubmitRequest.Choice::roleId).collect(Collectors.toSet());
         Map<Long, RoleRef> knownRoles = roles.rolesById(document.orgId(), roleIds);
-        Set<String> seen = new HashSet<>();
-        List<Extra> result = new ArrayList<>();
+        Set<Assignment> taken = templateAssignments(route, chosen);
+        List<Assignment> result = new ArrayList<>();
         for (SubmitRequest.Choice extra : extras) {
             if (!stageOrders.contains(extra.stageOrder()) || !knownRoles.containsKey(extra.roleId())) {
                 throw new NotFoundException();
@@ -172,19 +179,39 @@ public class SubmissionService {
             if (carriers.stream().noneMatch(user -> user.id() == extra.userId())) {
                 throw new NotFoundException();
             }
-            if (!seen.add(extra.stageOrder() + ":" + extra.roleId() + ":" + extra.userId())) {
-                throw ApprovalErrors.validation("Этот согласующий добавлен дважды");
+            Assignment assignment = new Assignment(extra.stageOrder(), extra.roleId(), extra.userId());
+            if (!taken.add(assignment)) {
+                throw ApprovalErrors.validation("Этот согласующий уже есть в маршруте на этом этапе");
             }
-            result.add(new Extra(extra.stageOrder(), extra.roleId(), extra.userId()));
+            result.add(assignment);
         }
         return result;
+    }
+
+    /** Кто из шаблона уже назначен: подставленные автоматически и выбранные автором. */
+    private static Set<Assignment> templateAssignments(RouteResolver.ResolvedRoute route, Map<StageRole, Long> chosen) {
+        Set<Assignment> assigned = new HashSet<>();
+        for (RouteResolver.Stage stage : route.stages()) {
+            for (RouteResolver.Participant participant : stage.participants()) {
+                long roleId = participant.role().id();
+                Long userId = switch (participant.resolution()) {
+                    case AUTO -> participant.selectedUserId();
+                    case SELECT -> chosen.get(new StageRole(stage.stageOrder(), roleId));
+                    case SKIPPED, AUTHOR_HOLDS_ROLE -> null;
+                };
+                if (userId != null) {
+                    assigned.add(new Assignment(stage.stageOrder(), roleId, userId));
+                }
+            }
+        }
+        return assigned;
     }
 
     private List<ApprovalStep> buildSteps(
             DocumentSnapshot document,
             RouteResolver.ResolvedRoute route,
             Map<StageRole, Long> chosen,
-            List<Extra> extras,
+            List<Assignment> extras,
             Instant now
     ) {
         List<ApprovalStep> planned = new ArrayList<>();
@@ -210,7 +237,7 @@ public class SubmissionService {
                             chosen.get(new StageRole(stage.stageOrder(), roleId)), ApprovalStep.Origin.TEMPLATE, now));
                 }
             }
-            for (Extra extra : extras) {
+            for (Assignment extra : extras) {
                 if (extra.stageOrder() == stage.stageOrder()) {
                     planned.add(step(document, stage.stageOrder(), extra.roleId(), extra.userId(),
                             ApprovalStep.Origin.ADDED_BY_AUTHOR, now));
@@ -239,6 +266,7 @@ public class SubmissionService {
     private record StageRole(int stageOrder, long roleId) {
     }
 
-    private record Extra(int stageOrder, long roleId, long userId) {
+    /** Кто согласует на этапе в какой роли. */
+    private record Assignment(int stageOrder, long roleId, long userId) {
     }
 }

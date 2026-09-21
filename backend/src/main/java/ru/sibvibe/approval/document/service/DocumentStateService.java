@@ -47,11 +47,13 @@ public class DocumentStateService {
     }
 
     /**
-     * Блокирует документ и проверяет, что вызывающий — его автор. Чужой документ выглядит несуществующим (404);
-     * тот, кто документ видит, но не автор, получает 403 (ARCHITECTURE.md; те же правила, что у новой версии).
+     * Блокирует документ и проверяет, что вызывающий — его автор. Сначала — членство в компании (без неё 403 на любой
+     * id, чтобы по ответу нельзя было узнать, существует ли документ), затем документ: чужой выглядит несуществующим
+     * (404), а тот, кто его видит, но не автор, получает 403 (ARCHITECTURE.md; те же правила, что у новой версии).
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public DocumentSnapshot lockForAuthor(long documentId, CurrentUser user, String forbiddenMessage) {
+        requireMember(user);
         Document document = documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
         requireAuthor(document, user, forbiddenMessage);
         return snapshot(document);
@@ -60,6 +62,7 @@ public class DocumentStateService {
     /** То же без блокировки: для предпросмотра, который ничего не меняет. */
     @Transactional(readOnly = true)
     public DocumentSnapshot authorSnapshot(long documentId, CurrentUser user, String forbiddenMessage) {
+        requireMember(user);
         Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
         requireAuthor(document, user, forbiddenMessage);
         return snapshot(document);
@@ -147,10 +150,13 @@ public class DocumentStateService {
         document.setUpdatedAt(clock.instant());
     }
 
-    private void requireAuthor(Document document, CurrentUser user, String forbiddenMessage) {
+    private static void requireMember(CurrentUser user) {
         if (user.orgId() == null || user.memberId() == null) {
             throw DocumentApiException.forbidden("Для работы с документами нужно состоять в компании");
         }
+    }
+
+    private void requireAuthor(Document document, CurrentUser user, String forbiddenMessage) {
         if (!document.getOrgId().equals(user.orgId())) {
             throw new NotFoundException();
         }
@@ -164,7 +170,7 @@ public class DocumentStateService {
 
     private static DocumentSnapshot snapshot(Document document) {
         return new DocumentSnapshot(document.getId(), document.getOrgId(), document.getAuthorId(),
-                document.getDocumentTypeId(), document.getStatus(), document.getCurrentVersionNo(),
+                document.getDocumentTypeId(), DocumentState.of(document.getStatus()), document.getCurrentVersionNo(),
                 document.getCurrentStage());
     }
 
@@ -174,7 +180,7 @@ public class DocumentStateService {
             long orgId,
             long authorId,
             long documentTypeId,
-            Document.Status status,
+            DocumentState status,
             int currentVersionNo,
             Integer currentStage
     ) {

@@ -16,12 +16,14 @@ import ru.sibvibe.approval.document.repository.DocumentVersionRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Переходы по таблице «Состояния документа» и доступ автора (ARCHITECTURE.md, разделы 2 и 4). */
@@ -122,10 +124,32 @@ class DocumentStateServiceTest {
     }
 
     @Test
+    void personWithoutCompanyGetsTheSameAnswerForExistingAndMissingDocuments() {
+        // членство проверяется до поиска документа: по ответу не понять, есть ли документ с таким id
+        for (long id : new long[]{DOC, 424242}) {
+            assertThatThrownBy(() -> service.lockForAuthor(id, userWithoutCompany(), "нельзя"))
+                    .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("FORBIDDEN"));
+            assertThatThrownBy(() -> service.authorSnapshot(id, userWithoutCompany(), "нельзя"))
+                    .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("FORBIDDEN"));
+        }
+        verifyNoInteractions(documents, reads);
+    }
+
+    @Test
+    void documentStateMirrorsTheStatusesOfTheEntity() {
+        // approval видит только DocumentState: добавили статус в таблицу документа — он обязан появиться и здесь
+        assertThat(Arrays.stream(DocumentState.values()).map(Enum::name))
+                .containsExactlyElementsOf(Arrays.stream(Document.Status.values()).map(Enum::name).toList());
+        for (Document.Status status : Document.Status.values()) {
+            assertThat(DocumentState.of(status).name()).isEqualTo(status.name());
+        }
+    }
+
+    @Test
     void decisionLockRejectsADocumentOfAnotherCompany() {
         givenDocument(Document.Status.IN_APPROVAL);
 
-        assertThat(service.lockInOrg(DOC, ORG).status()).isEqualTo(Document.Status.IN_APPROVAL);
+        assertThat(service.lockInOrg(DOC, ORG).status()).isEqualTo(DocumentState.IN_APPROVAL);
         assertThatThrownBy(() -> service.lockInOrg(DOC, 999)).isInstanceOf(NotFoundException.class);
     }
 

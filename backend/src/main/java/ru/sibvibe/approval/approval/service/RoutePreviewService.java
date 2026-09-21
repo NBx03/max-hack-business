@@ -4,7 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.approval.dto.RoutePreviewResponse;
 import ru.sibvibe.approval.common.security.CurrentUser;
-import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.service.DocumentState;
 import ru.sibvibe.approval.document.service.DocumentStateService;
 import ru.sibvibe.approval.document.service.DocumentStateService.DocumentSnapshot;
 
@@ -31,7 +31,7 @@ public class RoutePreviewService {
     public RoutePreviewResponse preview(CurrentUser user, long documentId) {
         DocumentSnapshot document = documents.authorSnapshot(
                 documentId, user, "Маршрут перед отправкой показывается только автору");
-        if (document.status() != Document.Status.DRAFT) {
+        if (document.status() != DocumentState.DRAFT) {
             throw ApprovalErrors.invalidState("Предпросмотр доступен только у черновика");
         }
         RouteResolver.ResolvedRoute route = planner.plan(document.orgId(), document.documentTypeId(), document.authorId());
