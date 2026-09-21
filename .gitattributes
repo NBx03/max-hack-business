@@ -11,6 +11,7 @@
 *.pdf binary
 *.docx binary
 *.xlsx binary
+*.ttf binary
 *.jar binary
 *.woff binary
 *.woff2 binary

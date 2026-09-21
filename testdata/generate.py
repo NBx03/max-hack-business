@@ -5,16 +5,25 @@
 которого не существует, поэтому совпасть с настоящей организацией не может.
 
 Запуск из корня репозитория:
-    pip install python-docx==1.2.0 reportlab==5.0.1
-    python testdata/generate.py
+    pip install -r testdata/requirements.txt
+    python testdata/generate.py           # перегенерировать файлы
+    python testdata/generate.py --check   # проверить, что файлы в репозитории актуальны (CI)
 
-Скрипт перед записью файлов проверяет ожидаемые замечания той же логикой,
-что у DefaultRuleEngine (пустое значение проверяет только REQUIRED, дата —
-строгий разбор по шаблону, шаблон — совпадение всей строки). Расхождение —
-ошибка генерации, а не документа.
+Генерация воспроизводима: шрифт лежит в testdata/fonts, время внутри DOCX
+фиксировано, PDF пишется без сжатия потоков, поэтому его байты не зависят
+от версии zlib. DOCX в --check сравнивается по распакованному содержимому:
+сжатие zip может отличаться между платформами, а содержимое — нет.
+
+Источник истины для замечаний — Java-тест TestdataRulesTest с настоящим
+DefaultRuleEngine. Здесь лишь предварительная проверка подмножества его логики
+(REQUIRED, dd.MM.uuuu, совпадение всей строки с шаблоном, длина, ONE_OF),
+чтобы ошибка в данных всплывала сразу при генерации.
 """
 import json
 import re
+import sys
+import tempfile
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
 
@@ -29,26 +38,23 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTDATA = ROOT / "testdata"
-DOCUMENTS = TESTDATA / "documents"
+FONT = TESTDATA / "fonts" / "DejaVuSans.ttf"
 RULES = json.loads((TESTDATA / "rules.json").read_text(encoding="utf-8"))
 
-# Дата, относительно которой считаются ожидаемые замечания DATE_NOT_FUTURE.
-# Тесты движка передают её в ValidationContext, а не берут часы машины.
+# «Сегодня» для DATE_NOT_FUTURE. Тесты движка передают её в ValidationContext.
 REFERENCE_DATE = date(2026, 9, 21)
-
-FOOTER = "Синтетический тестовый документ. Все имена, организации и реквизиты вымышлены."
 FIXED_TIME = datetime(2026, 9, 21, 12, 0, 0)
+FOOTER = "Синтетический тестовый документ. Все имена, организации и реквизиты вымышлены."
 
-# Шрифт с кириллицей, свободная лицензия. Ищется в системе; в репозиторий не кладётся.
-FONT_CANDIDATES = [
-    Path("C:/Windows/Fonts/DejaVuSans.ttf"),
-    Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-    Path("/Library/Fonts/DejaVuSans.ttf"),
-]
+
+class GenerationError(Exception):
+    """Данные противоречат правилам или файлы в репозитории устарели."""
+
 
 # ---------------------------------------------------------------------------
-# Документы. lines — строки документа по порядку; fields — что должно получиться
-# после идеального извлечения; issues — какие правила обязаны сработать.
+# Документы. lines — строки по порядку; fields — результат идеального извлечения;
+# normalized — поля, чьё значение приведено к нужной форме и дословно в тексте
+# отсутствует (падеж); issues — коды правил, которые обязаны сработать.
 # ---------------------------------------------------------------------------
 
 MEMO_BODY = (
@@ -56,6 +62,22 @@ MEMO_BODY = (
     "закупку пяти ноутбуков для новых сотрудников. Ориентировочная стоимость — "
     "450 000 рублей, средства предусмотрены бюджетом отдела на IV квартал."
 )
+SUPPORT_DECLARATIONS = [
+    ("", "Заявитель подтверждает, что не является кредитной организацией, страховой "
+         "организацией, инвестиционным фондом, негосударственным пенсионным фондом, "
+         "профессиональным участником рынка ценных бумаг, ломбардом, участником "
+         "соглашения о разделе продукции, не осуществляет деятельность в сфере "
+         "игорного бизнеса и не является нерезидентом Российской Федерации."),
+    ("", "Заявитель подтверждает, что аналогичная поддержка ему ранее не оказывалась."),
+]
+VACATION_HEAD = [
+    ("right", "Генеральному директору ООО «Демо-компания» Орлову В.П."),
+    ("right", "от менеджера по продажам Кузнецова Игоря Олеговича"),
+    ("", ""),
+    ("bold", "ЗАЯВЛЕНИЕ"),
+    ("", ""),
+]
+VACATION_NORMALIZED = ["employee_name", "employee_position"]
 
 DOCS = [
     {
@@ -85,6 +107,7 @@ DOCS = [
             "signer_position": "Руководитель отдела продаж",
             "signer_name": "А.С. Петрова",
         },
+        "normalized": [],
         "issues": [],
     },
     {
@@ -111,6 +134,7 @@ DOCS = [
             "signer_position": "Руководитель отдела продаж",
             "signer_name": "Анна Петрова",
         },
+        "normalized": [],
         "issues": ["M1", "M4", "M6", "M10"],
     },
     {
@@ -141,18 +165,14 @@ DOCS = [
             "body": "Прошу возместить расходы.",
             "signer_name": "Д.В. Смирнов",
         },
+        "normalized": [],
         "issues": ["M3", "M4", "M5", "M8", "M9"],
     },
     {
         "file": "04_vacation_ok.docx",
         "type": "VACATION_REQUEST",
         "about": "Заявление на отпуск без замечаний.",
-        "lines": [
-            ("right", "Генеральному директору ООО «Демо-компания» Орлову В.П."),
-            ("right", "от менеджера по продажам Кузнецова Игоря Олеговича"),
-            ("", ""),
-            ("bold", "ЗАЯВЛЕНИЕ"),
-            ("", ""),
+        "lines": VACATION_HEAD + [
             ("", "Прошу предоставить мне ежегодный оплачиваемый отпуск с 01.10.2026 "
                  "продолжительностью 14 календарных дней."),
             ("", ""),
@@ -165,18 +185,14 @@ DOCS = [
             "start_date": "01.10.2026",
             "days_count": "14",
         },
+        "normalized": VACATION_NORMALIZED,
         "issues": [],
     },
     {
         "file": "05_vacation_errors.pdf",
         "type": "VACATION_REQUEST",
         "about": "PDF. Учебный отпуск, дата начала без года, дни словами.",
-        "lines": [
-            ("right", "Генеральному директору ООО «Демо-компания» Орлову В.П."),
-            ("right", "от менеджера по продажам Кузнецова Игоря Олеговича"),
-            ("", ""),
-            ("bold", "ЗАЯВЛЕНИЕ"),
-            ("", ""),
+        "lines": VACATION_HEAD + [
             ("", "Прошу предоставить мне учебный отпуск с 1 октября "
                  "продолжительностью двадцать восемь календарных дней."),
             ("", ""),
@@ -189,6 +205,7 @@ DOCS = [
             "start_date": "1 октября",
             "days_count": "двадцать восемь",
         },
+        "normalized": VACATION_NORMALIZED,
         "issues": ["V2", "V4", "V5"],
     },
     {
@@ -205,14 +222,7 @@ DOCS = [
             ("", "Категория субъекта МСП: малое предприятие"),
             ("", "Вид поддержки: консультационная поддержка по вопросам бухгалтерского учёта"),
             ("", ""),
-            ("", "Заявитель подтверждает, что не является кредитной организацией, страховой "
-                 "организацией, инвестиционным фондом, негосударственным пенсионным фондом, "
-                 "профессиональным участником рынка ценных бумаг, ломбардом, участником "
-                 "соглашения о разделе продукции, не осуществляет деятельность в сфере "
-                 "игорного бизнеса и не является нерезидентом Российской Федерации."),
-            ("", "Заявитель подтверждает, что аналогичная поддержка ему ранее не оказывалась."),
-            ("", ""),
-            ("", "Приложения: 1. Описание запроса на консультацию; 2. Копия доверенности представителя."),
+            *SUPPORT_DECLARATIONS,
             ("", ""),
             ("", "Генеральный директор        В.П. Орлов        15.09.2026"),
         ],
@@ -221,22 +231,14 @@ DOCS = [
             "applicant_inn": "0012345678",
             "smb_category": "малое предприятие",
             "support_type": "консультационная поддержка по вопросам бухгалтерского учёта",
-            "exclusions_declaration": (
-                "Заявитель подтверждает, что не является кредитной организацией, страховой "
-                "организацией, инвестиционным фондом, негосударственным пенсионным фондом, "
-                "профессиональным участником рынка ценных бумаг, ломбардом, участником "
-                "соглашения о разделе продукции, не осуществляет деятельность в сфере "
-                "игорного бизнеса и не является нерезидентом Российской Федерации."
-            ),
-            "no_similar_support_declaration": "Заявитель подтверждает, что аналогичная поддержка ему ранее не оказывалась.",
-            "attachments_list": "Описание запроса на консультацию; Копия доверенности представителя",
         },
+        "normalized": [],
         "issues": [],
     },
     {
         "file": "07_support_errors.docx",
         "type": "SUPPORT_MEASURE_REQUEST",
-        "about": "ИНН из 9 цифр, форма вместо категории, нет заявления об аналогичной поддержке и перечня приложений.",
+        "about": "Не указан вид поддержки, ИНН из 9 цифр, форма вместо категории МСП.",
         "lines": [
             ("right", "В центр поддержки предпринимательства (вымышленный)"),
             ("", ""),
@@ -245,13 +247,8 @@ DOCS = [
             ("", "Заявитель: ООО «Демо-компания»"),
             ("", "ИНН: 001234567"),
             ("", "Категория субъекта МСП: индивидуальный предприниматель"),
-            ("", "Вид поддержки: консультационная поддержка по вопросам бухгалтерского учёта"),
             ("", ""),
-            ("", "Заявитель подтверждает, что не является кредитной организацией, страховой "
-                 "организацией, инвестиционным фондом, негосударственным пенсионным фондом, "
-                 "профессиональным участником рынка ценных бумаг, ломбардом, участником "
-                 "соглашения о разделе продукции, не осуществляет деятельность в сфере "
-                 "игорного бизнеса и не является нерезидентом Российской Федерации."),
+            *SUPPORT_DECLARATIONS,
             ("", ""),
             ("", "Генеральный директор        В.П. Орлов        15.09.2026"),
         ],
@@ -259,32 +256,21 @@ DOCS = [
             "applicant_name": "ООО «Демо-компания»",
             "applicant_inn": "001234567",
             "smb_category": "индивидуальный предприниматель",
-            "support_type": "консультационная поддержка по вопросам бухгалтерского учёта",
-            "exclusions_declaration": (
-                "Заявитель подтверждает, что не является кредитной организацией, страховой "
-                "организацией, инвестиционным фондом, негосударственным пенсионным фондом, "
-                "профессиональным участником рынка ценных бумаг, ломбардом, участником "
-                "соглашения о разделе продукции, не осуществляет деятельность в сфере "
-                "игорного бизнеса и не является нерезидентом Российской Федерации."
-            ),
         },
-        "issues": ["S2", "S3", "S5", "S6"],
+        "normalized": [],
+        "issues": ["S2", "S4", "S5"],
     },
 ]
 
 
 # ---------------------------------------------------------------------------
-# Самопроверка: та же семантика, что у DefaultRuleEngine
+# Предварительная проверка данных
 # ---------------------------------------------------------------------------
 
-def java_date_pattern_to_regex(pattern: str) -> str:
-    if pattern != "dd.MM.uuuu":
-        raise ValueError(f"Самопроверка знает только dd.MM.uuuu, а не {pattern}")
-    return r"\d{2}\.\d{2}\.\d{4}"
-
-
 def parse_date(value: str, pattern: str):
-    if not re.fullmatch(java_date_pattern_to_regex(pattern), value):
+    if pattern != "dd.MM.uuuu":
+        raise GenerationError(f"Предпроверка знает только шаблон dd.MM.uuuu, а не {pattern}")
+    if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", value):
         return None
     day, month, year = (int(part) for part in value.split("."))
     try:
@@ -311,24 +297,30 @@ def violates(rule: dict, value) -> bool:
         return len(value) < int(rule["expected"])
     if check == "ONE_OF":
         return value not in json.loads(rule["expected"])
-    raise ValueError(f"Неизвестная проверка {check}")
+    raise GenerationError(f"Неизвестная проверка {check}")
 
 
-def self_check() -> None:
+def collapse(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def precheck() -> None:
     types = {t["code"]: t for t in RULES["types"]}
     for doc in DOCS:
-        doc_type = types[doc["type"]]
-        field_names = {f["name"] for f in doc_type["fields"]}
-        unknown = set(doc["fields"]) - field_names
-        assert not unknown, f"{doc['file']}: неизвестные поля {unknown}"
+        doc_type = types.get(doc["type"])
+        if doc_type is None:
+            raise GenerationError(f"{doc['file']}: тип {doc['type']} не описан в rules.json")
+        known = {f["name"] for f in doc_type["fields"]}
+        unknown = (set(doc["fields"]) | set(doc["normalized"])) - known
+        if unknown:
+            raise GenerationError(f"{doc['file']}: неизвестные поля {sorted(unknown)}")
         actual = [r["code"] for r in doc_type["rules"] if violates(r, doc["fields"].get(r["field"]))]
-        assert actual == doc["issues"], f"{doc['file']}: ожидали {doc['issues']}, движок даст {actual}"
-        joined = "\n".join(text for _, text in doc["lines"])
+        if actual != doc["issues"]:
+            raise GenerationError(f"{doc['file']}: ожидали {doc['issues']}, предпроверка даёт {actual}")
+        text = collapse(" ".join(line for _, line in doc["lines"]))
         for name, value in doc["fields"].items():
-            probe = value.split("; ")[0] if name == "attachments_list" else value
-            assert probe in joined or name in {"employee_name", "employee_position"}, (
-                f"{doc['file']}: значения поля {name} нет в тексте документа"
-            )
+            if name not in doc["normalized"] and collapse(value) not in text:
+                raise GenerationError(f"{doc['file']}: значения поля {name} нет в тексте документа")
 
 
 # ---------------------------------------------------------------------------
@@ -360,14 +352,26 @@ def write_docx(doc: dict, path: Path) -> None:
     props.last_modified_by = "generate.py"
     props.revision = 1
     document.save(path)
+    fix_zip_times(path)
+
+
+def fix_zip_times(path: Path) -> None:
+    """python-docx ставит записям zip текущее время — заменяем на фиксированное."""
+    with zipfile.ZipFile(path) as source:
+        entries = [(info.filename, source.read(info.filename)) for info in source.infolist()]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as target:
+        for name, data in entries:
+            info = zipfile.ZipInfo(name, date_time=FIXED_TIME.timetuple()[:6])
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            target.writestr(info, data)
 
 
 def register_font() -> str:
-    for candidate in FONT_CANDIDATES:
-        if candidate.exists():
-            pdfmetrics.registerFont(TTFont("DejaVuSans", str(candidate)))
-            return "DejaVuSans"
-    raise FileNotFoundError("Нужен шрифт DejaVuSans.ttf с кириллицей")
+    if not FONT.exists():
+        raise GenerationError(f"Нет шрифта {FONT.relative_to(ROOT)}")
+    pdfmetrics.registerFont(TTFont("DejaVuSans", str(FONT)))
+    return "DejaVuSans"
 
 
 def write_pdf(doc: dict, path: Path, font: str) -> None:
@@ -384,17 +388,18 @@ def write_pdf(doc: dict, path: Path, font: str) -> None:
     story += [Spacer(1, 10 * mm), Paragraph(FOOTER, small)]
     pdf = SimpleDocTemplate(
         str(path), pagesize=A4, leftMargin=25 * mm, rightMargin=15 * mm,
-        topMargin=20 * mm, bottomMargin=20 * mm,
+        topMargin=20 * mm, bottomMargin=20 * mm, pageCompression=0,
         title=doc["about"], author="Сибирский Вайб — тестовые данные", invariant=1,
     )
     pdf.build(story)
 
 
-def write_expected() -> None:
+def expected_json() -> str:
     expected = {
         "comment": (
-            "Ожидаемый результат для каждого тестового документа. fields — что должно получиться "
-            "после идеального извлечения полей; issues — правила из rules.json, которые обязаны "
+            "Ожидаемый результат для каждого тестового документа. fields — результат идеального "
+            "извлечения полей; normalized — поля, чьё значение приведено к нужной форме (падеж) "
+            "и дословно в тексте отсутствует; issues — правила из rules.json, которые обязаны "
             "сработать, в порядке правил. referenceDate — «сегодня» для DATE_NOT_FUTURE."
         ),
         "referenceDate": REFERENCE_DATE.isoformat(),
@@ -404,14 +409,13 @@ def write_expected() -> None:
                 "type": d["type"],
                 "about": d["about"],
                 "fields": d["fields"],
+                "normalized": d["normalized"],
                 "issues": d["issues"],
             }
             for d in DOCS
         ],
     }
-    (TESTDATA / "expected.json").write_text(
-        json.dumps(expected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"
-    )
+    return json.dumps(expected, ensure_ascii=False, indent=2) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +432,13 @@ CHECK = {
     "MIN_LENGTH": "Не короче",
     "ONE_OF": "Одно из значений",
 }
+SHORT_SOURCE = {
+    "GOST": "ГОСТ Р 7.0.97-2016",
+    "MEMO_POLICY": "Инструкция по делопроизводству (демо)",
+    "VACATION_POLICY": "Положение об отпусках (демо)",
+    "PRODUCT": "Правило продукта",
+    "LAW_209_ART_4_1": "209-ФЗ",
+}
 
 
 def cell(text) -> str:
@@ -437,7 +448,7 @@ def cell(text) -> str:
     return str(text).replace("|", "\\|").replace("<", "&lt;").replace("\n", " ")
 
 
-def write_rules_md() -> None:
+def rules_md() -> str:
     sources = RULES["sources"]
     out = [
         "# Правила проверки документов",
@@ -451,13 +462,15 @@ def write_rules_md() -> None:
         "«Заполнено»: остальные проверки его пропускают, иначе одно отсутствующее поле",
         "давало бы несколько одинаковых замечаний.",
         "",
-        "**Виды правил** — то, что жюри увидит у каждого замечания:",
-        "- **Закон** — норма федерального закона, со ссылкой на статью и редакцию.",
-        "  Только у заявки на меру поддержки: она уходит наружу, цена ошибки выше.",
-        "- **Регламент компании** — внутренний стандарт. У служебной записки это ГОСТ Р 7.0.97-2016,",
-        "  принятый компанией: для коммерческой организации ГОСТ добровольный, поэтому это регламент,",
-        "  а не закон. У заявления на отпуск — положение демо-компании; оно вымышленное,",
-        "  как и сама демо-компания: в настоящей компании здесь её локальный акт.",
+        "**Виды правил** — то, что пользователь и жюри видят у каждого замечания:",
+        "- **Закон** — только когда закон сам определяет проверяемое требование. Если закон лишь",
+        "  объясняет, зачем проверка нужна, это правило продукта или регламент, а закон упомянут",
+        "  в тексте замечания. Иначе продукт заявлял бы правовое основание, которого нет.",
+        "- **Регламент компании** — внутренний стандарт. Для коммерческой организации",
+        "  ГОСТ Р 7.0.97-2016 добровольный, поэтому это регламент, а не закон. Там, где",
+        "  требование — выбор компании внутри рамок ГОСТ, источник — инструкция демо-компании.",
+        "  Инструкция и положение об отпусках вымышленные, как и сама демо-компания:",
+        "  в настоящей компании здесь её локальные акты.",
         "- **Правило продукта** — наше допущение, без которого проверка теряет смысл.",
         "",
     ]
@@ -471,14 +484,7 @@ def write_rules_md() -> None:
                 "|---|---|---|---|---|---|---|---|"]
         for r in doc_type["rules"]:
             src = sources[r["source"]]
-            short = {
-                "GOST": "ГОСТ Р 7.0.97-2016",
-                "VACATION_POLICY": "Положение об отпусках (демо)",
-                "PRODUCT": "Правило продукта",
-                "LAW_209_ART_4_1": "209-ФЗ",
-                "LAW_209_ART_14": "209-ФЗ",
-            }[r["source"]]
-            ref = f"{short}, {r['sourceRef']}" if r["sourceRef"] else short
+            ref = f"{SHORT_SOURCE[r['source']]}, {r['sourceRef']}" if r["sourceRef"] else SHORT_SOURCE[r["source"]]
             link = f"[{cell(ref)}]({src['url']})" if src["url"] else cell(ref)
             # Внутри кода в таблице GitHub понимает только экранированный «\|».
             param = "`" + r["expected"].replace("|", "\\|") + "`" if r["expected"] else "—"
@@ -490,7 +496,7 @@ def write_rules_md() -> None:
     out += ["## Полные названия источников", ""]
     for key, src in sources.items():
         url = f" — {src['url']}" if src["url"] else ""
-        out.append(f"- **{key}**: {src['title']}{url}")
+        out.append(f"- **{SHORT_SOURCE[key]}**: {src['title']}{url}")
     out += [
         "",
         "## Тестовые документы",
@@ -505,22 +511,70 @@ def write_rules_md() -> None:
         issues = ", ".join(d["issues"]) or "никакие"
         out.append(f"| `{d['file']}` | `{d['type']}` | {cell(d['about'])} | {issues} |")
     out.append("")
-    (ROOT / "docs" / "RULES.md").write_text("\n".join(out), encoding="utf-8", newline="\n")
+    return "\n".join(out)
 
 
-def main() -> None:
-    self_check()
-    DOCUMENTS.mkdir(parents=True, exist_ok=True)
+# ---------------------------------------------------------------------------
+# Запуск
+# ---------------------------------------------------------------------------
+
+def generate(testdata_dir: Path, docs_dir: Path) -> None:
+    documents = testdata_dir / "documents"
+    documents.mkdir(parents=True, exist_ok=True)
     font = register_font()
     for doc in DOCS:
-        path = DOCUMENTS / doc["file"]
+        path = documents / doc["file"]
         if path.suffix == ".docx":
             write_docx(doc, path)
         else:
             write_pdf(doc, path, font)
-    write_expected()
-    write_rules_md()
-    print(f"Готово: {len(DOCS)} документов, expected.json, docs/RULES.md")
+    (testdata_dir / "expected.json").write_text(expected_json(), encoding="utf-8", newline="\n")
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    (docs_dir / "RULES.md").write_text(rules_md(), encoding="utf-8", newline="\n")
+
+
+def docx_entries(path: Path) -> dict:
+    with zipfile.ZipFile(path) as archive:
+        return {info.filename: archive.read(info.filename) for info in archive.infolist()}
+
+
+def same(generated: Path, committed: Path) -> bool:
+    if not committed.exists():
+        return False
+    if generated.suffix == ".docx":
+        return docx_entries(generated) == docx_entries(committed)
+    return generated.read_bytes() == committed.read_bytes()
+
+
+def check() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        generate(Path(tmp) / "testdata", Path(tmp) / "docs")
+        pairs = [(Path(tmp) / "docs" / "RULES.md", ROOT / "docs" / "RULES.md"),
+                 (Path(tmp) / "testdata" / "expected.json", TESTDATA / "expected.json")]
+        pairs += [(Path(tmp) / "testdata" / "documents" / d["file"], TESTDATA / "documents" / d["file"])
+                  for d in DOCS]
+        stale = [str(committed.relative_to(ROOT)) for generated, committed in pairs
+                 if not same(generated, committed)]
+        extra = sorted({p.name for p in (TESTDATA / "documents").iterdir()} - {d["file"] for d in DOCS})
+    if stale or extra:
+        raise GenerationError(
+            "Файлы не совпадают с генератором — запустите python testdata/generate.py и закоммитьте:\n  "
+            + "\n  ".join(stale + [f"testdata/documents/{name} (лишний файл)" for name in extra])
+        )
+    print(f"Актуально: {len(DOCS)} документов, expected.json, docs/RULES.md")
+
+
+def main() -> None:
+    try:
+        precheck()
+        if "--check" in sys.argv[1:]:
+            check()
+        else:
+            generate(TESTDATA, ROOT / "docs")
+            print(f"Готово: {len(DOCS)} документов, expected.json, docs/RULES.md")
+    except GenerationError as error:
+        print(f"Ошибка: {error}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
