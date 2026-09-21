@@ -82,12 +82,13 @@ class DocumentCommandServiceTest {
         when(rules.execute(prepared)).thenThrow(new IllegalArgumentException("broken rule"));
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
         when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), any(), any()))
-                .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1));
+                .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
         when(views.card(1, user())).thenReturn(mock(DocumentCardResponse.class));
 
         service.create(user(), request(), multipart);
 
-        verify(persistence).failCheck(2, pending);
+        verify(persistence).failCheck(
+                1, new DocumentPersistenceService.CheckAttempt(2, "attempt-1"), pending);
         verify(storage, never()).delete("new-key");
     }
 

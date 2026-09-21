@@ -11,6 +11,7 @@ import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.DocumentListResponse;
+import ru.sibvibe.approval.document.dto.DocumentListTab;
 import ru.sibvibe.approval.document.dto.DocumentTypeResponse;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.entity.DocumentFile;
@@ -104,7 +105,7 @@ public class DocumentViewService {
 
     public DocumentListResponse list(
             CurrentUser currentUser,
-            DocumentReadRepository.Tab tab,
+            DocumentListTab tab,
             Document.Status status,
             Long typeId,
             Long authorId,
@@ -129,7 +130,7 @@ public class DocumentViewService {
                         row.currentVersionNo(),
                         row.currentStage(),
                         row.updatedAt(),
-                        tab == DocumentReadRepository.Tab.WAITING_ME ? row.waitingSince() : null))
+                        tab == DocumentListTab.WAITING_ME ? row.waitingSince() : null))
                 .toList();
         return new DocumentListResponse(items, page, size, rows.total());
     }

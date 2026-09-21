@@ -3,6 +3,8 @@ package ru.sibvibe.approval.document.service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 import ru.sibvibe.approval.common.api.NotFoundException;
 
@@ -32,7 +34,8 @@ public class DownloadTokenService {
             @Value("${app.download.secret:}") String configuredSecret,
             @Value("${app.download.ttl-seconds:900}") long ttlSeconds,
             @Value("${max.mini-app.url:}") String miniAppUrl,
-            Clock clock
+            Clock clock,
+            Environment environment
     ) {
         if (ttlSeconds <= 0) {
             throw new IllegalArgumentException("app.download.ttl-seconds должен быть положительным");
@@ -49,6 +52,9 @@ public class DownloadTokenService {
         }
         this.ttlSeconds = ttlSeconds;
         this.miniAppUrl = stripTrailingSlash(miniAppUrl);
+        if (this.miniAppUrl.isBlank() && !environment.acceptsProfiles(Profiles.of("dev", "test"))) {
+            LOGGER.warn("MAX_MINI_APP_URL не задан: ссылки скачивания будут относительными");
+        }
         this.clock = clock;
     }
 

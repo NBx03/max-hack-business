@@ -1,6 +1,9 @@
 package ru.sibvibe.approval.document.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import jakarta.validation.Validator;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -20,10 +23,10 @@ import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
 import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.DocumentListResponse;
+import ru.sibvibe.approval.document.dto.DocumentListTab;
 import ru.sibvibe.approval.document.dto.DocumentTypeResponse;
 import ru.sibvibe.approval.document.dto.UpdateFieldsRequest;
 import ru.sibvibe.approval.document.entity.Document;
-import ru.sibvibe.approval.document.repository.DocumentReadRepository;
 import ru.sibvibe.approval.document.service.DocumentApiException;
 import ru.sibvibe.approval.document.service.DocumentCommandService;
 import ru.sibvibe.approval.document.service.DocumentViewService;
@@ -37,13 +40,19 @@ public class DocumentController {
 
     private final DocumentCommandService commandService;
     private final DocumentViewService viewService;
+    private final ObjectMapper objectMapper;
+    private final Validator validator;
 
     public DocumentController(
             DocumentCommandService commandService,
-            DocumentViewService viewService
+            DocumentViewService viewService,
+            ObjectMapper objectMapper,
+            Validator validator
     ) {
         this.commandService = commandService;
         this.viewService = viewService;
+        this.objectMapper = objectMapper;
+        this.validator = validator;
     }
 
     @GetMapping("/document-types")
@@ -55,18 +64,19 @@ public class DocumentController {
     @ResponseStatus(HttpStatus.CREATED)
     public DocumentCardResponse create(
             @AuthenticationPrincipal CurrentUser currentUser,
-            @Valid @RequestPart("meta") CreateDocumentRequest meta,
+            @RequestPart("meta") String metaJson,
             @RequestPart("main") MultipartFile main,
             @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments
     ) {
         rejectAttachments(attachments);
+        CreateDocumentRequest meta = parseMeta(metaJson, CreateDocumentRequest.class);
         return commandService.create(currentUser, meta, main);
     }
 
     @GetMapping("/documents")
     public DocumentListResponse documents(
             @AuthenticationPrincipal CurrentUser currentUser,
-            @RequestParam DocumentReadRepository.Tab tab,
+            @RequestParam DocumentListTab tab,
             @RequestParam(required = false) Document.Status status,
             @RequestParam(required = false) Long typeId,
             @RequestParam(required = false) Long authorId,
@@ -93,11 +103,12 @@ public class DocumentController {
     public DocumentCardResponse createVersion(
             @AuthenticationPrincipal CurrentUser currentUser,
             @PathVariable long id,
-            @Valid @RequestPart("meta") CreateVersionRequest meta,
+            @RequestPart("meta") String metaJson,
             @RequestPart(value = "main", required = false) MultipartFile main,
             @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments
     ) {
         rejectAttachments(attachments);
+        CreateVersionRequest meta = parseMeta(metaJson, CreateVersionRequest.class);
         return commandService.createVersion(id, currentUser, meta, main);
     }
 
@@ -114,6 +125,21 @@ public class DocumentController {
     private void rejectAttachments(List<MultipartFile> attachments) {
         if (attachments != null && attachments.stream().anyMatch(file -> !file.isEmpty())) {
             throw DocumentApiException.validation("Приложения пока не поддерживаются");
+        }
+    }
+
+    private <T> T parseMeta(String json, Class<T> type) {
+        if (json == null || json.isBlank()) {
+            throw DocumentApiException.validation("Часть meta не должна быть пустой");
+        }
+        try {
+            T value = objectMapper.readValue(json, type);
+            if (!validator.validate(value).isEmpty()) {
+                throw DocumentApiException.validation("Некорректные метаданные документа");
+            }
+            return value;
+        } catch (JsonProcessingException exception) {
+            throw DocumentApiException.validation("Часть meta содержит некорректный JSON");
         }
     }
 }

@@ -121,6 +121,25 @@ class DocumentPersistenceServiceTest {
                 .hasMessage("Некорректный список сохраняемых файлов");
     }
 
+    @Test
+    void staleRuleResultCannotOverwriteNewerFieldsUpdate() {
+        DocumentVersion version = new DocumentVersion();
+        version.setId(101L);
+        version.setDocumentId(1L);
+        version.setExtractedFields(new ObjectMapper().createObjectNode().put("checkToken", "new-attempt"));
+        version.setCheckStatus("FAILED");
+        when(versions.findById(101L)).thenReturn(Optional.of(version));
+
+        boolean completed = service.completeCheck(
+                1L,
+                new DocumentPersistenceService.CheckAttempt(101L, "old-attempt"),
+                new DocumentRuleService.CheckData(false, List.of(), List.of()));
+
+        assertThat(completed).isFalse();
+        assertThat(version.getCheckStatus()).isEqualTo("FAILED");
+        assertThat(version.getExtractedFields().path("checkToken").asText()).isEqualTo("new-attempt");
+    }
+
     private Document document(Document.Status status) {
         Document value = new Document();
         value.setId(1L);

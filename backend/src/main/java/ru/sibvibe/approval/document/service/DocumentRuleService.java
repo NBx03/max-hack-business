@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
 public class DocumentRuleService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Europe/Moscow");
+    private static final int MAX_FIELDS = 100;
+    private static final int MAX_FIELD_VALUE_LENGTH = 10_000;
 
     private final DocumentTypeRepository typeRepository;
     private final DocumentTypeFieldRepository fieldRepository;
@@ -53,6 +55,11 @@ public class DocumentRuleService {
         Map<String, String> fields = suppliedFields == null
                 ? Map.of()
                 : new LinkedHashMap<>(suppliedFields);
+        if (fields.size() > MAX_FIELDS
+                || fields.values().stream().anyMatch(value -> value != null
+                        && value.length() > MAX_FIELD_VALUE_LENGTH)) {
+            throw DocumentApiException.validation("Слишком много данных в полях документа");
+        }
         Set<String> knownNames = schema.stream()
                 .map(DocumentTypeField::getFieldName)
                 .collect(Collectors.toSet());

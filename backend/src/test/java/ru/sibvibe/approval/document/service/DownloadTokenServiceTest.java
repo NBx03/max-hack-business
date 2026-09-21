@@ -1,6 +1,7 @@
 package ru.sibvibe.approval.document.service;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import ru.sibvibe.approval.common.api.NotFoundException;
 
 import java.time.Clock;
@@ -45,13 +46,15 @@ class DownloadTokenServiceTest {
     void differentSecretCannotVerifyToken() {
         String token = service(NOW).issue(41, 7).url().split("token=", 2)[1];
         DownloadTokenService other = new DownloadTokenService(
-                "abcdef0123456789abcdef0123456789", 900, "", Clock.fixed(NOW, ZoneOffset.UTC));
+                "abcdef0123456789abcdef0123456789", 900, "", Clock.fixed(NOW, ZoneOffset.UTC),
+                new MockEnvironment().withProperty("spring.profiles.active", "dev"));
 
         assertThatThrownBy(() -> other.verify(41, token)).isInstanceOf(NotFoundException.class);
     }
 
     private DownloadTokenService service(Instant now) {
         return new DownloadTokenService(
-                SECRET, 900, "https://app.example/", Clock.fixed(now, ZoneOffset.UTC));
+                SECRET, 900, "https://app.example/", Clock.fixed(now, ZoneOffset.UTC),
+                new MockEnvironment().withProperty("spring.profiles.active", "dev"));
     }
 }

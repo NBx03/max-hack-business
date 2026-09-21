@@ -14,6 +14,26 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Настоящий PostgreSQL: без него пропускаются тесты схемы, входа и подключения компании,
+    # и CI ни разу не поднимает бэкенд целиком. Пароль одноразовый, база живёт только в этом прогоне.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: schema_test
+          POSTGRES_USER: schema_test
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U schema_test -d schema_test"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      SCHEMA_TEST_URL: jdbc:postgresql://localhost:5432/schema_test
+      SCHEMA_TEST_PASSWORD: ci-only-throwaway
+      # Клиент MinIO требует ключи при создании, к серверу при старте не обращается.
+      MINIO_ACCESS_KEY: ci-access
+      MINIO_SECRET_KEY: ci-secret-key
     defaults:
       run:
         working-directory: backend

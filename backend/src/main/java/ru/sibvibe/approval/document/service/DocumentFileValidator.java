@@ -17,6 +17,8 @@ public class DocumentFileValidator {
     public static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
     public static final long MAX_VERSION_SIZE = 30L * 1024 * 1024;
     public static final int MAX_ATTACHMENTS = 10;
+    static final int MAX_DOCX_ENTRIES = 1_000;
+    static final long MAX_DOCX_UNCOMPRESSED_SIZE = 50L * 1024 * 1024;
 
     private static final String PDF = "application/pdf";
     private static final String DOCX =
@@ -83,13 +85,23 @@ public class DocumentFileValidator {
         Set<String> required = new HashSet<>(Set.of("[Content_Types].xml", "word/document.xml"));
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content))) {
             ZipEntry entry;
+            int entries = 0;
+            long uncompressedSize = 0;
+            byte[] buffer = new byte[8192];
             while ((entry = zip.getNextEntry()) != null) {
+                if (++entries > MAX_DOCX_ENTRIES) {
+                    throw DocumentApiException.validation("DOCX содержит слишком много записей");
+                }
                 required.remove(entry.getName());
-                if (required.isEmpty()) {
-                    return true;
+                int read;
+                while ((read = zip.read(buffer)) != -1) {
+                    uncompressedSize += read;
+                    if (uncompressedSize > MAX_DOCX_UNCOMPRESSED_SIZE) {
+                        throw DocumentApiException.validation("Распакованный DOCX слишком большой");
+                    }
                 }
             }
-            return false;
+            return required.isEmpty();
         } catch (IOException exception) {
             return false;
         }
@@ -101,7 +113,8 @@ public class DocumentFileValidator {
         }
         String normalized = original.replace('\\', '/');
         String fileName = normalized.substring(normalized.lastIndexOf('/') + 1).trim();
-        if (fileName.isBlank() || fileName.chars().anyMatch(character -> character < 32)) {
+        if (fileName.isBlank() || fileName.length() > 255
+                || fileName.chars().anyMatch(character -> character < 32)) {
             throw DocumentApiException.validation("Некорректное имя файла");
         }
         return fileName;

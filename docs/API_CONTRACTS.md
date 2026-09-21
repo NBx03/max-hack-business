@@ -51,6 +51,7 @@
 | HTTP | Когда |
 |---|---|
 | 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED` |
+| 415 | Неподдерживаемый формат тела или multipart-части: `VALIDATION_FAILED` |
 | 413 | `FILE_TOO_LARGE`. Бэкенд переводит `MaxUploadSizeExceededException` в этот формат; nginx при превышении 32 МБ отвечает своей страницей 413 |
 | 401 | Личность не подтверждена: `INIT_DATA_INVALID`, `INIT_DATA_EXPIRED` (данные запуска старше 24 часов — фронтенд показывает «Откройте приложение заново») |
 | 403 | Нет прав: `FORBIDDEN`, `NOT_ADMIN`, `DEMO_ACT_AS_FORBIDDEN` |
@@ -152,29 +153,51 @@ type MemberView = {               // участник компании: отве
 | `POST /orgs/current/invite-code/regenerate` | ADMIN | → то же; старый код перестаёт работать |
 | `GET /invites/code/{code}` | Любой | → `{ orgName }`. 404 `INVITE_NOT_FOUND`, 429 `TOO_MANY_ATTEMPTS` |
 | `POST /join-requests` | Не состоит в реальной компании | `{ code }` → 201 `{ id, orgName, status, createdAt }`. 409 `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS` |
-| `DELETE /join-requests/{id}` | Автор заявки | → 204 |
-| `GET /orgs/current/join-requests?status=PENDING` | ADMIN | → `[{ id, user: UserRef, status, createdAt }]` |
-| `POST /orgs/current/join-requests/{id}/approve` | ADMIN | `{ roleIds: number[], isAdmin?: boolean }` → `MemberView`. 409 `INVALID_STATE` |
+| `DELETE /join-requests/{id}` | Автор заявки | → 204. Чужая заявка — 404. Уже рассмотренная — 409 `INVALID_STATE` |
+| `GET /orgs/current/join-requests?status=PENDING` | ADMIN | → `[{ id, user: UserRef, status, createdAt }]`; без `status` — только ожидающие; старые заявки первыми |
+| `POST /orgs/current/join-requests/{id}/approve` | ADMIN | `{ roleIds: number[], isAdmin?: boolean }` → `MemberView`. 409 `INVALID_STATE`; 400 `VALIDATION_FAILED`, если нет ни одной роли и не выдан `isAdmin`; роль другой компании — 404 |
 | `POST /orgs/current/join-requests/{id}/reject` | ADMIN | → 200 |
 | `GET /orgs/current/members` | ADMIN | → `MemberView[]` |
 | *SHOULD* `GET /orgs/current/roles/{id}/members` | Участник | → `UserRef[]` — активные носители роли, для добавления согласующего |
-| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView`. 409 `MEMBER_HAS_PENDING_STEPS` |
+| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView`. 409 `MEMBER_HAS_PENDING_STEPS` (снять можно только роль без незавершённых шагов), 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
-| *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200. 409 `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS` |
+| *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView`; повторный вызов ничего не меняет. 409 `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS` |
 
-Заявка и участник ищутся **в компании администратора**: чужой id — 404.
+Заявка, участник, роль и приглашение ищутся **в компании администратора**: чужой id — 404, в том
+числе роль другой компании в `roleIds`.
+
+**Что не видно в таблице:**
+- **Кто действует.** `POST /orgs`, `POST /join-requests`, `DELETE /join-requests/{id}`,
+  `GET /invites/code/{code}` и вступление по личной ссылке — действия **реального человека**:
+  с `X-Demo-Act-As` они выполняются от его имени, а не от демо-участника. Остальные эндпоинты
+  работают в контексте текущей компании (реальной или песочницы).
+- **Код компании.** Регистр и пробелы по краям не важны. Код демо-компании принять нельзя — 404
+  `INVITE_NOT_FOUND`, как и у неизвестного или перевыпущенного кода.
+- **Лимит попыток.** Считаются только неверные коды на пользователя (10 в час). Исчерпав лимит, человек получает 429 `TOO_MANY_ATTEMPTS` с
+  `details.retryAfterSeconds` и на `GET /invites/code/{code}`, и на `POST /join-requests` — даже
+  с верным кодом, иначе перебор продолжился бы.
+- **Права.** Не участник получает 403 `FORBIDDEN`, участник без прав администратора — 403 `NOT_ADMIN`.
+  Права читаются из базы на каждом запросе: снятая роль или права администратора действуют сразу.
+- **Собственные роли.** Администратор не меняет свои роли (403 `FORBIDDEN`): роль себе назначить
+  нельзя. Исключение одно — создатель компании получает роль «Директор» при создании.
+- **Роли и маршруты по умолчанию** создаются при `POST /orgs`; таблица — в ARCHITECTURE.md, раздел 5.
+- **Уведомления** (заявка подана, решение по заявке, вступление по личной ссылке) — доменные
+  события; отправляет их модуль бота.
 
 ### SHOULD: личные ссылки
 
 | Метод и путь | Кто | Тело → ответ |
 |---|---|---|
 | `POST /orgs/current/personal-invites` | ADMIN | `{ roleIds }` → 201 `{ id, link, expiresAt, roles }`. Права администратора через ссылку не выдаются |
-| `GET /orgs/current/personal-invites` | ADMIN | → неиспользованные и неотозванные |
-| `DELETE /orgs/current/personal-invites/{id}` | ADMIN | → 204 |
+| `GET /orgs/current/personal-invites` | ADMIN | → неиспользованные, неотозванные и ещё не истёкшие; их видят все администраторы компании |
+| `DELETE /orgs/current/personal-invites/{id}` | ADMIN | → 204; повторный отзыв ничего не меняет. Использованную ссылку отозвать нельзя — 409 `INVITE_USED` |
 | `GET /invites/personal/{token}` | Любой | → `{ orgName, roles, expiresAt }`. 409 `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
 | `POST /invites/personal/{token}/accept` | Не состоит в реальной компании | → ответ `GET /me`. Те же 409 |
 
-`link` = `https://max.ru/t354_hakaton_max_bot?startapp=p_<token>`.
+`link` = `https://max.ru/t354_hakaton_max_bot?startapp=p_<token>`. Ссылка живёт 72 часа, использовать
+её можно один раз. `roleIds` обязателен и не пуст (иначе 400 `VALIDATION_FAILED`). Вступление
+атомарно: из двух одновременных попыток вступает одна, вторая получает 409 `INVITE_USED`. Если
+вступление не удалось (например, `ALREADY_MEMBER`), ссылка остаётся неиспользованной.
 
 Префиксы `startParam`: `c_<код>` — код компании, `p_<токен>` — личная ссылка,
 `d_<id>` — документ из уведомления бота (сразу карточка; доступ всё равно проверяет
@@ -195,7 +218,7 @@ type MemberView = {               // участник компании: отве
 
 | Часть | Что |
 |---|---|
-| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` — `containsSensitive` относится к этой версии |
+| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` — принимается и без `Content-Type` у multipart-части; `containsSensitive` относится к этой версии |
 | `main` | Основной файл: PDF или DOCX. Обязателен, если это не документ-форма |
 | `attachments` | *SHOULD.* До 10 файлов: PDF, DOCX, XLSX, PNG, JPG |
 
@@ -207,7 +230,8 @@ type MemberView = {               // участник компании: отве
 документ, а даёт `modelAvailable = false`.
 
 `fields` — поля, введённые вручную: при `containsSensitive = true` или когда модель
-недоступна. Ограничения: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
+недоступна. Заголовок — до 255 символов; не более 100 полей и 10 000 символов в значении.
+Ограничения файлов: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
 
 ### `GET /documents` — списки
 
@@ -270,7 +294,8 @@ type DocumentCard = {
 
 Можно в `DRAFT` и `RETURNED`, иначе 409 `INVALID_STATE`. Из `RETURNED` документ
 переходит в `DRAFT`: автор видит проверку новой версии и отправляет заново.
-`multipart/form-data`: `meta` = `{ fields?, containsSensitive, keepFileIds: number[] }`,
+`multipart/form-data`: `meta` = `{ fields?, containsSensitive, keepFileIds: number[] }`
+(JSON принимается и без `Content-Type` у части),
 плюс `main` и `attachments` — только то, что меняется.
 
 - Файлы из `keepFileIds` переиспользуются без повторной загрузки.

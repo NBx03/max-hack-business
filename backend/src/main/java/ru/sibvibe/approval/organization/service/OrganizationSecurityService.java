@@ -37,19 +37,12 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class OrganizationSecurityService {
 
-    private static final List<RoleSeed> DEMO_ROLES = List.of(
-            new RoleSeed("DIRECTOR", "Директор"),
-            new RoleSeed("DEPARTMENT_HEAD", "Руководитель отдела"),
-            new RoleSeed("LAWYER", "Юрист"),
-            new RoleSeed("ACCOUNTANT", "Бухгалтер"),
-            new RoleSeed("HR", "Кадровик")
-    );
     private static final List<UserSeed> DEMO_USERS = List.of(
-            new UserSeed("Демо Автор", "DEPARTMENT_HEAD", false),
-            new UserSeed("Демо Юрист", "LAWYER", false),
-            new UserSeed("Демо Бухгалтер", "ACCOUNTANT", false),
-            new UserSeed("Демо Директор", "DIRECTOR", false),
-            new UserSeed("Демо Администратор", "HR", true)
+            new UserSeed("Демо Автор", DefaultRoles.DEPARTMENT_HEAD, false),
+            new UserSeed("Демо Юрист", DefaultRoles.LAWYER, false),
+            new UserSeed("Демо Бухгалтер", DefaultRoles.ACCOUNTANT, false),
+            new UserSeed("Демо Директор", DefaultRoles.DIRECTOR, false),
+            new UserSeed("Демо Администратор", DefaultRoles.HR, true)
     );
 
     private final AppUserRepository userRepository;
@@ -160,7 +153,7 @@ public class OrganizationSecurityService {
         sandbox = organizationRepository.save(sandbox);
 
         Map<String, Role> roles = new HashMap<>();
-        for (RoleSeed seed : DEMO_ROLES) {
+        for (DefaultRoles.Seed seed : DefaultRoles.ALL) {
             Role role = new Role();
             role.setOrgId(sandbox.getId());
             role.setCode(seed.code());
@@ -270,9 +263,6 @@ public class OrganizationSecurityService {
         public SandboxInfo {
             users = List.copyOf(users);
         }
-    }
-
-    private record RoleSeed(String code, String name) {
     }
 
     private record UserSeed(String name, String roleCode, boolean admin) {

@@ -80,6 +80,47 @@ class DocumentFileValidatorTest {
                 .isEqualTo("document.docx");
     }
 
+    @Test
+    void rejectsDocxWithTooManyEntries() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            zip.putNextEntry(new ZipEntry("[Content_Types].xml"));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("word/document.xml"));
+            zip.closeEntry();
+            for (int index = 0; index < DocumentFileValidator.MAX_DOCX_ENTRIES; index++) {
+                zip.putNextEntry(new ZipEntry("extra/" + index));
+                zip.closeEntry();
+            }
+        }
+
+        assertThatThrownBy(() -> validator.validateMain(file(
+                "bomb.docx", "application/octet-stream", output.toByteArray())))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessageContaining("слишком много записей");
+    }
+
+    @Test
+    void rejectsDocxWithExcessiveUncompressedSize() throws Exception {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] megabyte = new byte[1024 * 1024];
+        try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            zip.putNextEntry(new ZipEntry("[Content_Types].xml"));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("word/document.xml"));
+            for (int index = 0; index <= DocumentFileValidator.MAX_DOCX_UNCOMPRESSED_SIZE / megabyte.length;
+                    index++) {
+                zip.write(megabyte);
+            }
+            zip.closeEntry();
+        }
+
+        assertThatThrownBy(() -> validator.validateMain(file(
+                "bomb.docx", "application/octet-stream", output.toByteArray())))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessageContaining("слишком большой");
+    }
+
     private MockMultipartFile file(String name, String type, byte[] content) {
         return new MockMultipartFile("main", name, type, content);
     }

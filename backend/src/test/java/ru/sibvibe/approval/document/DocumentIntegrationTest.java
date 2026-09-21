@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import ru.sibvibe.approval.storage.FileStorage;
 import ru.sibvibe.approval.storage.StoredFileNotFoundException;
+import ru.sibvibe.approval.document.service.DownloadTokenService;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -81,16 +82,20 @@ class DocumentIntegrationTest {
     private InMemoryFileStorage storage;
 
     private long authorId;
+    private long foreignId;
     private long colleagueId;
     private long authorOrgId;
     private long typeId;
+
+    @Autowired
+    private DownloadTokenService tokenService;
 
     @BeforeEach
     void setUp() {
         cleanDatabase();
         storage.clear();
         authorId = user(920000001L, "Автор");
-        long foreignId = user(920000002L, "Чужой пользователь");
+        foreignId = user(920000002L, "Чужой пользователь");
         colleagueId = user(920000003L, "Коллега");
         authorOrgId = organization("Компания автора", authorId);
         long foreignOrg = organization("Другая компания", foreignId);
@@ -99,7 +104,7 @@ class DocumentIntegrationTest {
         member(foreignOrg, foreignId);
         typeId = jdbc.queryForObject("""
                 insert into document_type(name, code, is_generic)
-                values ('Приказ', 'ORDER', false) returning id
+                values ('Приказ', 'ISSUE16_ORDER', false) returning id
                 """, Long.class);
         jdbc.update("""
                 insert into document_type_field(document_type_id, field_name, field_type, label)
@@ -120,18 +125,60 @@ class DocumentIntegrationTest {
     }
 
     private void cleanDatabase() {
-        jdbc.execute("""
-                truncate table approval_step, approval_route, document_file, document_version, document,
-                    requirement_rule, document_type_field, document_type, member_role, organization_member,
-                    role, join_request, invite_role, invite, organization, app_user restart identity cascade
-                """);
+        String users = "select id from app_user where max_user_id in (920000001, 920000002, 920000003)";
+        String organizations = "select id from organization where created_by in (" + users + ")";
+        String documents = "select id from document where author_id in (" + users + ")";
+        String versions = "select id from document_version where document_id in (" + documents + ")";
+        jdbc.execute("delete from approval_step where document_id in (" + documents + ")");
+        jdbc.execute("delete from approval_route where org_id in (" + organizations + ")");
+        jdbc.execute("delete from document_file where version_id in (" + versions + ")");
+        jdbc.execute("delete from document_version where document_id in (" + documents + ")");
+        jdbc.execute("delete from document where id in (" + documents + ")");
+        jdbc.execute("delete from requirement_rule where document_type_id in "
+                + "(select id from document_type where code = 'ISSUE16_ORDER')");
+        jdbc.execute("delete from document_type_field where document_type_id in "
+                + "(select id from document_type where code = 'ISSUE16_ORDER')");
+        jdbc.execute("delete from document_type where code = 'ISSUE16_ORDER'");
+        jdbc.execute("delete from member_role where member_id in "
+                + "(select id from organization_member where org_id in (" + organizations + "))");
+        jdbc.execute("delete from join_request where org_id in (" + organizations + ") or user_id in (" + users + ")");
+        jdbc.execute("delete from invite_role where invite_id in "
+                + "(select id from invite where org_id in (" + organizations + "))");
+        jdbc.execute("delete from invite where org_id in (" + organizations + ")");
+        jdbc.execute("delete from organization_member where org_id in (" + organizations + ")");
+        jdbc.execute("delete from role where org_id in (" + organizations + ")");
+        jdbc.execute("delete from organization where id in (" + organizations + ")");
+        jdbc.execute("delete from app_user where id in (" + users + ")");
     }
 
     @Test
     void documentLifecycleKeepsAclRulesAndSignedDownloadConsistent() throws Exception {
         byte[] pdf = pdf();
+        mvc.perform(multipart("/api/v1/documents")
+                        .file(textJsonPart("meta", Map.of(
+                                "documentTypeId", typeId,
+                                "title", "x".repeat(256),
+                                "visibility", "PRIVATE",
+                                "containsSensitive", false,
+                                "fields", Map.of("number", "42"))))
+                        .file(new MockMultipartFile("main", "memo.pdf", "application/pdf", pdf))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mvc.perform(multipart("/api/v1/documents")
+                        .file(textJsonPart("meta", Map.of(
+                                "documentTypeId", typeId,
+                                "title", "Приказ",
+                                "visibility", "PRIVATE",
+                                "containsSensitive", false,
+                                "fields", Map.of("number", "x".repeat(10_001)))))
+                        .file(new MockMultipartFile("main", "memo.pdf", "application/pdf", pdf))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+
         JsonNode created = json(mvc.perform(multipart("/api/v1/documents")
-                        .file(jsonPart("meta", Map.of(
+                        .file(textJsonPart("meta", Map.of(
                                 "documentTypeId", typeId,
                                 "title", "Приказ № 42",
                                 "visibility", "PRIVATE",
@@ -161,6 +208,9 @@ class DocumentIntegrationTest {
         mvc.perform(get(downloadUrl + "x"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mvc.perform(get(tokenService.issue(fileId, foreignId).url()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
 
         mvc.perform(get("/api/v1/documents/{id}", documentId)
                         .header("Authorization", FOREIGN_AUTH))
@@ -172,6 +222,20 @@ class DocumentIntegrationTest {
         mvc.perform(get("/api/v1/documents/{id}", documentId)
                         .header("Authorization", COLLEAGUE_AUTH))
                 .andExpect(status().isOk());
+        mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
+                        .file(textJsonPart("meta", Map.of(
+                                "containsSensitive", false,
+                                "fields", Map.of("number", "43"),
+                                "keepFileIds", new long[]{fileId})))
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mvc.perform(put("/api/v1/documents/{id}/versions/1/fields", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("fields", Map.of("number", "43"))))
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         jdbc.update("update document set visibility = 'PRIVATE' where id = ?", documentId);
         mvc.perform(get("/api/v1/documents")
                         .param("tab", "MINE")
@@ -260,6 +324,10 @@ class DocumentIntegrationTest {
     private MockMultipartFile jsonPart(String name, Object value) throws Exception {
         return new MockMultipartFile(
                 name, "", MediaType.APPLICATION_JSON_VALUE, objectMapper.writeValueAsBytes(value));
+    }
+
+    private MockMultipartFile textJsonPart(String name, Object value) throws Exception {
+        return new MockMultipartFile(name, "", null, objectMapper.writeValueAsBytes(value));
     }
 
     private JsonNode json(String value) throws Exception {

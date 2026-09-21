@@ -2,18 +2,19 @@ package ru.sibvibe.approval.common.api;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.ErrorResponse;
-import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class RestExceptionHandler {
@@ -32,16 +33,23 @@ public class RestExceptionHandler {
                 .body(new ApiError("FILE_TOO_LARGE", "Файл или общий размер запроса слишком большой"));
     }
 
+    /** Битый JSON, ошибки полей и параметры не того типа (например, нечисловой id в пути) — это 400, а не сбой сервера. */
     @ExceptionHandler({
             HttpMessageNotReadableException.class,
             MethodArgumentNotValidException.class,
+            TypeMismatchException.class,
             MissingServletRequestParameterException.class,
-            MissingServletRequestPartException.class,
-            MethodArgumentTypeMismatchException.class
+            MissingServletRequestPartException.class
     })
     public ResponseEntity<ApiError> validationFailed() {
         return ResponseEntity.badRequest()
                 .body(new ApiError("VALIDATION_FAILED", "Проверьте правильность заполнения полей"));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiError> unsupportedMediaType() {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(new ApiError("VALIDATION_FAILED", "Неподдерживаемый формат тела запроса"));
     }
 
     @ExceptionHandler(Exception.class)

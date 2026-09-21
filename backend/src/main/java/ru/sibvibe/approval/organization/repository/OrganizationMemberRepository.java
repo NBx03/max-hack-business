@@ -1,6 +1,9 @@
 package ru.sibvibe.approval.organization.repository;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import ru.sibvibe.approval.organization.entity.OrganizationMember;
 
 import java.util.List;
@@ -15,4 +18,19 @@ public interface OrganizationMemberRepository extends JpaRepository<Organization
 
     List<OrganizationMember> findByOrgIdAndStatusAndDemoTrueOrderById(
             Long orgId, OrganizationMember.Status status);
+
+    /** Участник ищется только в компании администратора: чужой id даёт пустой результат. */
+    Optional<OrganizationMember> findByIdAndOrgId(Long id, Long orgId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from OrganizationMember m where m.id = :id and m.orgId = :orgId")
+    Optional<OrganizationMember> findByIdAndOrgIdForUpdate(Long id, Long orgId);
+
+    Optional<OrganizationMember> findByOrgIdAndUserId(Long orgId, Long userId);
+
+    List<OrganizationMember> findByOrgIdOrderById(Long orgId);
+
+    List<OrganizationMember> findByOrgIdAndStatusOrderById(Long orgId, OrganizationMember.Status status);
+
+    long countByOrgIdAndStatusAndAdminTrue(Long orgId, OrganizationMember.Status status);
 }

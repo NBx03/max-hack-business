@@ -2,6 +2,7 @@ package ru.sibvibe.approval.document.repository;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import ru.sibvibe.approval.document.dto.DocumentListTab;
 import ru.sibvibe.approval.document.entity.Document;
 
 import java.time.Instant;
@@ -62,7 +63,7 @@ public class DocumentReadRepository {
     }
 
     public PageRows findDocuments(
-            Tab tab,
+            DocumentListTab tab,
             long orgId,
             long userId,
             Document.Status status,
@@ -255,8 +256,6 @@ public class DocumentReadRepository {
         java.time.OffsetDateTime value = resultSet.getObject(column, java.time.OffsetDateTime.class);
         return value == null ? null : value.toInstant();
     }
-
-    public enum Tab { WAITING_ME, MINE, AVAILABLE }
 
     public record PageRows(List<ListRow> items, long total) {}
 

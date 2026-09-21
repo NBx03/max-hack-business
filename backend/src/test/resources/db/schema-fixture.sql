@@ -1,4 +1,10 @@
 -- Синтетические данные только для проверки структуры, транзакция теста откатывается.
+-- Миграции уже создали стандартные типы документов (17-001), а справочник (#11) добавит к ним поля и правила.
+-- В транзакции теста всё это убирается, чтобы фикстура сама задавала id; после отката всё возвращается.
+DELETE FROM requirement_rule;
+DELETE FROM document_type_field;
+DELETE FROM approval_route;
+DELETE FROM document_type;
 INSERT INTO app_user(id, max_user_id, full_name, created_at) VALUES
     (1, 1, 'Тест A', CURRENT_TIMESTAMP), (2, 2, 'Тест B', CURRENT_TIMESTAMP);
 INSERT INTO organization(id, name, created_by, created_at, is_demo, demo_owner_id) VALUES

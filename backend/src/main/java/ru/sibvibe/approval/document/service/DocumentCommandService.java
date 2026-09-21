@@ -68,7 +68,7 @@ public class DocumentCommandService {
             compensate(stored.storageKey(), exception);
             throw exception;
         }
-        runCheck(created.versionId(), prepared);
+        runCheck(created.documentId(), created.checkAttempt(), prepared);
         return viewService.card(created.documentId(), currentUser);
     }
 
@@ -79,11 +79,7 @@ public class DocumentCommandService {
             MultipartFile main
     ) {
         Membership membership = requireMembership(currentUser);
-        Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
-        if (!document.getOrgId().equals(membership.orgId())
-                || !document.getAuthorId().equals(currentUser.userId())) {
-            throw new NotFoundException();
-        }
+        Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
                 ruleService.prepare(document.getDocumentTypeId(), request.fields());
         DocumentPersistenceService.NewFile stored = main == null || main.isEmpty()
@@ -106,7 +102,7 @@ public class DocumentCommandService {
             }
             throw exception;
         }
-        runCheck(created.versionId(), prepared);
+        runCheck(documentId, created.checkAttempt(), prepared);
         return viewService.card(documentId, currentUser);
     }
 
@@ -117,20 +113,16 @@ public class DocumentCommandService {
             UpdateFieldsRequest request
     ) {
         Membership membership = requireMembership(currentUser);
-        Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
-        if (!document.getOrgId().equals(membership.orgId())
-                || !document.getAuthorId().equals(currentUser.userId())) {
-            throw new NotFoundException();
-        }
+        Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
                 ruleService.prepare(document.getDocumentTypeId(), request.fields());
-        long versionId = persistenceService.beginFieldsUpdate(
+        DocumentPersistenceService.CheckAttempt attempt = persistenceService.beginFieldsUpdate(
                 documentId,
                 versionNo,
                 membership.orgId(),
                 currentUser.userId(),
                 prepared);
-        runCheck(versionId, prepared);
+        runCheck(documentId, attempt, prepared);
         return viewService.card(documentId, currentUser).check();
     }
 
@@ -144,17 +136,32 @@ public class DocumentCommandService {
                 key, file.fileName(), file.mimeType(), file.size());
     }
 
-    private void runCheck(long versionId, DocumentRuleService.PreparedCheck prepared) {
+    private void runCheck(
+            long documentId,
+            DocumentPersistenceService.CheckAttempt attempt,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
         if (prepared.type().isGeneric()) {
             return;
         }
         DocumentRuleService.CheckData pending = ruleService.pending(prepared);
         try {
-            persistenceService.completeCheck(versionId, ruleService.execute(prepared));
+            persistenceService.completeCheck(documentId, attempt, ruleService.execute(prepared));
         } catch (RuntimeException exception) {
-            LOGGER.error("Не удалось проверить правила для версии {}", versionId, exception);
-            persistenceService.failCheck(versionId, pending);
+            LOGGER.error("Не удалось проверить правила для версии {}", attempt.versionId(), exception);
+            persistenceService.failCheck(documentId, attempt, pending);
         }
+    }
+
+    private Document requireOwnedDocument(long documentId, long orgId, long userId) {
+        Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
+        if (!document.getOrgId().equals(orgId)) {
+            throw new NotFoundException();
+        }
+        if (!document.getAuthorId().equals(userId)) {
+            throw DocumentApiException.forbidden("Изменять документ может только автор");
+        }
+        return document;
     }
 
     private Membership requireMembership(CurrentUser user) {

@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import static ru.sibvibe.approval.document.service.DocumentFileValidator.MAX_ATTACHMENTS;
 import static ru.sibvibe.approval.document.service.DocumentFileValidator.MAX_FILE_SIZE;
@@ -70,11 +71,12 @@ public class DocumentPersistenceService {
         document.setUpdatedAt(now);
         document = documentRepository.save(document);
 
+        String checkToken = checkToken(prepared);
         DocumentVersion version = newVersion(
-                document.getId(), 1, containsSensitive, authorId, now, prepared);
+                document.getId(), 1, containsSensitive, authorId, now, prepared, checkToken);
         version = versionRepository.save(version);
         fileRepository.save(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, main, now));
-        return new CreatedVersion(document.getId(), version.getId(), 1);
+        return new CreatedVersion(document.getId(), version.getId(), 1, checkToken);
     }
 
     @Transactional
@@ -124,8 +126,9 @@ public class DocumentPersistenceService {
 
         int versionNo = document.getCurrentVersionNo() + 1;
         Instant now = clock.instant();
+        String checkToken = checkToken(prepared);
         DocumentVersion version = versionRepository.save(newVersion(
-                documentId, versionNo, containsSensitive, authorId, now, prepared));
+                documentId, versionNo, containsSensitive, authorId, now, prepared, checkToken));
         List<DocumentFile> copies = new ArrayList<>();
         for (DocumentFile source : kept) {
             NewFile reused = new NewFile(
@@ -141,11 +144,11 @@ public class DocumentPersistenceService {
         document.setCurrentStage(null);
         document.setStatus(Document.Status.DRAFT);
         document.setUpdatedAt(now);
-        return new CreatedVersion(documentId, version.getId(), versionNo);
+        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken);
     }
 
     @Transactional
-    public long beginFieldsUpdate(
+    public CheckAttempt beginFieldsUpdate(
             long documentId,
             int versionNo,
             long orgId,
@@ -164,25 +167,44 @@ public class DocumentPersistenceService {
         }
         DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
                 .orElseThrow(NotFoundException::new);
-        writePending(version, prepared);
+        String checkToken = UUID.randomUUID().toString();
+        writePending(version, prepared, checkToken);
         document.setUpdatedAt(clock.instant());
-        return version.getId();
+        return new CheckAttempt(version.getId(), checkToken);
     }
 
     @Transactional
-    public void completeCheck(long versionId, DocumentRuleService.CheckData result) {
-        DocumentVersion version = versionRepository.findById(versionId).orElseThrow(NotFoundException::new);
-        version.setExtractedFields(fieldsJson(result));
+    public boolean completeCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData result
+    ) {
+        documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
+        DocumentVersion version = currentAttempt(documentId, attempt);
+        if (version == null) {
+            return false;
+        }
+        version.setExtractedFields(fieldsJson(result, null));
         version.setValidationIssues(objectMapper.valueToTree(result.issues()));
         version.setCheckStatus("CHECKED");
+        return true;
     }
 
     @Transactional
-    public void failCheck(long versionId, DocumentRuleService.CheckData pending) {
-        DocumentVersion version = versionRepository.findById(versionId).orElseThrow(NotFoundException::new);
-        version.setExtractedFields(fieldsJson(pending));
+    public boolean failCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData pending
+    ) {
+        documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
+        DocumentVersion version = currentAttempt(documentId, attempt);
+        if (version == null) {
+            return false;
+        }
+        version.setExtractedFields(fieldsJson(pending, null));
         version.setValidationIssues(objectMapper.createArrayNode());
         version.setCheckStatus("FAILED");
+        return true;
     }
 
     private DocumentVersion newVersion(
@@ -191,7 +213,8 @@ public class DocumentPersistenceService {
             boolean containsSensitive,
             long authorId,
             Instant now,
-            DocumentRuleService.PreparedCheck prepared
+            DocumentRuleService.PreparedCheck prepared,
+            String checkToken
     ) {
         DocumentVersion version = new DocumentVersion();
         version.setDocumentId(documentId);
@@ -200,14 +223,15 @@ public class DocumentPersistenceService {
         version.setCreatedBy(authorId);
         version.setCreatedAt(now);
         if (!prepared.type().isGeneric()) {
-            writePending(version, prepared);
+            writePending(version, prepared, checkToken);
         }
         return version;
     }
 
     private void writePending(
             DocumentVersion version,
-            DocumentRuleService.PreparedCheck prepared
+            DocumentRuleService.PreparedCheck prepared,
+            String checkToken
     ) {
         DocumentRuleService.CheckData pending = new DocumentRuleService.CheckData(
                 false,
@@ -220,13 +244,29 @@ public class DocumentPersistenceService {
                                 null))
                         .toList(),
                 List.of());
-        version.setExtractedFields(fieldsJson(pending));
+        version.setExtractedFields(fieldsJson(pending, checkToken));
         version.setValidationIssues(objectMapper.createArrayNode());
         version.setCheckStatus("FAILED");
     }
 
-    private JsonNode fieldsJson(DocumentRuleService.CheckData data) {
-        return objectMapper.valueToTree(new StoredFields(data.modelAvailable(), data.fields()));
+    private JsonNode fieldsJson(DocumentRuleService.CheckData data, String checkToken) {
+        return objectMapper.valueToTree(new StoredFields(data.modelAvailable(), data.fields(), checkToken));
+    }
+
+    private DocumentVersion currentAttempt(long documentId, CheckAttempt attempt) {
+        DocumentVersion version = versionRepository.findById(attempt.versionId())
+                .orElseThrow(NotFoundException::new);
+        String storedToken = version.getExtractedFields() == null
+                ? null
+                : version.getExtractedFields().path("checkToken").textValue();
+        if (!version.getDocumentId().equals(documentId) || !attempt.checkToken().equals(storedToken)) {
+            return null;
+        }
+        return version;
+    }
+
+    private String checkToken(DocumentRuleService.PreparedCheck prepared) {
+        return prepared.type().isGeneric() ? null : UUID.randomUUID().toString();
     }
 
     private DocumentFile newFile(
@@ -276,10 +316,17 @@ public class DocumentPersistenceService {
 
     public record NewFile(String storageKey, String fileName, String mimeType, long size) {}
 
-    public record CreatedVersion(long documentId, long versionId, int versionNo) {}
+    public record CreatedVersion(long documentId, long versionId, int versionNo, String checkToken) {
+        public CheckAttempt checkAttempt() {
+            return checkToken == null ? null : new CheckAttempt(versionId, checkToken);
+        }
+    }
+
+    public record CheckAttempt(long versionId, String checkToken) {}
 
     public record StoredFields(
             boolean modelAvailable,
-            List<DocumentCardResponse.FieldValue> fields
+            List<DocumentCardResponse.FieldValue> fields,
+            String checkToken
     ) {}
 }
