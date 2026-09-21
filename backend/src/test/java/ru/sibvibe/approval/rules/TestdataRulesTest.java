@@ -112,11 +112,12 @@ class TestdataRulesTest {
             }
 
             JsonNode rules = type.get("rules");
-            // Объём из CLAUDE.md, решение B: записка — 8–10 правил, остальные — 4–5.
-            if (code.equals("OFFICIAL_MEMO")) {
-                assertThat(rules.size()).isBetween(8, 10);
-            } else {
-                assertThat(rules.size()).isBetween(4, 5);
+            // Объём из CLAUDE.md, решение B, и задачи #21: записка — 8–10 правил, заявление на отпуск — 4–5,
+            // заявка на меру поддержки — 5–6.
+            switch (code) {
+                case "OFFICIAL_MEMO" -> assertThat(rules.size()).isBetween(8, 10);
+                case "VACATION_REQUEST" -> assertThat(rules.size()).isBetween(4, 5);
+                default -> assertThat(rules.size()).isBetween(5, 6);
             }
             long legal = 0;
             for (JsonNode rule : rules) {
