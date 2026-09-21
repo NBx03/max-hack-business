@@ -1,7 +1,8 @@
 # Интеграционные тесты PostgreSQL
 
-`DatabaseSchemaTest`, `SecurityIntegrationTest` и `OnboardingIntegrationTest` (подключение
-компании: заявки, роли, личные ссылки, гонка при вступлении) запускаются только при заданных
+`DatabaseSchemaTest`, `SecurityIntegrationTest`, `OnboardingIntegrationTest` (подключение
+компании: заявки, роли, личные ссылки, гонки) и `ApprovalIntegrationTest` (маршрут и решения: этапы, возврат,
+гонки решений) запускаются только при заданных
 `SCHEMA_TEST_URL` и `SCHEMA_TEST_PASSWORD`; обычный `mvn test` без них помечает эти тесты
 как skipped. Тесты очищают таблицы, поэтому запускать их можно только на одноразовой базе.
 
