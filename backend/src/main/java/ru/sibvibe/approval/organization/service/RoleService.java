@@ -14,9 +14,12 @@ import ru.sibvibe.approval.organization.repository.MemberRoleRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationMemberRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
 
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -80,6 +83,15 @@ public class RoleService {
     public List<UserRef> carriers(CurrentUser actor, long roleId) {
         long orgId = OrganizationAccess.requireMemberOrg(actor);
         roleRepository.findByIdAndOrgId(roleId, orgId).orElseThrow(OrganizationErrors::notFound);
+        return carriersOf(orgId, roleId);
+    }
+
+    /**
+     * Все активные носители роли компании, включая автора документа: разрешение маршрута само решает, кого
+     * исключить. Роль чужой компании даёт пустой список, а не ошибку доступа: вызывающий уже проверил права.
+     */
+    @Transactional(readOnly = true)
+    public List<UserRef> carriersOf(long orgId, long roleId) {
         Set<Long> memberIds = memberRoleRepository.findByRoleId(roleId).stream()
                 .map(MemberRole::getMemberId).collect(Collectors.toSet());
         Set<Long> userIds = memberRepository.findAllById(memberIds).stream()
@@ -90,6 +102,19 @@ public class RoleService {
                 .sorted(Comparator.comparing(AppUser::getFullName).thenComparing(AppUser::getId))
                 .map(user -> new UserRef(user.getId(), user.getFullName()))
                 .toList();
+    }
+
+    /** Роли компании по id; чужой или несуществующий id в результате отсутствует. */
+    @Transactional(readOnly = true)
+    public Map<Long, RoleRef> rolesById(long orgId, Collection<Long> roleIds) {
+        Map<Long, RoleRef> result = new LinkedHashMap<>();
+        if (roleIds.isEmpty()) {
+            return result;
+        }
+        for (Role role : roleRepository.findByOrgIdAndIdIn(orgId, roleIds)) {
+            result.put(role.getId(), ref(role));
+        }
+        return result;
     }
 
     private static String cleanName(String rawName) {

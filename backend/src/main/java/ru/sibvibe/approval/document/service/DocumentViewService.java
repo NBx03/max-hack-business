@@ -173,15 +173,16 @@ public class DocumentViewService {
         List<DocumentReadRepository.StepRow> steps = readRepository.findSteps(documentId);
         DocumentCardResponse.RouteView route = route(document, steps);
         boolean author = document.getAuthorId().equals(currentUser.userId());
-        boolean checked = check == null || "CHECKED".equals(check.status());
-        boolean blockers = check != null && check.issues().stream()
-                .anyMatch(issue -> issue.severity() == RuleEngine.Severity.BLOCKER);
+        boolean draft = document.getStatus() == Document.Status.DRAFT;
+        // Правило «нельзя отправить» общее с самой отправкой (DocumentCheckRules): кнопка и сервер не расходятся.
+        boolean submissionBlocked = DocumentCheckRules.blockReason(
+                type.isGeneric(), current.getCheckStatus(), current.getValidationIssues()).isPresent();
         DocumentCardResponse.Permissions permissions = new DocumentCardResponse.Permissions(
-                author && document.getStatus() == Document.Status.DRAFT && !type.isGeneric(),
-                author && (document.getStatus() == Document.Status.DRAFT
-                        || document.getStatus() == Document.Status.RETURNED),
-                author && document.getStatus() == Document.Status.DRAFT && checked && !blockers,
-                false);
+                author && draft && !type.isGeneric(),
+                author && (draft || document.getStatus() == Document.Status.RETURNED),
+                author && draft && !submissionBlocked,
+                // добавить согласующего можно до отправки: он выбирается в предпросмотре маршрута
+                author && draft);
         List<Long> activeStepIds = steps.stream()
                 .filter(step -> step.versionNo() == document.getCurrentVersionNo())
                 .filter(step -> step.approverId() == currentUser.userId())

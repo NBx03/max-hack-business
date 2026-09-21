@@ -11,6 +11,7 @@ import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Шаблоны маршрутов компании: владеет ими организация, а не автор документа. */
@@ -32,6 +33,32 @@ public class RouteTemplateService {
         this.roleRepository = roleRepository;
         this.organizationRepository = organizationRepository;
         this.typeDirectory = typeDirectory;
+    }
+
+    /**
+     * Шаблон маршрута компании для типа документа: строки по возрастанию этапа. Одинаковый {@code stageOrder}
+     * — параллельные участники. Если у компании для типа ещё нет ни одной строки (типы появились после
+     * компании, а добор при старте не успел), маршрут по умолчанию создаётся здесь же и читается заново.
+     * Пустой результат значит, что для типа маршрута по умолчанию не существует.
+     */
+    @Transactional
+    public List<TemplateRow> templateFor(long orgId, long documentTypeId) {
+        List<TemplateRow> rows = readTemplate(orgId, documentTypeId);
+        if (rows.isEmpty()) {
+            ensureDefaultRoutes(orgId);
+            rows = readTemplate(orgId, documentTypeId);
+        }
+        return rows;
+    }
+
+    private List<TemplateRow> readTemplate(long orgId, long documentTypeId) {
+        return routeRepository.findByOrgIdAndDocumentTypeIdOrderByStageOrderAscIdAsc(orgId, documentTypeId).stream()
+                .map(route -> new TemplateRow(route.getStageOrder(), route.getRoleId(), route.isMandatory()))
+                .toList();
+    }
+
+    /** Строка шаблона: роль на этапе; {@code mandatory = false} — пропускается, если носителей роли нет. */
+    public record TemplateRow(int stageOrder, long roleId, boolean mandatory) {
     }
 
     /**
