@@ -21,6 +21,7 @@
 | Модули бэкенда и фронтенда, модель данных, транзакции, конкурентность | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Эндпоинты и DTO | [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) |
 | Экраны мини-приложения | [docs/SCREENS.md](docs/SCREENS.md) |
+| Поля и правила проверки документов, тестовые документы | [docs/RULES.md](docs/RULES.md), [testdata/](testdata/README.md) |
 | Ветки, коммиты, ревью | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Продуктовые решения с обоснованием, ловушки стека | этот файл |
 

@@ -9,6 +9,8 @@
 *.gif binary
 *.ico binary
 *.pdf binary
+*.docx binary
+*.xlsx binary
 *.jar binary
 *.woff binary
 *.woff2 binary
