@@ -152,7 +152,7 @@ class DocumentIntegrationTest {
     }
 
     @Test
-    void documentLifecycleKeepsAclRulesAndSignedDownloadConsistent() throws Exception {
+    void rejectsOversizedMetadataAndAcceptsMetaWithoutContentType() throws Exception {
         byte[] pdf = pdf();
         mvc.perform(multipart("/api/v1/documents")
                         .file(textJsonPart("meta", Map.of(
@@ -177,48 +177,26 @@ class DocumentIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
-        JsonNode created = json(mvc.perform(multipart("/api/v1/documents")
-                        .file(textJsonPart("meta", Map.of(
-                                "documentTypeId", typeId,
-                                "title", "Приказ № 42",
-                                "visibility", "PRIVATE",
-                                "containsSensitive", false,
-                                "fields", Map.of("number", "42"))))
-                        .file(new MockMultipartFile("main", "..\\secret.pdf", "text/plain", pdf))
-                        .header("Authorization", AUTHOR_AUTH))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.check.status").value("CHECKED"))
-                .andExpect(jsonPath("$.check.modelAvailable").value(false))
-                .andExpect(jsonPath("$.check.issues").isEmpty())
-                .andExpect(jsonPath("$.permissions.canSubmit").value(true))
-                .andReturn().getResponse().getContentAsString());
+        createPrivateDocument(pdf);
+    }
 
-        long documentId = created.path("id").asLong();
-        JsonNode file = created.path("versions").get(0).path("files").get(0);
-        long fileId = file.path("id").asLong();
-        String downloadUrl = file.path("downloadUrl").asText();
-        assertThat(file.path("fileName").asText()).isEqualTo("secret.pdf");
-        assertThat(file.path("mimeType").asText()).isEqualTo("application/pdf");
-        assertThat(created.toString()).doesNotContain("storageKey").doesNotContain("storage_key");
+    @Test
+    void foreignCompanyCannotDownloadWithOtherwiseValidToken() throws Exception {
+        JsonNode created = createPrivateDocument(pdf());
+        long fileId = created.path("versions").get(0).path("files").get(0).path("id").asLong();
 
-        mvc.perform(get(downloadUrl))
-                .andExpect(status().isOk())
-                .andExpect(content().bytes(pdf))
-                .andExpect(header().string("Content-Type", "application/pdf"));
-        mvc.perform(get(downloadUrl + "x"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
         mvc.perform(get(tokenService.issue(fileId, foreignId).url()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
 
-        mvc.perform(get("/api/v1/documents/{id}", documentId)
-                        .header("Authorization", FOREIGN_AUTH))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/api/v1/documents/{id}", documentId)
-                        .header("Authorization", COLLEAGUE_AUTH))
-                .andExpect(status().isNotFound());
+    @Test
+    void sameCompanyReaderCanViewButCannotModifyDocument() throws Exception {
+        JsonNode created = createPrivateDocument(pdf());
+        long documentId = created.path("id").asLong();
+        long fileId = created.path("versions").get(0).path("files").get(0).path("id").asLong();
         jdbc.update("update document set visibility = 'ORG' where id = ?", documentId);
+
         mvc.perform(get("/api/v1/documents/{id}", documentId)
                         .header("Authorization", COLLEAGUE_AUTH))
                 .andExpect(status().isOk());
@@ -236,7 +214,34 @@ class DocumentIntegrationTest {
                         .header("Authorization", COLLEAGUE_AUTH))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-        jdbc.update("update document set visibility = 'PRIVATE' where id = ?", documentId);
+    }
+
+    @Test
+    void documentLifecycleKeepsAclRulesAndSignedDownloadConsistent() throws Exception {
+        byte[] pdf = pdf();
+        JsonNode created = createPrivateDocument(pdf);
+
+        long documentId = created.path("id").asLong();
+        JsonNode file = created.path("versions").get(0).path("files").get(0);
+        long fileId = file.path("id").asLong();
+        String downloadUrl = file.path("downloadUrl").asText();
+        assertThat(file.path("fileName").asText()).isEqualTo("secret.pdf");
+        assertThat(file.path("mimeType").asText()).isEqualTo("application/pdf");
+        assertThat(created.toString()).doesNotContain("storageKey").doesNotContain("storage_key");
+
+        mvc.perform(get(downloadUrl))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(pdf))
+                .andExpect(header().string("Content-Type", "application/pdf"));
+        mvc.perform(get(downloadUrl + "x"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+        mvc.perform(get("/api/v1/documents/{id}", documentId)
+                        .header("Authorization", FOREIGN_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/documents/{id}", documentId)
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound());
         mvc.perform(get("/api/v1/documents")
                         .param("tab", "MINE")
                         .header("Authorization", FOREIGN_AUTH))
@@ -319,6 +324,24 @@ class DocumentIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "select count(*) from document_version where check_status = 'CHECKED'", Integer.class))
                 .isEqualTo(2);
+    }
+
+    private JsonNode createPrivateDocument(byte[] pdf) throws Exception {
+        return json(mvc.perform(multipart("/api/v1/documents")
+                        .file(textJsonPart("meta", Map.of(
+                                "documentTypeId", typeId,
+                                "title", "Приказ № 42",
+                                "visibility", "PRIVATE",
+                                "containsSensitive", false,
+                                "fields", Map.of("number", "42"))))
+                        .file(new MockMultipartFile("main", "..\\secret.pdf", "text/plain", pdf))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.check.status").value("CHECKED"))
+                .andExpect(jsonPath("$.check.modelAvailable").value(false))
+                .andExpect(jsonPath("$.check.issues").isEmpty())
+                .andExpect(jsonPath("$.permissions.canSubmit").value(true))
+                .andReturn().getResponse().getContentAsString());
     }
 
     private MockMultipartFile jsonPart(String name, Object value) throws Exception {
