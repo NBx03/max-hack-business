@@ -51,6 +51,7 @@
 | HTTP | Когда |
 |---|---|
 | 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED` |
+| 415 | Неподдерживаемый формат тела или multipart-части: `VALIDATION_FAILED` |
 | 413 | `FILE_TOO_LARGE`. Бэкенд переводит `MaxUploadSizeExceededException` в этот формат; nginx при превышении 32 МБ отвечает своей страницей 413 |
 | 401 | Личность не подтверждена: `INIT_DATA_INVALID`, `INIT_DATA_EXPIRED` (данные запуска старше 24 часов — фронтенд показывает «Откройте приложение заново») |
 | 403 | Нет прав: `FORBIDDEN`, `NOT_ADMIN`, `DEMO_ACT_AS_FORBIDDEN` |
@@ -217,7 +218,7 @@ type MemberView = {               // участник компании: отве
 
 | Часть | Что |
 |---|---|
-| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` — `containsSensitive` относится к этой версии |
+| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` — принимается и без `Content-Type` у multipart-части; `containsSensitive` относится к этой версии |
 | `main` | Основной файл: PDF или DOCX. Обязателен, если это не документ-форма |
 | `attachments` | *SHOULD.* До 10 файлов: PDF, DOCX, XLSX, PNG, JPG |
 
@@ -229,7 +230,8 @@ type MemberView = {               // участник компании: отве
 документ, а даёт `modelAvailable = false`.
 
 `fields` — поля, введённые вручную: при `containsSensitive = true` или когда модель
-недоступна. Ограничения: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
+недоступна. Заголовок — до 255 символов; не более 100 полей и 10 000 символов в значении.
+Ограничения файлов: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
 
 ### `GET /documents` — списки
 
@@ -274,6 +276,9 @@ type DocumentCard = {
 `Authorization` и требует нажатия пользователя: запрос за ссылкой между нажатием и вызовом
 может «съесть» это нажатие. Поэтому подписанная ссылка **уже лежит в карточке**:
 
+**Решение v1.2:** отдельного `POST /files/{fileId}/download-link` нет; ссылка выдаётся
+в `FileRef` и действует 15 минут.
+
 1. `GET /documents/{id}` отдаёт в каждом `FileRef` абсолютный `downloadUrl`
    (основа — `MAX_MINI_APP_URL`; локально, если он пуст, — относительный путь)
    и `downloadExpiresAt`.
@@ -292,7 +297,8 @@ type DocumentCard = {
 
 Можно в `DRAFT` и `RETURNED`, иначе 409 `INVALID_STATE`. Из `RETURNED` документ
 переходит в `DRAFT`: автор видит проверку новой версии и отправляет заново.
-`multipart/form-data`: `meta` = `{ fields?, containsSensitive, keepFileIds: number[] }`,
+`multipart/form-data`: `meta` = `{ fields?, containsSensitive, keepFileIds: number[] }`
+(JSON принимается и без `Content-Type` у части),
 плюс `main` и `attachments` — только то, что меняется.
 
 - Файлы из `keepFileIds` переиспользуются без повторной загрузки.

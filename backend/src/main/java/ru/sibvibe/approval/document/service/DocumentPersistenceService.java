@@ -1,0 +1,332 @@
+package ru.sibvibe.approval.document.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.sibvibe.approval.common.api.NotFoundException;
+import ru.sibvibe.approval.document.dto.DocumentCardResponse;
+import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.entity.DocumentFile;
+import ru.sibvibe.approval.document.entity.DocumentVersion;
+import ru.sibvibe.approval.document.repository.DocumentFileRepository;
+import ru.sibvibe.approval.document.repository.DocumentRepository;
+import ru.sibvibe.approval.document.repository.DocumentVersionRepository;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+
+import static ru.sibvibe.approval.document.service.DocumentFileValidator.MAX_ATTACHMENTS;
+import static ru.sibvibe.approval.document.service.DocumentFileValidator.MAX_FILE_SIZE;
+import static ru.sibvibe.approval.document.service.DocumentFileValidator.MAX_VERSION_SIZE;
+
+@Service
+public class DocumentPersistenceService {
+
+    private final DocumentRepository documentRepository;
+    private final DocumentVersionRepository versionRepository;
+    private final DocumentFileRepository fileRepository;
+    private final ObjectMapper objectMapper;
+    private final Clock clock;
+
+    public DocumentPersistenceService(
+            DocumentRepository documentRepository,
+            DocumentVersionRepository versionRepository,
+            DocumentFileRepository fileRepository,
+            ObjectMapper objectMapper,
+            Clock clock
+    ) {
+        this.documentRepository = documentRepository;
+        this.versionRepository = versionRepository;
+        this.fileRepository = fileRepository;
+        this.objectMapper = objectMapper;
+        this.clock = clock;
+    }
+
+    @Transactional
+    public CreatedVersion create(
+            long orgId,
+            long authorId,
+            String title,
+            Document.Visibility visibility,
+            boolean containsSensitive,
+            DocumentRuleService.PreparedCheck prepared,
+            NewFile main
+    ) {
+        Instant now = clock.instant();
+        Document document = new Document();
+        document.setDocumentTypeId(prepared.type().getId());
+        document.setAuthorId(authorId);
+        document.setOrgId(orgId);
+        document.setTitle(title.trim());
+        document.setStatus(Document.Status.DRAFT);
+        document.setCurrentVersionNo(1);
+        document.setVisibility(visibility);
+        document.setCreatedAt(now);
+        document.setUpdatedAt(now);
+        document = documentRepository.save(document);
+
+        String checkToken = checkToken(prepared);
+        DocumentVersion version = newVersion(
+                document.getId(), 1, containsSensitive, authorId, now, prepared, checkToken);
+        version = versionRepository.save(version);
+        fileRepository.save(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, main, now));
+        return new CreatedVersion(document.getId(), version.getId(), 1, checkToken);
+    }
+
+    @Transactional
+    public CreatedVersion createVersion(
+            long documentId,
+            long orgId,
+            long authorId,
+            int expectedCurrentVersion,
+            boolean containsSensitive,
+            List<Long> keepFileIds,
+            DocumentRuleService.PreparedCheck prepared,
+            NewFile newMain
+    ) {
+        Document document = documentRepository.findByIdForUpdate(documentId)
+                .orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getCurrentVersionNo() != expectedCurrentVersion) {
+            throw DocumentApiException.invalidState("Документ уже был изменён");
+        }
+        if (document.getStatus() != Document.Status.DRAFT
+                && document.getStatus() != Document.Status.RETURNED) {
+            throw DocumentApiException.invalidState("В текущем статусе нельзя создать новую версию");
+        }
+        if (!document.getDocumentTypeId().equals(prepared.type().getId())) {
+            throw DocumentApiException.validation("Тип документа не совпадает");
+        }
+
+        DocumentVersion current = versionRepository
+                .findByDocumentIdAndVersionNo(documentId, document.getCurrentVersionNo())
+                .orElseThrow();
+        List<DocumentFile> currentFiles = fileRepository.findByVersionIdOrderByPosition(current.getId());
+        Set<Long> requestedIds = new LinkedHashSet<>(keepFileIds);
+        if (requestedIds.size() != keepFileIds.size()) {
+            throw DocumentApiException.validation("Некорректный список сохраняемых файлов");
+        }
+        List<DocumentFile> kept = currentFiles.stream()
+                .filter(file -> requestedIds.contains(file.getId()))
+                .toList();
+        if (kept.size() != requestedIds.size()) {
+            throw DocumentApiException.validation("Некорректный список сохраняемых файлов");
+        }
+        long keptMain = kept.stream().filter(file -> file.getKind() == DocumentFile.Kind.MAIN).count();
+        if ((newMain == null && keptMain != 1) || (newMain != null && keptMain != 0)) {
+            throw DocumentApiException.validation("Для версии должен быть указан один основной файл");
+        }
+        validateVersionFiles(kept, newMain);
+
+        int versionNo = document.getCurrentVersionNo() + 1;
+        Instant now = clock.instant();
+        String checkToken = checkToken(prepared);
+        DocumentVersion version = versionRepository.save(newVersion(
+                documentId, versionNo, containsSensitive, authorId, now, prepared, checkToken));
+        List<DocumentFile> copies = new ArrayList<>();
+        for (DocumentFile source : kept) {
+            NewFile reused = new NewFile(
+                    source.getStorageKey(), source.getFileName(), source.getMimeType(), source.getFileSize());
+            copies.add(newFile(version.getId(), source.getKind(), source.getPosition(), reused, now));
+        }
+        if (newMain != null) {
+            copies.add(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, newMain, now));
+        }
+        fileRepository.saveAll(copies);
+
+        document.setCurrentVersionNo(versionNo);
+        document.setCurrentStage(null);
+        document.setStatus(Document.Status.DRAFT);
+        document.setUpdatedAt(now);
+        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken);
+    }
+
+    @Transactional
+    public CheckAttempt beginFieldsUpdate(
+            long documentId,
+            int versionNo,
+            long orgId,
+            long authorId,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        Document document = documentRepository.findByIdForUpdate(documentId)
+                .orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getStatus() != Document.Status.DRAFT
+                || document.getCurrentVersionNo() != versionNo) {
+            throw DocumentApiException.invalidState("Поля можно менять только у текущего черновика");
+        }
+        if (!document.getDocumentTypeId().equals(prepared.type().getId()) || prepared.type().isGeneric()) {
+            throw DocumentApiException.validation("У этого документа нет проверяемых полей");
+        }
+        DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
+                .orElseThrow(NotFoundException::new);
+        String checkToken = UUID.randomUUID().toString();
+        writePending(version, prepared, checkToken);
+        document.setUpdatedAt(clock.instant());
+        return new CheckAttempt(version.getId(), checkToken);
+    }
+
+    @Transactional
+    public boolean completeCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData result
+    ) {
+        documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
+        DocumentVersion version = currentAttempt(documentId, attempt);
+        if (version == null) {
+            return false;
+        }
+        version.setExtractedFields(fieldsJson(result, null));
+        version.setValidationIssues(objectMapper.valueToTree(result.issues()));
+        version.setCheckStatus("CHECKED");
+        return true;
+    }
+
+    @Transactional
+    public boolean failCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData pending
+    ) {
+        documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
+        DocumentVersion version = currentAttempt(documentId, attempt);
+        if (version == null) {
+            return false;
+        }
+        version.setExtractedFields(fieldsJson(pending, null));
+        version.setValidationIssues(objectMapper.createArrayNode());
+        version.setCheckStatus("FAILED");
+        return true;
+    }
+
+    private DocumentVersion newVersion(
+            long documentId,
+            int versionNo,
+            boolean containsSensitive,
+            long authorId,
+            Instant now,
+            DocumentRuleService.PreparedCheck prepared,
+            String checkToken
+    ) {
+        DocumentVersion version = new DocumentVersion();
+        version.setDocumentId(documentId);
+        version.setVersionNo(versionNo);
+        version.setContainsSensitive(containsSensitive);
+        version.setCreatedBy(authorId);
+        version.setCreatedAt(now);
+        if (!prepared.type().isGeneric()) {
+            writePending(version, prepared, checkToken);
+        }
+        return version;
+    }
+
+    private void writePending(
+            DocumentVersion version,
+            DocumentRuleService.PreparedCheck prepared,
+            String checkToken
+    ) {
+        DocumentRuleService.CheckData pending = new DocumentRuleService.CheckData(
+                false,
+                prepared.schema().stream()
+                        .map(field -> new DocumentCardResponse.FieldValue(
+                                field.getFieldName(),
+                                prepared.suppliedFields().get(field.getFieldName()),
+                                "MANUAL",
+                                null,
+                                null))
+                        .toList(),
+                List.of());
+        version.setExtractedFields(fieldsJson(pending, checkToken));
+        version.setValidationIssues(objectMapper.createArrayNode());
+        version.setCheckStatus("FAILED");
+    }
+
+    private JsonNode fieldsJson(DocumentRuleService.CheckData data, String checkToken) {
+        return objectMapper.valueToTree(new StoredFields(data.modelAvailable(), data.fields(), checkToken));
+    }
+
+    private DocumentVersion currentAttempt(long documentId, CheckAttempt attempt) {
+        DocumentVersion version = versionRepository.findById(attempt.versionId())
+                .orElseThrow(NotFoundException::new);
+        String storedToken = version.getExtractedFields() == null
+                ? null
+                : version.getExtractedFields().path("checkToken").textValue();
+        if (!version.getDocumentId().equals(documentId) || !attempt.checkToken().equals(storedToken)) {
+            return null;
+        }
+        return version;
+    }
+
+    private String checkToken(DocumentRuleService.PreparedCheck prepared) {
+        return prepared.type().isGeneric() ? null : UUID.randomUUID().toString();
+    }
+
+    private DocumentFile newFile(
+            long versionId,
+            DocumentFile.Kind kind,
+            int position,
+            NewFile source,
+            Instant now
+    ) {
+        DocumentFile file = new DocumentFile();
+        file.setVersionId(versionId);
+        file.setKind(kind);
+        file.setPosition(position);
+        file.setStorageKey(source.storageKey());
+        file.setFileName(source.fileName());
+        file.setMimeType(source.mimeType());
+        file.setFileSize(source.size());
+        file.setCreatedAt(now);
+        return file;
+    }
+
+    private void requireAuthor(Document document, long orgId, long authorId) {
+        if (!document.getOrgId().equals(orgId) || !document.getAuthorId().equals(authorId)) {
+            throw new NotFoundException();
+        }
+    }
+
+    private void validateVersionFiles(List<DocumentFile> kept, NewFile newMain) {
+        long total = newMain == null ? 0 : newMain.size();
+        int attachments = 0;
+        for (DocumentFile file : kept) {
+            if (file.getFileSize() <= 0 || file.getFileSize() > MAX_FILE_SIZE) {
+                throw DocumentApiException.validation("Некорректный сохраняемый файл");
+            }
+            total += file.getFileSize();
+            if (file.getKind() == DocumentFile.Kind.ATTACHMENT) {
+                attachments++;
+            }
+        }
+        if (attachments > MAX_ATTACHMENTS) {
+            throw DocumentApiException.validation("В версии может быть не более 10 приложений");
+        }
+        if (total > MAX_VERSION_SIZE) {
+            throw DocumentApiException.fileTooLarge("Размер файлов версии превышает 30 МБ");
+        }
+    }
+
+    public record NewFile(String storageKey, String fileName, String mimeType, long size) {}
+
+    public record CreatedVersion(long documentId, long versionId, int versionNo, String checkToken) {
+        public CheckAttempt checkAttempt() {
+            return checkToken == null ? null : new CheckAttempt(versionId, checkToken);
+        }
+    }
+
+    public record CheckAttempt(long versionId, String checkToken) {}
+
+    public record StoredFields(
+            boolean modelAvailable,
+            List<DocumentCardResponse.FieldValue> fields,
+            String checkToken
+    ) {}
+}

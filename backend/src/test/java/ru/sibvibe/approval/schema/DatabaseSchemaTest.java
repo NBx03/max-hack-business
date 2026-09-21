@@ -42,6 +42,11 @@ class DatabaseSchemaTest {
         properties.put("server.port", "0");
         // Проверяется настоящий backend; внешний AI не нужен для проверки схемы.
         properties.put("spring.autoconfigure.exclude", "chat.giga.springai.autoconfigure.GigaChatAutoConfiguration");
+        // Document API зависит от FileStorage; для validate достаточно корректной конфигурации клиента,
+        // сетевых вызовов к MinIO этот тест не выполняет.
+        properties.put("minio.endpoint", "http://127.0.0.1:9000");
+        properties.put("minio.access-key", "schema-test-access-key");
+        properties.put("minio.secret-key", "schema-test-secret-key");
         properties.put("spring.main.banner-mode", "off");
 
         Map<String, String> firstChecksums;

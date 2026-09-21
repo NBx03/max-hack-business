@@ -7,5 +7,7 @@ import java.util.Collection;
 import java.util.List;
 
 public interface DocumentTypeRepository extends JpaRepository<DocumentType, Long> {
+    List<DocumentType> findAllByOrderById();
+
     List<DocumentType> findByCodeIn(Collection<String> codes);
 }

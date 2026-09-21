@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -52,17 +53,38 @@ class RestExceptionHandlerTest {
     }
 
     @Test
+    void missingMultipartPartReturnsValidationFailed() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .multipart("/multipart"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void nonNumericPathVariableReturnsValidationFailedInsteadOfServerError() throws Exception {
         mockMvc.perform(get("/test/abc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void unsupportedMediaTypeHasExplicitValidationCode() throws Exception {
+        mockMvc.perform(post("/test")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("value"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
     @RestController
     private static class TestController {
 
-        @PostMapping("/test")
+        @PostMapping(value = "/test", consumes = MediaType.APPLICATION_JSON_VALUE)
         void accept(@Valid @RequestBody TestRequest request) {
+        }
+
+        @PostMapping(value = "/multipart", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        void multipart(@RequestPart("main") byte[] main) {
         }
 
         @GetMapping("/test/{id}")

@@ -57,6 +57,8 @@ public class MaxAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return path.equals("/error")
                 || path.startsWith("/actuator/health")
+                || request.getMethod().equals("GET")
+                    && path.matches("/api/v1/files/[1-9][0-9]*/content")
                 || devProfile && (path.startsWith("/v3/api-docs") || path.startsWith("/swagger-ui"));
     }
 
