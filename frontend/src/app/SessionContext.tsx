@@ -39,6 +39,26 @@ function toApiError(err: unknown): ApiError {
   });
 }
 
+/**
+ * X-Demo-Act-As мог протухнуть без нашего ведома - песочницу пересоздали
+ * в другой вкладке или бэкенд перезапустили. Без восстановления пользователь
+ * залипает: 403 DEMO_ACT_AS_FORBIDDEN на каждый /me, а "Повторить" шлёт тот
+ * же протухший заголовок снова, и выйти из демо нечем - DemoSwitcher не
+ * рендерится на экране ошибки. Поэтому один раз сбрасываем заголовок и
+ * повторяем запрос от имени реальной компании / экрана приветствия.
+ */
+async function getMeWithDemoRecovery(): Promise<MeResponse> {
+  try {
+    return await getMe();
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'DEMO_ACT_AS_FORBIDDEN') {
+      setActingAsId(null);
+      return await getMe();
+    }
+    throw err;
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -49,7 +69,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setStatus('loading');
     setError(null);
     try {
-      const response = await getMe();
+      const response = await getMeWithDemoRecovery();
       setMe(response);
       setStatus('ready');
       if (response.sandbox) {
@@ -83,9 +103,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const startSandbox = useCallback(async () => {
     // Прежние id участников после пересоздания недействительны (403) - сбрасываем сразу.
     setActingAsId(null);
-    const sandbox = await createDemoSandbox();
-    setSandboxUsers(sandbox.users);
-    await refresh();
+    try {
+      const sandbox = await createDemoSandbox();
+      setSandboxUsers(sandbox.users);
+      await refresh();
+    } catch (err) {
+      // Вызывается как void startSandbox() из кнопок - без этого ошибка
+      // терялась бы unhandled rejection'ом, а пользователь не видел бы ничего.
+      setError(toApiError(err));
+      setStatus('error');
+    }
   }, [refresh]);
 
   const value = useMemo<SessionValue>(

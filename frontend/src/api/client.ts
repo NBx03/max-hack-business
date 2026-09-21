@@ -6,6 +6,7 @@ const BASE_PATH = '/api/v1';
 const GENERIC_ERROR_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
 const FILE_TOO_LARGE_MESSAGE = 'Файл слишком большой: до 10 МБ на файл и 30 МБ на все файлы';
 const AUTH_FAILED_MESSAGE = 'Не удалось подтвердить вход через MAX';
+const AUTH_EXPIRED_MESSAGE = 'Откройте приложение заново';
 
 /**
  * Демо-участник хранится только здесь и передаётся в каждом запросе -
@@ -74,9 +75,12 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   if (!response.ok) {
     if (response.status === 401) {
+      // Contract: INIT_DATA_EXPIRED - данные запуска старше 24 часов, нужен
+      // именно перезапуск приложения, а не общий текст "не удалось подтвердить".
+      const code = isApiErrorBody(parsed) ? parsed.code : 'INIT_DATA_INVALID';
       throw new ApiError(401, {
-        code: isApiErrorBody(parsed) ? parsed.code : 'INIT_DATA_INVALID',
-        message: AUTH_FAILED_MESSAGE,
+        code,
+        message: code === 'INIT_DATA_EXPIRED' ? AUTH_EXPIRED_MESSAGE : AUTH_FAILED_MESSAGE,
       });
     }
     if (isApiErrorBody(parsed)) {
