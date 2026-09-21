@@ -669,28 +669,31 @@ class OnboardingIntegrationTest {
         long alice = newUser();
         long reviewer = newUser();
         try {
-            // состояние до миграции справочника: типов документов ещё нет
+            // Имитируем состояние до миграции справочника, не удаляя связанные поля и правила:
+            // временные коды не распознаются каталогом стандартных типов.
             jdbc.update("delete from approval_route");
-            jdbc.update("delete from document_type");
+            hideDefaultTypes();
             long orgId = createCompany(alice, "Ромашка");
             assertThat(roleIds(alice)).hasSize(5);
             assertThat(countRoutes(orgId)).isZero();
 
             // типы появились (их создаёт миграция): при следующем старте компания получает маршруты
-            restoreDefaultTypes();
+            showDefaultTypes();
             routeBackfillRunner.run(null);
             assertThat(countRoutes(orgId)).isEqualTo(8);
             // повторный запуск ничего не дублирует
             assertThat(routeTemplateService.backfillAllOrganizations()).isZero();
             assertThat(countRoutes(orgId)).isEqualTo(8);
 
-            // у демо-песочницы свой маршрут, его создаёт справочник: по умолчанию ей маршруты не даются
-            ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null));
+            // У демо-песочницы уже есть специальный маршрут из Issue #11; backfill его не меняет.
+            long sandboxOrgId = ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null))
+                    .path("orgId").asLong();
+            assertThat(countRoutes(sandboxOrgId)).isEqualTo(3);
             routeTemplateService.backfillAllOrganizations();
             assertThat(jdbc.queryForObject("select count(*) from approval_route r"
-                    + " join organization o on o.id = r.org_id where o.is_demo", Integer.class)).isZero();
+                    + " join organization o on o.id = r.org_id where o.is_demo", Integer.class)).isEqualTo(3);
         } finally {
-            restoreDefaultTypes();
+            showDefaultTypes();
         }
     }
 
@@ -820,15 +823,18 @@ class OnboardingIntegrationTest {
         return jdbc.queryForObject("select count(*) from approval_route where org_id = ?", Integer.class, orgId);
     }
 
-    /** Возвращает справочник в состояние после миграции 17-001 (та же вставка, что и в ней). */
-    private void restoreDefaultTypes() {
+    private void hideDefaultTypes() {
         jdbc.update("""
-                insert into document_type(name, code, is_generic) values
-                    ('Служебная записка', 'OFFICIAL_MEMO', false),
-                    ('Заявление на отпуск', 'VACATION_REQUEST', false),
-                    ('Заявка на меру поддержки', 'SUPPORT_MEASURE_REQUEST', false),
-                    ('Любой файл', 'GENERIC', true)
-                on conflict (code) do nothing""");
+                update document_type set code = 'TEST_HIDDEN_' || code
+                where code in ('OFFICIAL_MEMO', 'VACATION_REQUEST', 'SUPPORT_MEASURE_REQUEST', 'GENERIC')
+                """);
+    }
+
+    private void showDefaultTypes() {
+        jdbc.update("""
+                update document_type set code = replace(code, 'TEST_HIDDEN_', '')
+                where code like 'TEST_HIDDEN_%'
+                """);
     }
 
     /** Открывает отдельную транзакцию и удерживает блокировку, пока её не завершат commit или rollback. */
