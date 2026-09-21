@@ -4,6 +4,7 @@ import { MaxUI } from '@maxhub/max-ui';
 import '@maxhub/max-ui/styles.css';
 
 import { App } from './App';
+import { SessionProvider } from './app/SessionContext';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -13,7 +14,9 @@ if (!container) {
 createRoot(container).render(
   <StrictMode>
     <MaxUI resetBody>
-      <App />
+      <SessionProvider>
+        <App />
+      </SessionProvider>
     </MaxUI>
   </StrictMode>,
 );

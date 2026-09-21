@@ -7,9 +7,10 @@
     <!--
       MAX Bridge подключается скриптом и отдаёт window.WebApp.
       Отдельного npm-пакета у Bridge нет - это не забытая зависимость.
-      Актуальный адрес скрипта сверять с dev.max.ru перед сдачей.
+      Адрес сверен с dev.max.ru/docs/webapps/bridge (2026-09-19); библиотека
+      инициализируется сама при загрузке, отдельного вызова ready() не требует.
     -->
-    <script src="https://st.max.ru/mini-app/max-bridge.js"></script>
+    <script src="https://st.max.ru/js/max-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>

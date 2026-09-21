@@ -1,0 +1,132 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react';
+import { setActingAsId } from '../api/client';
+import { ApiError } from '../api/errors';
+import { createDemoSandbox, getDemoSandbox, getMe } from '../api/session';
+import type { DemoSandboxUser, MeResponse } from '../api/types';
+
+type SessionStatus = 'loading' | 'ready' | 'error';
+
+interface SessionValue {
+  status: SessionStatus;
+  me: MeResponse | null;
+  error: ApiError | null;
+  /** null - демо-режим выключен или песочница ещё не создана. */
+  sandboxUsers: DemoSandboxUser[] | null;
+  refresh: () => Promise<void>;
+  /** id участника своей песочницы, или null, чтобы выйти из демо. */
+  actAs: (userId: number | null) => Promise<void>;
+  /** Создаёт песочницу или пересоздаёт её ("Начать заново"). */
+  startSandbox: () => Promise<void>;
+}
+
+const SessionContext = createContext<SessionValue | null>(null);
+
+function toApiError(err: unknown): ApiError {
+  if (err instanceof ApiError) {
+    return err;
+  }
+  return new ApiError(0, {
+    code: 'UNKNOWN',
+    message: 'Сервис временно недоступен, попробуйте ещё раз',
+  });
+}
+
+/**
+ * X-Demo-Act-As мог протухнуть без нашего ведома - песочницу пересоздали
+ * в другой вкладке или бэкенд перезапустили. Без восстановления пользователь
+ * залипает: 403 DEMO_ACT_AS_FORBIDDEN на каждый /me, а "Повторить" шлёт тот
+ * же протухший заголовок снова, и выйти из демо нечем - DemoSwitcher не
+ * рендерится на экране ошибки. Поэтому один раз сбрасываем заголовок и
+ * повторяем запрос от имени реальной компании / экрана приветствия.
+ */
+async function getMeWithDemoRecovery(): Promise<MeResponse> {
+  try {
+    return await getMe();
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'DEMO_ACT_AS_FORBIDDEN') {
+      setActingAsId(null);
+      return await getMe();
+    }
+    throw err;
+  }
+}
+
+export function SessionProvider({ children }: { children: ReactNode }) {
+  const [status, setStatus] = useState<SessionStatus>('loading');
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [sandboxUsers, setSandboxUsers] = useState<DemoSandboxUser[] | null>(null);
+
+  const refresh = useCallback(async () => {
+    setStatus('loading');
+    setError(null);
+    try {
+      const response = await getMeWithDemoRecovery();
+      setMe(response);
+      setStatus('ready');
+      if (response.sandbox) {
+        try {
+          const sandbox = await getDemoSandbox();
+          setSandboxUsers(sandbox.users);
+        } catch {
+          setSandboxUsers(null);
+        }
+      } else {
+        setSandboxUsers(null);
+      }
+    } catch (err) {
+      setError(toApiError(err));
+      setStatus('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const actAs = useCallback(
+    async (userId: number | null) => {
+      setActingAsId(userId);
+      await refresh();
+    },
+    [refresh],
+  );
+
+  const startSandbox = useCallback(async () => {
+    // Прежние id участников после пересоздания недействительны (403) - сбрасываем сразу.
+    setActingAsId(null);
+    try {
+      const sandbox = await createDemoSandbox();
+      setSandboxUsers(sandbox.users);
+      await refresh();
+    } catch (err) {
+      // Вызывается как void startSandbox() из кнопок - без этого ошибка
+      // терялась бы unhandled rejection'ом, а пользователь не видел бы ничего.
+      setError(toApiError(err));
+      setStatus('error');
+    }
+  }, [refresh]);
+
+  const value = useMemo<SessionValue>(
+    () => ({ status, me, error, sandboxUsers, refresh, actAs, startSandbox }),
+    [status, me, error, sandboxUsers, refresh, actAs, startSandbox],
+  );
+
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+export function useSession(): SessionValue {
+  const ctx = useContext(SessionContext);
+  if (!ctx) {
+    throw new Error('useSession должен использоваться внутри SessionProvider');
+  }
+  return ctx;
+}
