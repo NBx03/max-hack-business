@@ -31,6 +31,9 @@ jobs:
     env:
       SCHEMA_TEST_URL: jdbc:postgresql://localhost:5432/schema_test
       SCHEMA_TEST_PASSWORD: ci-only-throwaway
+      # Клиент MinIO требует ключи при создании, к серверу при старте не обращается.
+      MINIO_ACCESS_KEY: ci-access
+      MINIO_SECRET_KEY: ci-secret-key
     defaults:
       run:
         working-directory: backend
