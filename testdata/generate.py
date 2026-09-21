@@ -420,6 +420,8 @@ def fix_zip_times(path: Path) -> None:
             info = zipfile.ZipInfo(name, date_time=FIXED_TIME.timetuple()[:6])
             info.compress_type = zipfile.ZIP_STORED
             info.external_attr = 0o644 << 16
+            # Иначе Python пишет в архив текущую ОС (0 — Windows, 3 — Unix), и байты на машинах расходятся.
+            info.create_system = 3
             target.writestr(info, data)
 
 
