@@ -36,8 +36,20 @@ spring:
     gigachat:
       auth:
         bearer:
-          api-key: ${GIGACHAT_API_KEY:}
+          # GIGACHAT_CREDENTIALS — Authorization key (Base64 client_id:client_secret)
+          # из личного кабинета. Старое имя оставлено как локальный fallback.
+          api-key: ${GIGACHAT_CREDENTIALS:${GIGACHAT_API_KEY:}}
+          client-id: ${GIGACHAT_CLIENT_ID:}
         scope: ${GIGACHAT_SCOPE:GIGACHAT_API_PERS}
+      chat:
+        options:
+          model: ${GIGACHAT_MODEL:GigaChat-2-Max}
+          temperature: 0.0
+      embedding:
+        enabled: false
+      internal:
+        connect-timeout: 5s
+        read-timeout: ${AI_TIMEOUT_SECONDS:30}s
 
 server:
   port: ${SERVER_PORT:8080}
@@ -64,6 +76,10 @@ max:
     # Токен выдаётся организаторами. В репозиторий не попадает никогда.
     # Тем же секретом проверяется подпись данных запуска мини-приложения.
     token: ${MAX_BOT_TOKEN:}
+    # false отключает реальные вызовы MAX Bot API целиком (приём обновлений и отправку) -
+    # уведомления только логируются. Для интеграционных тестов с фиктивным токеном
+    # (backend/src/test/README.md) и для временного отключения на стенде без удаления токена.
+    enabled: ${MAX_BOT_ENABLED:true}
     # Официальный адрес с 19.07.2026. Сертификат Минцифры встроен в образ (Dockerfile).
     # Токен передаётся только заголовком Authorization - параметр access_token отключён.
     api-url: ${MAX_BOT_API_URL:https://platform-api2.max.ru}
@@ -71,6 +87,13 @@ max:
     # Документация MAX прямо называет long polling непригодным для продакшена,
     # и одновременно с webhook он не работает.
     update-mode: ${MAX_BOT_UPDATE_MODE:polling}
+    # Только для update-mode=webhook: публичный адрес backend, куда MAX шлёт обновления
+    # (бэкенд сам вызовет POST /subscriptions на этот адрес + /api/v1/bot/webhook при старте).
+    webhook-url: ${MAX_BOT_WEBHOOK_URL:}
+    # Секрет подписки: MAX присылает его в заголовке X-Max-Bot-Api-Secret каждого webhook-запроса,
+    # контроллер сверяет. Обязателен при update-mode=webhook: пустой секрет не пропускает проверку,
+    # а запрещает всё (fail closed) - контроллер отвечает 401, подписчик вовсе не подписывается.
+    webhook-secret: ${MAX_BOT_WEBHOOK_SECRET:}
   mini-app:
     url: ${MAX_MINI_APP_URL:}
     # Данные запуска старше этого срока считаются просроченными,

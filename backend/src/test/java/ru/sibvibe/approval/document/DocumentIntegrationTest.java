@@ -64,6 +64,8 @@ class DocumentIntegrationTest {
         registry.add("app.download.secret",
                 () -> "document-integration-test-secret-32-bytes");
         registry.add("max.mini-app.url", () -> "");
+        // Без токена бот и так деградирует до NoopNotifier, но флаг явный и не зависит от этого (BotConfiguration).
+        registry.add("max.bot.enabled", () -> "false");
         registry.add("minio.endpoint", () -> "http://127.0.0.1:9000");
         registry.add("minio.access-key", () -> "test-access-key");
         registry.add("minio.secret-key", () -> "test-secret-key");

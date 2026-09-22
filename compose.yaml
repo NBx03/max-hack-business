@@ -80,15 +80,22 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
       MINIO_BUCKET: ${MINIO_BUCKET:-documents}
-      GIGACHAT_API_KEY: ${GIGACHAT_API_KEY:-}
+      GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
+      GIGACHAT_CLIENT_ID: ${GIGACHAT_CLIENT_ID:-}
       GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat-2-Max}
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_BOT_ENABLED: ${MAX_BOT_ENABLED:-true}
       MAX_BOT_API_URL: ${MAX_BOT_API_URL:-https://platform-api2.max.ru}
       # polling локально, webhook на стенде сдачи
       MAX_BOT_UPDATE_MODE: ${MAX_BOT_UPDATE_MODE:-polling}
+      # Только для webhook: публичный адрес backend, куда MAX шлёт обновления бота.
+      MAX_BOT_WEBHOOK_URL: ${MAX_BOT_WEBHOOK_URL:-}
+      MAX_BOT_WEBHOOK_SECRET: ${MAX_BOT_WEBHOOK_SECRET:-}
       MAX_MINI_APP_URL: ${MAX_MINI_APP_URL:-}
       DEMO_MODE: ${DEMO_MODE:-false}
       AI_ENABLED: ${AI_ENABLED:-true}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-30}
     ports:
       - "${BACKEND_PORT:-8080}:8080"
 

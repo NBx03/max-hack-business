@@ -148,7 +148,7 @@ public class DocumentPersistenceService {
     }
 
     @Transactional
-    public CheckAttempt beginFieldsUpdate(
+    public FieldsUpdateAttempt beginFieldsUpdate(
             long documentId,
             int versionNo,
             long orgId,
@@ -167,10 +167,11 @@ public class DocumentPersistenceService {
         }
         DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
                 .orElseThrow(NotFoundException::new);
+        DocumentRuleService.CheckData previous = readCheckData(version);
         String checkToken = UUID.randomUUID().toString();
         writePending(version, prepared, checkToken);
         document.setUpdatedAt(clock.instant());
-        return new CheckAttempt(version.getId(), checkToken);
+        return new FieldsUpdateAttempt(new CheckAttempt(version.getId(), checkToken), previous);
     }
 
     @Transactional
@@ -253,6 +254,17 @@ public class DocumentPersistenceService {
         return objectMapper.valueToTree(new StoredFields(data.modelAvailable(), data.fields(), checkToken));
     }
 
+    private DocumentRuleService.CheckData readCheckData(DocumentVersion version) {
+        if (version.getExtractedFields() == null || version.getExtractedFields().isNull()) {
+            return new DocumentRuleService.CheckData(false, List.of(), List.of());
+        }
+        StoredFields stored = objectMapper.convertValue(version.getExtractedFields(), StoredFields.class);
+        return new DocumentRuleService.CheckData(
+                stored.modelAvailable(),
+                stored.fields() == null ? List.of() : List.copyOf(stored.fields()),
+                List.of());
+    }
+
     private DocumentVersion currentAttempt(long documentId, CheckAttempt attempt) {
         DocumentVersion version = versionRepository.findById(attempt.versionId())
                 .orElseThrow(NotFoundException::new);
@@ -323,6 +335,8 @@ public class DocumentPersistenceService {
     }
 
     public record CheckAttempt(long versionId, String checkToken) {}
+
+    public record FieldsUpdateAttempt(CheckAttempt checkAttempt, DocumentRuleService.CheckData previous) {}
 
     public record StoredFields(
             boolean modelAvailable,
