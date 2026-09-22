@@ -9,6 +9,7 @@ import ru.sibvibe.approval.organization.entity.MemberRole;
 import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.OrganizationMember;
 import ru.sibvibe.approval.organization.entity.Role;
+import ru.sibvibe.approval.organization.DemoSandboxContentSeeder;
 import ru.sibvibe.approval.organization.repository.AppUserRepository;
 import ru.sibvibe.approval.organization.repository.JoinRequestRepository;
 import ru.sibvibe.approval.organization.repository.MemberRoleRepository;
@@ -51,6 +52,9 @@ public class OrganizationSecurityService {
     private final RoleRepository roleRepository;
     private final MemberRoleRepository memberRoleRepository;
     private final JoinRequestRepository joinRequestRepository;
+    private final InviteService inviteService;
+    private final RouteTemplateService routeTemplateService;
+    private final DemoSandboxContentSeeder contentSeeder;
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
 
@@ -61,6 +65,9 @@ public class OrganizationSecurityService {
             RoleRepository roleRepository,
             MemberRoleRepository memberRoleRepository,
             JoinRequestRepository joinRequestRepository,
+            InviteService inviteService,
+            RouteTemplateService routeTemplateService,
+            DemoSandboxContentSeeder contentSeeder,
             JdbcTemplate jdbcTemplate,
             Clock clock
     ) {
@@ -70,6 +77,9 @@ public class OrganizationSecurityService {
         this.roleRepository = roleRepository;
         this.memberRoleRepository = memberRoleRepository;
         this.joinRequestRepository = joinRequestRepository;
+        this.inviteService = inviteService;
+        this.routeTemplateService = routeTemplateService;
+        this.contentSeeder = contentSeeder;
         this.jdbcTemplate = jdbcTemplate;
         this.clock = clock;
     }
@@ -161,12 +171,9 @@ public class OrganizationSecurityService {
             roles.put(seed.code(), roleRepository.save(role));
         }
 
+        Map<String, Long> userIdsByRole = new HashMap<>();
         for (UserSeed seed : DEMO_USERS) {
-            AppUser actor = new AppUser();
-            actor.setMaxUserId(nextSyntheticMaxUserId());
-            actor.setFullName(seed.name());
-            actor.setCreatedAt(now);
-            actor = userRepository.save(actor);
+            AppUser actor = createSyntheticUser(seed.name(), now);
 
             OrganizationMember member = new OrganizationMember();
             member.setOrgId(sandbox.getId());
@@ -183,8 +190,49 @@ public class OrganizationSecurityService {
             memberRole.setGrantedBy(ownerUserId);
             memberRole.setGrantedAt(now);
             memberRoleRepository.save(memberRole);
+            userIdsByRole.put(seed.roleCode(), actor.getId());
         }
+
+        AppUser applicant = createSyntheticUser("Демо Кандидат", now);
+        var invite = inviteService.issueOrgCode(sandbox.getId(), ownerUserId);
+        JoinRequest request = new JoinRequest();
+        request.setOrgId(sandbox.getId());
+        request.setUserId(applicant.getId());
+        request.setInviteId(invite.getId());
+        request.setStatus(JoinRequest.Status.PENDING);
+        request.setCreatedAt(now.minusSeconds(1800));
+        joinRequestRepository.save(request);
+
+        Map<String, Long> roleIdsByCode = roles.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().getId()));
+        routeTemplateService.createDemoMemoRoute(sandbox.getId(), roleIdsByCode);
+        contentSeeder.seed(new DemoSandboxContentSeeder.Seed(
+                sandbox.getId(),
+                requiredUser(userIdsByRole, DefaultRoles.DEPARTMENT_HEAD),
+                requiredUser(userIdsByRole, DefaultRoles.LAWYER),
+                requiredUser(userIdsByRole, DefaultRoles.ACCOUNTANT),
+                requiredUser(userIdsByRole, DefaultRoles.DIRECTOR),
+                roleIdsByCode.get(DefaultRoles.LAWYER),
+                roleIdsByCode.get(DefaultRoles.ACCOUNTANT),
+                roleIdsByCode.get(DefaultRoles.DIRECTOR),
+                now));
         return sandboxInfo(sandbox);
+    }
+
+    private AppUser createSyntheticUser(String name, Instant now) {
+        AppUser user = new AppUser();
+        user.setMaxUserId(nextSyntheticMaxUserId());
+        user.setFullName(name);
+        user.setCreatedAt(now);
+        return userRepository.save(user);
+    }
+
+    private long requiredUser(Map<String, Long> userIdsByRole, String roleCode) {
+        Long userId = userIdsByRole.get(roleCode);
+        if (userId == null) {
+            throw new IllegalStateException("Не найден демо-пользователь для роли " + roleCode);
+        }
+        return userId;
     }
 
     private MembershipInfo membershipInfo(OrganizationMember member) {

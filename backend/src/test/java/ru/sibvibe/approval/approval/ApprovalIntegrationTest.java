@@ -356,7 +356,7 @@ class ApprovalIntegrationTest {
 
         // исправление — новая версия (#16): документ снова черновик, старые шаги остаются историей
         long fileId = returned.path("versions").get(0).path("files").get(0).path("id").asLong();
-        JsonNode draft = ok(newVersion(company.frank, support, fileId));
+        JsonNode draft = ok(newVersion(company.frank, support, fileId, "SUPPORT_MEASURE_REQUEST"));
         assertThat(draft.path("status").asText()).isEqualTo("DRAFT");
         assertThat(draft.path("currentVersionNo").asInt()).isEqualTo(2);
         assertThat(draft.path("route").path("history")).hasSize(3);
@@ -461,11 +461,24 @@ class ApprovalIntegrationTest {
         Person reviewer = newUser();
         JsonNode sandbox = ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null));
         long demoAuthor = demoUser(sandbox, "DEPARTMENT_HEAD");
+        long demoLawyer = demoUser(sandbox, "LAWYER");
+        long demoAccountant = demoUser(sandbox, "ACCOUNTANT");
         long demoDirector = demoUser(sandbox, "DIRECTOR");
 
         long memo = createDocumentAs(reviewer, demoAuthor, "OFFICIAL_MEMO");
         JsonNode submitted = ok(callAs(reviewer, demoAuthor, "POST", "/api/v1/documents/" + memo + "/submit", null));
         assertThat(submitted.path("status").asText()).isEqualTo("IN_APPROVAL");
+
+        JsonNode lawyerCard = ok(callAs(reviewer, demoLawyer, "GET", "/api/v1/documents/" + memo, null));
+        JsonNode accountantCard = ok(callAs(reviewer, demoAccountant, "GET", "/api/v1/documents/" + memo, null));
+        assertThat(myActive(lawyerCard)).hasSize(1);
+        assertThat(myActive(accountantCard)).hasSize(1);
+        ok(callAs(reviewer, demoLawyer, "POST",
+                "/api/v1/approval-steps/" + myActive(lawyerCard).get(0) + "/decision",
+                Map.of("decision", "APPROVE")));
+        ok(callAs(reviewer, demoAccountant, "POST",
+                "/api/v1/approval-steps/" + myActive(accountantCard).get(0) + "/decision",
+                Map.of("decision", "APPROVE")));
 
         JsonNode directorCard = ok(callAs(reviewer, demoDirector, "GET", "/api/v1/documents/" + memo, null));
         assertThat(myActive(directorCard)).hasSize(1);
@@ -798,8 +811,12 @@ class ApprovalIntegrationTest {
 
     private long createDocumentWith(String auth, Long actAs, String typeCode) throws Exception {
         long typeId = jdbc.queryForObject("select id from document_type where code = ?", Long.class, typeCode);
-        Map<String, Object> meta = Map.of("documentTypeId", typeId, "title", "Документ " + UUID.randomUUID(),
-                "visibility", "PRIVATE", "containsSensitive", false);
+        Map<String, Object> meta = Map.of(
+                "documentTypeId", typeId,
+                "title", "Документ " + UUID.randomUUID(),
+                "visibility", "PRIVATE",
+                "containsSensitive", false,
+                "fields", validFields(typeCode));
         MockHttpServletRequestBuilder request = multipart("/api/v1/documents")
                 .file(new MockMultipartFile("meta", "", "application/json", MAPPER.writeValueAsBytes(meta)))
                 .file(new MockMultipartFile("main", "doc.pdf", "application/pdf", pdf()))
@@ -812,8 +829,31 @@ class ApprovalIntegrationTest {
         return ok(response, 201).path("id").asLong();
     }
 
-    private Resp newVersion(Person author, long documentId, long keepFileId) throws Exception {
-        Map<String, Object> meta = Map.of("containsSensitive", false, "keepFileIds", List.of(keepFileId));
+    private static Map<String, String> validFields(String typeCode) {
+        return switch (typeCode) {
+            case "OFFICIAL_MEMO" -> Map.of(
+                    "addressee", "Генеральному директору",
+                    "doc_date", "01.01.2020",
+                    "body", "Тестовый текст служебной записки достаточной длины для проверки маршрута согласования.");
+            case "VACATION_REQUEST" -> Map.of(
+                    "employee_name", "Иванов Иван Иванович",
+                    "vacation_type", "ежегодный оплачиваемый",
+                    "start_date", "01.10.2026",
+                    "days_count", "14");
+            case "SUPPORT_MEASURE_REQUEST" -> Map.of(
+                    "applicant_name", "ООО Ромашка",
+                    "support_type", "Консультационная поддержка",
+                    "applicant_inn", "1234567890",
+                    "smb_category", "малое предприятие");
+            default -> Map.of();
+        };
+    }
+
+    private Resp newVersion(Person author, long documentId, long keepFileId, String typeCode) throws Exception {
+        Map<String, Object> meta = Map.of(
+                "containsSensitive", false,
+                "keepFileIds", List.of(keepFileId),
+                "fields", validFields(typeCode));
         MvcResult result = mvc.perform(multipart("/api/v1/documents/" + documentId + "/versions")
                 .file(new MockMultipartFile("meta", "", "application/json", MAPPER.writeValueAsBytes(meta)))
                 .header("Authorization", author.auth())).andReturn();

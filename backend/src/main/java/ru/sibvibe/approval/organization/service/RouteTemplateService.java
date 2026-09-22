@@ -12,6 +12,7 @@ import ru.sibvibe.approval.organization.repository.RoleRepository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /** Шаблоны маршрутов компании: владеет ими организация, а не автор документа. */
@@ -117,5 +118,25 @@ public class RouteTemplateService {
             }
         }
         return created;
+    }
+
+    /** Маршрут демо-записки из Issue #11: юрист и бухгалтер параллельно, затем директор. */
+    void createDemoMemoRoute(long orgId, Map<String, Long> roleIdsByCode) {
+        Long typeId = typeDirectory.idsByCode(Set.of(DefaultRouteTemplates.OFFICIAL_MEMO))
+                .get(DefaultRouteTemplates.OFFICIAL_MEMO);
+        if (typeId == null) {
+            throw new IllegalStateException("Не найден тип документа " + DefaultRouteTemplates.OFFICIAL_MEMO);
+        }
+        routeRepository.insertIfAbsent(orgId, typeId, 1, requiredRole(roleIdsByCode, DefaultRoles.LAWYER), true);
+        routeRepository.insertIfAbsent(orgId, typeId, 1, requiredRole(roleIdsByCode, DefaultRoles.ACCOUNTANT), true);
+        routeRepository.insertIfAbsent(orgId, typeId, 2, requiredRole(roleIdsByCode, DefaultRoles.DIRECTOR), true);
+    }
+
+    private long requiredRole(Map<String, Long> roleIdsByCode, String code) {
+        Long roleId = roleIdsByCode.get(code);
+        if (roleId == null) {
+            throw new IllegalStateException("Не найдена демо-роль " + code);
+        }
+        return roleId;
     }
 }

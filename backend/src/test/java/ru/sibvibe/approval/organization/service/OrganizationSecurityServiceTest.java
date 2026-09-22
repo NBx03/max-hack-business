@@ -11,6 +11,7 @@ import ru.sibvibe.approval.organization.repository.MemberRoleRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationMemberRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
+import ru.sibvibe.approval.organization.DemoSandboxContentSeeder;
 import ru.sibvibe.approval.common.api.DemoActAsForbiddenException;
 
 import java.time.Clock;
@@ -31,10 +32,14 @@ class OrganizationSecurityServiceTest {
     private final RoleRepository roleRepository = mock(RoleRepository.class);
     private final MemberRoleRepository memberRoleRepository = mock(MemberRoleRepository.class);
     private final JoinRequestRepository joinRequestRepository = mock(JoinRequestRepository.class);
+    private final InviteService inviteService = mock(InviteService.class);
+    private final RouteTemplateService routeTemplateService = mock(RouteTemplateService.class);
+    private final DemoSandboxContentSeeder contentSeeder = mock(DemoSandboxContentSeeder.class);
     private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
     private final OrganizationSecurityService service = new OrganizationSecurityService(
             userRepository, organizationRepository, memberRepository, roleRepository, memberRoleRepository,
-            joinRequestRepository, jdbcTemplate, Clock.systemUTC());
+            joinRequestRepository, inviteService, routeTemplateService, contentSeeder,
+            jdbcTemplate, Clock.systemUTC());
 
     @Test
     void doesNotWriteWhenExistingUsersDisplayNameIsUnchanged() {

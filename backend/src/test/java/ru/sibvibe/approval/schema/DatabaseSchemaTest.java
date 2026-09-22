@@ -52,11 +52,12 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(6);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(7);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
                     .isEqualTo(18);
             assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(16);
             assertThat(context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
+            checkReferenceData(jdbc);
             firstChecksums = checksums(jdbc);
             assertHealthy(context);
             checkMappingsAndConstraints(context);
@@ -67,6 +68,47 @@ class DatabaseSchemaTest {
             assertThat(context.getBean(JdbcTemplate.class)
                     .queryForObject("select count(*) from app_user", Integer.class)).isZero();
         }
+    }
+
+    private void checkReferenceData(JdbcTemplate jdbc) {
+        assertThat(jdbc.queryForMap("""
+                select
+                    count(distinct type.id) as types,
+                    count(distinct field.id) as fields,
+                    count(distinct rule.id) as rules
+                from document_type type
+                left join document_type_field field on field.document_type_id = type.id
+                left join requirement_rule rule on rule.document_type_id = type.id
+                """))
+                .containsEntry("types", 4L)
+                .containsEntry("fields", 17L)
+                .containsEntry("rules", 21L);
+        assertThat(jdbc.queryForList("""
+                select type.code, count(distinct field.id) as fields, count(distinct rule.id) as rules
+                from document_type type
+                left join document_type_field field on field.document_type_id = type.id
+                left join requirement_rule rule on rule.document_type_id = type.id
+                group by type.code
+                order by type.code
+                """))
+                .containsExactly(
+                        Map.of("code", "GENERIC", "fields", 0L, "rules", 0L),
+                        Map.of("code", "OFFICIAL_MEMO", "fields", 8L, "rules", 10L),
+                        Map.of("code", "SUPPORT_MEASURE_REQUEST", "fields", 4L, "rules", 6L),
+                        Map.of("code", "VACATION_REQUEST", "fields", 5L, "rules", 5L));
+        assertThat(jdbc.queryForMap("""
+                select check_type, expected, kind, severity, source_ref
+                from requirement_rule rule
+                join document_type type on type.id = rule.document_type_id
+                where type.code = 'SUPPORT_MEASURE_REQUEST'
+                  and rule.field_name = 'smb_category'
+                  and rule.check_type = 'ONE_OF'
+                """))
+                .containsEntry("check_type", "ONE_OF")
+                .containsEntry("expected", "[\"микропредприятие\",\"малое предприятие\",\"среднее предприятие\"]")
+                .containsEntry("kind", "LEGAL")
+                .containsEntry("severity", "BLOCKER")
+                .containsEntry("source_ref", "ст. 4.1, ч. 3, п. 5");
     }
 
     private ConfigurableApplicationContext start(Map<String, Object> properties) {
