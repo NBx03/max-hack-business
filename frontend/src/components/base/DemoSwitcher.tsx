@@ -35,8 +35,8 @@ export function DemoSwitcher() {
         top: 0,
         zIndex: 100,
         paddingTop: 'env(safe-area-inset-top)',
-        background: 'var(--max-ui-background, #fff)',
-        borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+        background: 'var(--background-primary)',
+        borderBottom: '1px solid var(--divider-primary)',
       }}
     >
       <div
