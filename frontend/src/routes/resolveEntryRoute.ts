@@ -1,0 +1,45 @@
+import type { MeResponse } from '../api/types';
+import { ROUTE_PATTERNS, documentCardPath, joinPath, joinPersonalPath } from './paths';
+
+/**
+ * Куда вести после GET /me - docs/SCREENS.md, "Навигация". Схема в доке перечисляет
+ * случаи не как строгий приоритет, поэтому порядок здесь выбран по смыслу:
+ *  1. startParam d_<id> - переход из уведомления бота на конкретный документ, работает
+ *     независимо от состояния компании (доступ всё равно проверит GET /documents/{id}).
+ *  2. startParam c_/p_ - только пока пользователь ещё не подключён к компании и не подал
+ *     заявку: если он уже участник, ссылка-приглашение устарела и её нужно игнорировать.
+ *  3. Заявка на рассмотрении - блокирует остальное, пока не решена.
+ *  4. Есть компания - обычный список документов.
+ *  5. Иначе - приветствие.
+ */
+export function resolveEntryRoute(me: MeResponse): string {
+  const startParam = me.startParam;
+
+  if (startParam?.startsWith('d_')) {
+    const documentId = startParam.slice('d_'.length);
+    if (documentId) {
+      return documentCardPath(documentId);
+    }
+  }
+
+  const notYetConnected = !me.membership && !me.pendingJoinRequest;
+  if (notYetConnected && startParam?.startsWith('c_')) {
+    return joinPath(startParam.slice('c_'.length));
+  }
+  if (notYetConnected && startParam?.startsWith('p_')) {
+    const token = startParam.slice('p_'.length);
+    if (token) {
+      return joinPersonalPath(token);
+    }
+  }
+
+  if (me.pendingJoinRequest) {
+    return ROUTE_PATTERNS.pending;
+  }
+
+  if (me.membership) {
+    return ROUTE_PATTERNS.documents;
+  }
+
+  return ROUTE_PATTERNS.welcome;
+}

@@ -1,64 +1,42 @@
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
+import { Spinner } from '@maxhub/max-ui';
+import { BrowserRouter } from 'react-router-dom';
 import { useSession } from './app/SessionContext';
 import { DemoSwitcher } from './components/base/DemoSwitcher';
+import { FullscreenCenter } from './components/base/Layout';
+import { ErrorState } from './components/base/StateCard';
+import { AppRoutes } from './routes/AppRoutes';
 
 /**
- * Каркас: подключение к MAX и бэкенду (#6) сделано, сами экраны - отдельные
- * задачи (#1, #7, #18). Ниже - временные заглушки веток навигации из
- * docs/SCREENS.md, чтобы результат GET /me и демо-переключатель были видны
- * и проверяемы уже сейчас.
+ * Каркас: подключение к MAX и бэкенду (#6) и общие компоненты (#53) сделаны,
+ * сами экраны - отдельные задачи (#1, #7, #18). Ниже - переход к нужному экрану
+ * по результату GET /me и демо-переключатель.
  */
 export function App() {
-  const { status, me, error, sandboxUsers, refresh, startSandbox } = useSession();
+  const { status, me, error, refresh } = useSession();
 
   if (status === 'loading') {
     return (
-      <div style={{ padding: 16 }}>
+      <FullscreenCenter>
         <Spinner />
-      </div>
+      </FullscreenCenter>
     );
   }
 
   if (status === 'error' || !me) {
     return (
-      <div style={{ padding: 16 }}>
-        <Typography.Text>{error?.message ?? 'Сервис временно недоступен, попробуйте ещё раз'}</Typography.Text>
-        <div style={{ marginTop: 12 }}>
-          <Button onClick={() => void refresh()}>Повторить</Button>
-        </div>
-      </div>
+      <FullscreenCenter>
+        <ErrorState
+          message={error?.message ?? 'Сервис временно недоступен, попробуйте ещё раз'}
+          onRetry={() => void refresh()}
+        />
+      </FullscreenCenter>
     );
   }
 
   return (
-    <div>
+    <BrowserRouter>
       <DemoSwitcher />
-      <div style={{ padding: 16 }}>
-        <Typography.Title variant="large-strong">Согласование документов</Typography.Title>
-
-        {me.membership && (
-          <Typography.Text>
-            Список документов «{me.membership.orgName}» — экран в разработке (#7, #18).
-          </Typography.Text>
-        )}
-
-        {!me.membership && me.pendingJoinRequest && (
-          <Typography.Text>
-            Заявка отправлена в «{me.pendingJoinRequest.orgName}». Ждём решения администратора.
-          </Typography.Text>
-        )}
-
-        {!me.membership && !me.pendingJoinRequest && (
-          <div>
-            <Typography.Text>Экран приветствия в разработке (#1, #7).</Typography.Text>
-            {me.demoMode && sandboxUsers === null && (
-              <div style={{ marginTop: 12 }}>
-                <Button onClick={() => void startSandbox()}>Открыть демо-компанию</Button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+      <AppRoutes me={me} />
+    </BrowserRouter>
   );
 }

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MaxUI } from '@maxhub/max-ui';
 import '@maxhub/max-ui/styles.css';
+import './theme/tokens.css';
 
 import { App } from './App';
 import { SessionProvider } from './app/SessionContext';
@@ -13,7 +14,7 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <MaxUI resetBody>
+    <MaxUI resetBody className="app-root">
       <SessionProvider>
         <App />
       </SessionProvider>

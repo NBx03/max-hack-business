@@ -2,6 +2,7 @@ import { getAuthHeader } from './auth';
 import { ApiError, type ApiErrorBody } from './errors';
 
 const BASE_PATH = '/api/v1';
+const REQUEST_TIMEOUT_MS = 18_000;
 
 const GENERIC_ERROR_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
 const FILE_TOO_LARGE_MESSAGE = 'Файл слишком большой: до 10 МБ на файл и 30 МБ на все файлы';
@@ -52,11 +53,27 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(`${BASE_PATH}${path}`, {
-    method: options.method ?? 'GET',
-    headers,
-    body,
-  });
+  // Без тайм-аута зависший запрос (оборвавшаяся сеть, зависший бэкенд) держит экран
+  // в состоянии "загрузка" бесконечно - пользователь не видит ни данных, ни ошибки.
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_PATH}${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body,
+      signal: timeoutController.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new ApiError(0, { code: 'TIMEOUT', message: GENERIC_ERROR_MESSAGE });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (response.status === 204) {
     return undefined as T;
