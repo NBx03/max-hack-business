@@ -18,3 +18,10 @@ export class ApiError extends Error {
     this.details = body.details;
   }
 }
+
+const GENERIC_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
+
+/** Текст для пользователя: сообщение бэкенда или общий текст для сетевых сбоев. */
+export function errorMessage(err: unknown): string {
+  return err instanceof ApiError ? err.message : GENERIC_MESSAGE;
+}

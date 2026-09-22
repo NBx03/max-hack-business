@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
+import { demoEntryUser } from '../../app/demo';
 
 function describeParticipant(roles: { name: string }[], isAdmin: boolean): string {
   const labels = roles.map((role) => role.name);
@@ -20,13 +21,12 @@ export function DemoSwitcher() {
   const { me, sandboxUsers, actAs, startSandbox } = useSession();
   const [expanded, setExpanded] = useState(false);
 
-  if (!me || !me.demoMode || sandboxUsers === null) {
+  // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
+  if (!me || !me.demoMode || !me.actingAs || sandboxUsers === null) {
     return null;
   }
 
-  const label = me.actingAs
-    ? `Демо: действую как ${me.actingAs.user.fullName}`
-    : 'Демо: выберите участника';
+  const label = `Демо: действую как ${me.actingAs.user.fullName}`;
 
   return (
     <div
@@ -60,7 +60,11 @@ export function DemoSwitcher() {
           ))}
           <Button
             onClick={() => {
-              void startSandbox();
+              // После пересоздания прежние id недействительны - сразу входим от имени автора.
+              void startSandbox().then((users) => {
+                const entry = demoEntryUser(users);
+                return entry === null ? undefined : actAs(entry);
+              });
               setExpanded(false);
             }}
           >

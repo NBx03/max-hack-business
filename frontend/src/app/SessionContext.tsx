@@ -23,8 +23,11 @@ interface SessionValue {
   refresh: () => Promise<void>;
   /** id участника своей песочницы, или null, чтобы выйти из демо. */
   actAs: (userId: number | null) => Promise<void>;
-  /** Создаёт песочницу или пересоздаёт её ("Начать заново"). */
-  startSandbox: () => Promise<void>;
+  /**
+   * Создаёт песочницу или пересоздаёт её ("Начать заново"). Возвращает её участников,
+   * чтобы сразу войти от имени одного из них; null - не получилось, ошибка уже в `error`.
+   */
+  startSandbox: () => Promise<DemoSandboxUser[] | null>;
 }
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -107,11 +110,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const sandbox = await createDemoSandbox();
       setSandboxUsers(sandbox.users);
       await refresh();
+      return sandbox.users;
     } catch (err) {
       // Вызывается как void startSandbox() из кнопок - без этого ошибка
       // терялась бы unhandled rejection'ом, а пользователь не видел бы ничего.
       setError(toApiError(err));
       setStatus('error');
+      return null;
     }
   }, [refresh]);
 

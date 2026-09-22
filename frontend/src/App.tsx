@@ -1,15 +1,15 @@
 import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { useSession } from './app/SessionContext';
 import { DemoSwitcher } from './components/base/DemoSwitcher';
+import { OnboardingFlow } from './screens/onboarding/OnboardingFlow';
 
 /**
- * Каркас: подключение к MAX и бэкенду (#6) сделано, сами экраны - отдельные
- * задачи (#1, #7, #18). Ниже - временные заглушки веток навигации из
- * docs/SCREENS.md, чтобы результат GET /me и демо-переключатель были видны
- * и проверяемы уже сейчас.
+ * Корень по ответу GET /me (docs/SCREENS.md, «Навигация»): человек без компании видит
+ * экраны подключения (#18, screens/onboarding), участник компании или демо — пока заглушку
+ * списка документов (#7). Общий каркас навигации — #53.
  */
 export function App() {
-  const { status, me, error, sandboxUsers, refresh, startSandbox } = useSession();
+  const { status, me, error, refresh } = useSession();
 
   if (status === 'loading') {
     return (
@@ -30,35 +30,21 @@ export function App() {
     );
   }
 
+  // В демо человек действует от имени сотрудника песочницы, а /me.membership — только реальная компания.
+  const company = me.actingAs ? me.sandbox?.orgName : me.membership?.orgName;
+
   return (
     <div>
       <DemoSwitcher />
-      <div style={{ padding: 16 }}>
-        <Typography.Title variant="large-strong">Согласование документов</Typography.Title>
-
-        {me.membership && (
-          <Typography.Text>
-            Список документов «{me.membership.orgName}» — экран в разработке (#7, #18).
-          </Typography.Text>
-        )}
-
-        {!me.membership && me.pendingJoinRequest && (
-          <Typography.Text>
-            Заявка отправлена в «{me.pendingJoinRequest.orgName}». Ждём решения администратора.
-          </Typography.Text>
-        )}
-
-        {!me.membership && !me.pendingJoinRequest && (
-          <div>
-            <Typography.Text>Экран приветствия в разработке (#1, #7).</Typography.Text>
-            {me.demoMode && sandboxUsers === null && (
-              <div style={{ marginTop: 12 }}>
-                <Button onClick={() => void startSandbox()}>Открыть демо-компанию</Button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {company ? (
+        <div style={{ padding: 16 }}>
+          <Typography.Title variant="large-strong">{company}</Typography.Title>
+          <Typography.Text>Список документов — экран в разработке (#7).</Typography.Text>
+        </div>
+      ) : (
+        // Человек без компании: приветствие, создание, вход по коду или ссылке, ожидание (#18).
+        <OnboardingFlow />
+      )}
     </div>
   );
 }

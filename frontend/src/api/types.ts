@@ -57,3 +57,27 @@ export interface DemoSandboxResponse {
   orgName: string;
   users: DemoSandboxUser[];
 }
+
+// Подключение компании - см. docs/API_CONTRACTS.md, «Подключение компании».
+
+export interface OrganizationCreated {
+  id: number;
+  name: string;
+}
+
+export interface InvitePreview {
+  orgName: string;
+}
+
+export interface JoinRequestCreated {
+  id: number;
+  orgName: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface PersonalInvitePreview {
+  orgName: string;
+  roles: RoleRef[];
+  expiresAt: string;
+}
