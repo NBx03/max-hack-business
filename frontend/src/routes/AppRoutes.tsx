@@ -11,10 +11,13 @@ import {
 import { ROUTE_PATTERNS } from './paths';
 import { hasCompany, resolveEntryRoute } from './resolveEntryRoute';
 import { ScreenStub } from './ScreenStub';
+import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
+import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
+import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
- * Экраны подключения - #18, остальные пока заглушки (#54, #7, #55).
+ * Экраны подключения - #18, документов - #55, остальные пока заглушки (#54, #7).
  */
 export function AppRoutes({ me }: { me: MeResponse }) {
   // startParam действует один раз за запуск: он приходит в каждом /me, и без этой отметки
@@ -97,15 +100,15 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.documentUpload}
-        element={companyScreen(<ScreenStub title="9. Загрузка документа" issue="#55" />)}
+        element={companyScreen(<DocumentUploadScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.documentCheck}
-        element={companyScreen(<ScreenStub title="10. Результат проверки" issue="#55" />)}
+        element={companyScreen(<DocumentCheckScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.documentNewVersion}
-        element={companyScreen(<ScreenStub title="Новая версия документа" issue="#55" />)}
+        element={companyScreen(<NewDocumentVersionScreen />)}
       />
       <Route path={ROUTE_PATTERNS.documentCard} element={<ScreenStub title="11. Карточка документа" issue="#7" />} />
       <Route

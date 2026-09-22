@@ -31,3 +31,15 @@ export function joinPersonalPath(token: string): string {
 export function documentCardPath(id: number | string): string {
   return ROUTE_PATTERNS.documentCard.replace(':id', String(id));
 }
+
+export function documentCheckPath(id: number | string): string {
+  return ROUTE_PATTERNS.documentCheck.replace(':id', String(id));
+}
+
+export function documentNewVersionPath(id: number | string): string {
+  return ROUTE_PATTERNS.documentNewVersion.replace(':id', String(id));
+}
+
+export function routePreviewPath(id: number | string): string {
+  return ROUTE_PATTERNS.routePreview.replace(':id', String(id));
+}

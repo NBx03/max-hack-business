@@ -81,3 +81,90 @@ export interface PersonalInvitePreview {
   roles: RoleRef[];
   expiresAt: string;
 }
+
+export type DocumentStatus = 'DRAFT' | 'IN_APPROVAL' | 'APPROVED' | 'RETURNED' | 'REJECTED';
+export type Visibility = 'PRIVATE' | 'ORG';
+export type Severity = 'BLOCKER' | 'WARNING' | 'INFO';
+export type RuleKind = 'LEGAL' | 'INTERNAL_POLICY' | 'PRODUCT_RULE';
+
+export interface DocumentTypeField {
+  name: string;
+  type: 'STRING' | 'DATE' | 'NUMBER' | 'PERSON' | 'ORGANIZATION';
+  label: string;
+  hint: string;
+}
+
+export interface DocumentType {
+  id: number;
+  code: string;
+  name: string;
+  isGeneric: boolean;
+  fields: DocumentTypeField[];
+}
+
+export interface FileRef {
+  id: number;
+  kind: 'MAIN' | 'ATTACHMENT';
+  fileName: string;
+  mimeType: string;
+  size: number;
+  downloadUrl: string;
+  downloadExpiresAt: string;
+}
+
+export interface ValidationIssue {
+  ruleId: number;
+  fieldName: string;
+  message: string;
+  severity: Severity;
+  kind: RuleKind;
+  sourceTitle: string;
+  sourceUrl: string | null;
+  sourceRef: string | null;
+  quote: string | null;
+  page: number | null;
+}
+
+export interface CheckField {
+  name: string;
+  value: string | null;
+  source: 'MODEL' | 'MANUAL';
+  quote: string | null;
+  page: number | null;
+}
+
+export interface CheckResult {
+  versionNo: number;
+  status: 'CHECKED' | 'FAILED';
+  modelAvailable: boolean;
+  fields: CheckField[];
+  issues: ValidationIssue[];
+}
+
+export interface DocumentVersion {
+  versionNo: number;
+  containsSensitive: boolean;
+  createdAt: string;
+  createdBy: UserRef;
+  files: FileRef[];
+}
+
+export interface DocumentCard {
+  id: number;
+  title: string;
+  type: { id: number; name: string; isGeneric: boolean };
+  status: DocumentStatus;
+  visibility: Visibility;
+  author: UserRef;
+  currentVersionNo: number;
+  versions: DocumentVersion[];
+  check: CheckResult | null;
+  route: unknown | null;
+  permissions: {
+    canEditFields: boolean;
+    canUploadVersion: boolean;
+    canSubmit: boolean;
+    canAddApprover: boolean;
+  };
+  myActiveStepIds: number[];
+}
