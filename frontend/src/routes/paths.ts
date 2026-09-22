@@ -14,6 +14,8 @@ export const ROUTE_PATTERNS = {
   documents: '/documents',
   documentUpload: '/documents/new',
   documentCheck: '/documents/:id/check',
+  /** Загрузка исправленного файла после RETURNED - docs/SCREENS.md, "Правки документов". */
+  documentNewVersion: '/documents/:id/new-version',
   documentCard: '/documents/:id',
   routePreview: '/documents/:id/route',
 } as const;

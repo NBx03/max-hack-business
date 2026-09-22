@@ -2,6 +2,18 @@ import type { MeResponse } from '../api/types';
 import { ROUTE_PATTERNS, documentCardPath, joinPath, joinPersonalPath } from './paths';
 
 /**
+ * Есть ли у человека компания, в которой он сейчас действует. В демо человек может
+ * действовать от имени участника песочницы (`actingAs`) - тогда компания это
+ * `me.sandbox`, а не `me.membership` (`membership` - только реальная компания,
+ * docs/API_CONTRACTS.md, GET /me). Без этого различия проверяющий в демо считался бы
+ * человеком без компании и застревал на приветствии вместо списка документов - это
+ * основной сценарий жюри (гейт №2).
+ */
+export function hasCompany(me: MeResponse): boolean {
+  return Boolean(me.actingAs ? me.sandbox : me.membership);
+}
+
+/**
  * Куда вести после GET /me - docs/SCREENS.md, "Навигация". Схема в доке перечисляет
  * случаи не как строгий приоритет, поэтому порядок здесь выбран по смыслу:
  *  1. startParam d_<id> - переход из уведомления бота на конкретный документ, работает
@@ -22,7 +34,7 @@ export function resolveEntryRoute(me: MeResponse): string {
     }
   }
 
-  const notYetConnected = !me.membership && !me.pendingJoinRequest;
+  const notYetConnected = !hasCompany(me) && !me.pendingJoinRequest;
   if (notYetConnected && startParam?.startsWith('c_')) {
     return joinPath(startParam.slice('c_'.length));
   }
@@ -37,7 +49,7 @@ export function resolveEntryRoute(me: MeResponse): string {
     return ROUTE_PATTERNS.pending;
   }
 
-  if (me.membership) {
+  if (hasCompany(me)) {
     return ROUTE_PATTERNS.documents;
   }
 

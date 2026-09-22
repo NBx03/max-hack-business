@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Button } from '@maxhub/max-ui';
 
 // Общие состояния "пусто" / "ошибка" / "нет доступа" - docs/SCREENS.md, "Общие правила"
 // ("пусто (текст + следующее действие)", "ошибка (текст из message + «Повторить»)"),
@@ -44,22 +45,9 @@ function StateCard({ icon, text, action }: { icon: ReactNode; text: string; acti
 
 function OutlineButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '14px 16px',
-        borderRadius: 8,
-        border: '1px solid var(--divider-primary)',
-        background: 'transparent',
-        color: 'var(--text-tertiary)',
-        fontSize: 16,
-        fontWeight: 600,
-        cursor: 'pointer',
-      }}
-    >
+    <Button variant="secondary" onClick={onClick}>
       {label}
-    </button>
+    </Button>
   );
 }
 

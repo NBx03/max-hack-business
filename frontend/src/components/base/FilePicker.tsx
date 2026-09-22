@@ -71,27 +71,22 @@ export function FilePicker({
             </button>
           </>
         ) : (
-          <>
-            <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-              Перетащите файл сюда или нажмите кнопку
-            </span>
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 6,
-                border: 'none',
-                background: 'var(--background-tertiary)',
-                color: 'var(--text-secondary)',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              Выбрать файл
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 6,
+              border: 'none',
+              background: 'var(--background-tertiary)',
+              color: 'var(--text-secondary)',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            Выбрать файл
+          </button>
         )}
         <input
           ref={inputRef}

@@ -2,7 +2,12 @@ import { getAuthHeader } from './auth';
 import { ApiError, type ApiErrorBody } from './errors';
 
 const BASE_PATH = '/api/v1';
-const REQUEST_TIMEOUT_MS = 18_000;
+const DEFAULT_TIMEOUT_MS = 18_000;
+// Загрузка файла (до 30 МБ с телефона) и эндпоинты, синхронно вызывающие модель
+// (POST /documents, PUT .../fields - docs/API_CONTRACTS.md), дольше обычного запроса.
+// На них общий тайм-аут обрывал бы соединение раньше ответа, а документ на сервере
+// уже создался бы - повторное нажатие "Загрузить" тогда создаёт дубликат.
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 const GENERIC_ERROR_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
 const FILE_TOO_LARGE_MESSAGE = 'Файл слишком большой: до 10 МБ на файл и 30 МБ на все файлы';
@@ -25,6 +30,12 @@ interface ApiRequestOptions {
   body?: unknown;
   /** true - body уже FormData (загрузка файлов), сериализовать в JSON не нужно. */
   isFormData?: boolean;
+  /**
+   * Переопределяет тайм-аут запроса (мс). По умолчанию - DEFAULT_TIMEOUT_MS, а для
+   * isFormData - UPLOAD_TIMEOUT_MS без явного указания; передайте своё значение,
+   * если экран точно знает, что вызов дольше (или короче) типичного.
+   */
+  timeoutMs?: number;
 }
 
 function isApiErrorBody(value: unknown): value is ApiErrorBody {
@@ -55,8 +66,9 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   // Без тайм-аута зависший запрос (оборвавшаяся сеть, зависший бэкенд) держит экран
   // в состоянии "загрузка" бесконечно - пользователь не видит ни данных, ни ошибки.
+  const timeoutMs = options.timeoutMs ?? (options.isFormData ? UPLOAD_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
   const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
   let response: Response;
   try {

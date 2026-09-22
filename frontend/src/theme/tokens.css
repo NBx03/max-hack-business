@@ -15,39 +15,45 @@
  * в которой нет готовых "оранжевого"/"жёлтого" семантических токенов (есть только
  * --icon-negative/--icon-positive). Светлая/тёмная пара, а не расчёт в JS -
  * тогда цвет переживает смену темы без перерисовки компонента.
+ *
+ * Заливка светлая, текст тёмный того же тона (не наоборот) - у белого текста на
+ * --status-progress-bg/--status-success-bg контраст ~2:1, при 11px это не прочитать.
+ * orange/yellow (IN_APPROVAL/RETURNED) должны быть заметно разными тонами, а не
+ * соседними оттенками янтарного - иначе они неотличимы на маленькой метке (ревью PR).
+ * Тёмная тема - те же два цвета пары, поменянные местами (фон тёмный, текст светлый).
  */
 :root {
-  --status-neutral-bg: #e5e7eb;
+  --status-neutral-bg: #f3f4f6;
   --status-neutral-fg: #374151;
 
-  --status-progress-bg: #f59e0b;
-  --status-progress-fg: #ffffff;
+  --status-progress-bg: #ffedd5;
+  --status-progress-fg: #9a3412;
 
-  --status-warning-bg: #fbbf24;
-  --status-warning-fg: #111827;
+  --status-warning-bg: #fef9c3;
+  --status-warning-fg: #854d0e;
 
-  --status-danger-bg: #ef4444;
-  --status-danger-fg: #ffffff;
+  --status-danger-bg: #fee2e2;
+  --status-danger-fg: #991b1b;
 
-  --status-success-bg: #22c55e;
-  --status-success-fg: #ffffff;
+  --status-success-bg: #dcfce7;
+  --status-success-fg: #166534;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --status-neutral-bg: #374151;
-    --status-neutral-fg: #e5e7eb;
+    --status-neutral-fg: #f3f4f6;
 
-    --status-progress-bg: #b45309;
-    --status-progress-fg: #fff7ed;
+    --status-progress-bg: #9a3412;
+    --status-progress-fg: #ffedd5;
 
-    --status-warning-bg: #a16207;
-    --status-warning-fg: #fefce8;
+    --status-warning-bg: #854d0e;
+    --status-warning-fg: #fef9c3;
 
-    --status-danger-bg: #b91c1c;
-    --status-danger-fg: #fef2f2;
+    --status-danger-bg: #991b1b;
+    --status-danger-fg: #fee2e2;
 
-    --status-success-bg: #15803d;
-    --status-success-fg: #f0fdf4;
+    --status-success-bg: #166534;
+    --status-success-fg: #dcfce7;
   }
 }
