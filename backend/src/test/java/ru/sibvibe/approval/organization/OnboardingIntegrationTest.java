@@ -88,6 +88,9 @@ class OnboardingIntegrationTest {
         registry.add("app.demo-mode", () -> "true");
         registry.add("app.onboarding.join-attempts-per-hour", () -> "3");
         registry.add("max.bot.token", () -> "onboarding-test-token");
+        // Тестовый токен нужен только для проверки initData - без этого флага бэкенд слал бы
+        // настоящие HTTP-запросы на platform-api2.max.ru при каждом уведомлении (BotConfiguration).
+        registry.add("max.bot.enabled", () -> "false");
         registry.add("spring.autoconfigure.exclude",
                 () -> "chat.giga.springai.autoconfigure.GigaChatAutoConfiguration");
     }

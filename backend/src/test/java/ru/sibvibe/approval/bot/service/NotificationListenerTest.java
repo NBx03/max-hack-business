@@ -1,0 +1,144 @@
+package ru.sibvibe.approval.bot.service;
+
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
+import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
+import ru.sibvibe.approval.bot.Notifier;
+import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
+import ru.sibvibe.approval.organization.event.JoinRequestSubmittedEvent;
+import ru.sibvibe.approval.organization.event.MemberJoinedByLinkEvent;
+import ru.sibvibe.approval.organization.service.InviteLinks;
+import ru.sibvibe.approval.organization.service.NotificationDirectoryService;
+import ru.sibvibe.approval.organization.service.NotificationDirectoryService.Recipient;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * Доменные события {@code organization} и {@code approval} превращаются в уведомления MAX
+ * (ARCHITECTURE.md, «Уведомления»). Проверяется маршрутизация получателей, а не HTTP - его закрывает
+ * {@link ru.sibvibe.approval.bot.adapter.MaxBotApiNotifier}.
+ */
+class NotificationListenerTest {
+
+    private final Notifier notifier = mock(Notifier.class);
+    private final NotificationDirectoryService directory = mock(NotificationDirectoryService.class);
+    private final InviteLinks links = mock(InviteLinks.class);
+    private final NotificationListener listener = new NotificationListener(notifier, directory, links);
+
+    @Test
+    void joinRequestSubmittedNotifiesEveryActiveAdmin() {
+        when(directory.find(77L)).thenReturn(Optional.of(new Recipient(910000077L, "Иван Заявитель")));
+        when(directory.activeAdmins(1L)).thenReturn(List.of(
+                new Recipient(910000001L, "Админ Один"), new Recipient(910000002L, "Админ Два")));
+        when(links.appLink()).thenReturn("https://max.ru/t354_hakaton_max_bot");
+
+        listener.on(new JoinRequestSubmittedEvent(1L, 300L, 77L));
+
+        verify(notifier).send(eq(910000001L), contains("Иван Заявитель"),
+                eq("Открыть"), eq("https://max.ru/t354_hakaton_max_bot"));
+        verify(notifier).send(eq(910000002L), contains("Иван Заявитель"),
+                eq("Открыть"), eq("https://max.ru/t354_hakaton_max_bot"));
+    }
+
+    @Test
+    void joinRequestSubmittedFallsBackToGenericNameWhenApplicantUnknown() {
+        when(directory.find(77L)).thenReturn(Optional.empty());
+        when(directory.activeAdmins(1L)).thenReturn(List.of(new Recipient(910000001L, "Админ")));
+
+        listener.on(new JoinRequestSubmittedEvent(1L, 300L, 77L));
+
+        verify(notifier).send(eq(910000001L), anyString(), anyString(), any());
+    }
+
+    @Test
+    void joinRequestDecidedDoesNothingIfApplicantIsGone() {
+        when(directory.find(77L)).thenReturn(Optional.empty());
+
+        listener.on(new JoinRequestDecidedEvent(1L, 300L, 77L, true));
+
+        verifyNoInteractions(notifier);
+    }
+
+    @Test
+    void joinRequestApprovedAndRejectedProduceDifferentText() {
+        when(directory.find(77L)).thenReturn(Optional.of(new Recipient(910000077L, "Заявитель")));
+
+        listener.on(new JoinRequestDecidedEvent(1L, 300L, 77L, true));
+        listener.on(new JoinRequestDecidedEvent(1L, 301L, 77L, false));
+
+        ArgumentCaptor<String> texts = ArgumentCaptor.forClass(String.class);
+        verify(notifier, times(2)).send(eq(910000077L), texts.capture(), anyString(), any());
+        assertThat(texts.getAllValues().get(0)).contains("одобрена");
+        assertThat(texts.getAllValues().get(1)).contains("отклонена");
+    }
+
+    @Test
+    void memberJoinedByLinkNotifiesTheAdminWhoCreatedTheLink() {
+        when(directory.find(5L)).thenReturn(Optional.of(new Recipient(910000005L, "Админ Пригласивший")));
+        when(directory.find(9L)).thenReturn(Optional.of(new Recipient(910000009L, "Новый Сотрудник")));
+
+        listener.on(new MemberJoinedByLinkEvent(1L, 42L, 9L, 5L));
+
+        verify(notifier).send(eq(910000005L), contains("Новый Сотрудник"), anyString(), any());
+    }
+
+    @Test
+    void memberJoinedByLinkDoesNothingIfInvitingAdminIsGone() {
+        when(directory.find(5L)).thenReturn(Optional.empty());
+
+        listener.on(new MemberJoinedByLinkEvent(1L, 42L, 9L, 5L));
+
+        verifyNoInteractions(notifier);
+    }
+
+    @Test
+    void approvalRequestedNotifiesEveryApproverWithDocumentLink() {
+        when(directory.find(Set.of(11L, 12L))).thenReturn(Map.of(
+                11L, new Recipient(910000011L, "Согласующий Один"),
+                12L, new Recipient(910000012L, "Согласующий Два")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        listener.on(new ApprovalRequestedEvent(500L, 1, 1, Set.of(11L, 12L), 99L));
+
+        String documentUrl = "https://max.ru/t354_hakaton_max_bot?startapp=d_500";
+        verify(notifier).send(eq(910000011L), anyString(), anyString(), eq(documentUrl));
+        verify(notifier).send(eq(910000012L), anyString(), anyString(), eq(documentUrl));
+    }
+
+    @Test
+    void documentDecidedNotifiesAuthorWithOutcomeSpecificText() {
+        when(directory.find(99L)).thenReturn(Optional.of(new Recipient(910000099L, "Автор")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        listener.on(new DocumentDecidedEvent(500L, 1, 99L, DocumentDecidedEvent.Outcome.RETURNED, 11L));
+
+        verify(notifier).send(eq(910000099L), contains("возвращён"), anyString(),
+                eq("https://max.ru/t354_hakaton_max_bot?startapp=d_500"));
+    }
+
+    @Test
+    void documentDecidedDoesNothingIfAuthorIsGone() {
+        when(directory.find(99L)).thenReturn(Optional.empty());
+
+        listener.on(new DocumentDecidedEvent(500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null));
+
+        verify(notifier, never()).send(anyLong(), anyString(), anyString(), any());
+    }
+}

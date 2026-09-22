@@ -3,8 +3,10 @@ package ru.sibvibe.approval.organization.service;
 import org.springframework.stereotype.Component;
 
 /**
- * Ссылки-приглашения на мини-приложение: {@code https://max.ru/<бот>?startapp=<префикс>_<значение>}.
+ * Ссылки на мини-приложение: {@code https://max.ru/<бот>?startapp=<префикс>_<значение>}.
  * Бота создали организаторы, его ник проверен запросом {@code GET /me} (CLAUDE.md).
+ * Используется и приглашениями, и уведомлениями бота (модуль {@code bot} вызывает только сервисы
+ * {@code organization} - ARCHITECTURE.md, раздел 2).
  */
 @Component
 public class InviteLinks {
@@ -20,7 +22,17 @@ public class InviteLinks {
         return link("p_" + token);
     }
 
+    /** Префикс {@code d_} - карточка документа из уведомления бота (API_CONTRACTS.md). */
+    public String documentLink(long documentId) {
+        return link("d_" + documentId);
+    }
+
+    /** Без startParam - для ответов бота вне какого-либо конкретного контекста ({@code /start}, приветствие). */
+    public String appLink() {
+        return "https://max.ru/" + BOT_USERNAME;
+    }
+
     private String link(String payload) {
-        return "https://max.ru/" + BOT_USERNAME + "?startapp=" + payload;
+        return appLink() + "?startapp=" + payload;
     }
 }

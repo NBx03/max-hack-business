@@ -48,6 +48,9 @@ class SecurityIntegrationTest {
         registry.add("spring.datasource.password", () -> System.getenv("SCHEMA_TEST_PASSWORD"));
         registry.add("app.demo-mode", () -> "true");
         registry.add("max.bot.token", () -> TEST_TOKEN);
+        // Тестовый токен нужен только для проверки initData - без этого флага бэкенд слал бы
+        // настоящие HTTP-запросы на platform-api2.max.ru при каждом уведомлении (BotConfiguration).
+        registry.add("max.bot.enabled", () -> "false");
         registry.add("minio.endpoint", () -> "http://127.0.0.1:9000");
         registry.add("minio.access-key", () -> "security-test-access-key");
         registry.add("minio.secret-key", () -> "security-test-secret-key");
