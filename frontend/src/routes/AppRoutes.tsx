@@ -11,6 +11,7 @@ import { WelcomeStub } from './WelcomeStub';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
+import { useMaxBackButton } from './useMaxBackButton';
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
@@ -19,6 +20,10 @@ import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersio
 export function AppRoutes({ me }: { me: MeResponse }) {
   const entryRoute = resolveEntryRoute(me);
   const companyReady = hasCompany(me);
+
+  // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
+  // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.
+  useMaxBackButton(entryRoute);
 
   // Экраны 1-5 (приветствие, создание, код, личная ссылка, ожидание) - только пока
   // компании нет. Свежий /me проверяется на каждом рендере, а не только при входе на

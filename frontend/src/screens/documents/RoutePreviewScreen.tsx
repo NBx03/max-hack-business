@@ -2,15 +2,25 @@ import { useMemo, useState } from 'react';
 import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument, type RouteSelection } from '../../api/documents';
-import type { RoutePreviewParticipant } from '../../api/types';
+import type { DocumentStatus, RoutePreviewParticipant } from '../../api/types';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
-import { ErrorState } from '../../components/base/StateCard';
+import { ErrorState, ErrorText } from '../../components/base/StateCard';
 import { useAsync } from '../../hooks/useAsync';
 import { errorMessage } from '../../api/errors';
 import { documentCardPath } from '../../routes/paths';
 
 function selectionKey(stageOrder: number, roleId: number): string {
   return `${stageOrder}:${roleId}`;
+}
+
+/**
+ * Текст тоста после отправки - по статусу из ответа submitDocument, а не всегда один
+ * и тот же: если решать некому (обязательная роль только у автора - AUTHOR_HOLDS_ROLE
+ * на каждом шаге), документ сразу APPROVED, и "согласующие получили уведомление" было
+ * бы неправдой (#71, ревью).
+ */
+function submitToastMessage(status: DocumentStatus): string {
+  return status === 'APPROVED' ? 'Документ согласован — решать было некому' : 'Отправлено. Согласующие получили уведомление';
 }
 
 /** 12. Предпросмотр маршрута (docs/SCREENS.md). */
@@ -66,8 +76,8 @@ export function RoutePreviewScreen() {
         const [stageOrder, roleId] = key.split(':').map(Number);
         return { stageOrder, roleId, userId };
       });
-      await submitDocument(documentId, selectionList.length > 0 ? { selections: selectionList } : {});
-      navigate(documentCardPath(documentId), { state: { toast: 'Отправлено. Согласующие получили уведомление' } });
+      const submitted = await submitDocument(documentId, selectionList.length > 0 ? { selections: selectionList } : {});
+      navigate(documentCardPath(documentId), { state: { toast: submitToastMessage(submitted.status) } });
     } catch (err) {
       setSubmitError(errorMessage(err));
     } finally {
@@ -78,7 +88,7 @@ export function RoutePreviewScreen() {
   return (
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-        <Typography.Title variant="large-strong">Предпросмотр маршрута</Typography.Title>
+        <Typography.Headline variant="large-strong">Предпросмотр маршрута</Typography.Headline>
 
         {data.problems.map((problem) => (
           <div
@@ -113,7 +123,7 @@ export function RoutePreviewScreen() {
           ))}
         </div>
 
-        {submitError && <ErrorState message={submitError} onRetry={() => setSubmitError(null)} />}
+        {submitError && <ErrorText>{submitError}</ErrorText>}
       </CenteredColumn>
 
       <BottomActionBar>

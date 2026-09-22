@@ -3,6 +3,14 @@
  * Библиотека подключается скриптом в index.html и создаёт этот объект сама -
  * никакой отдельной инициализации не требует (сверено с dev.max.ru/docs/webapps/bridge).
  */
+/** Системная кнопка "назад" - есть только внутри MAX, вне его недоступна (routes/useMaxBackButton.ts). */
+export interface MaxBackButton {
+  show(): void;
+  hide(): void;
+  onClick(handler: () => void): void;
+  offClick(handler: () => void): void;
+}
+
 export interface MaxWebApp {
   /** Подписанная, но не зашифрованная строка стартовых данных. Фронтенд её не разбирает,
    *  а целиком пересылает на бэкенд в заголовке Authorization. */
@@ -14,6 +22,7 @@ export interface MaxWebApp {
   };
   /** Нативное скачивание: работает только внутри MAX, требует нажатия пользователя. */
   downloadFile(url: string, fileName: string): void;
+  BackButton: MaxBackButton;
 }
 
 declare global {

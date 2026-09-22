@@ -7,12 +7,12 @@ import type { DocumentCard, RouteStage, RouteView, StepView } from '../../api/ty
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
-import { AccessErrorState, ErrorState } from '../../components/base/StateCard';
+import { AccessErrorState, ErrorState, ErrorText } from '../../components/base/StateCard';
 import { Toast } from '../../components/base/Toast';
 import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
-import { documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+import { documentCheckPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -87,6 +87,12 @@ export function DocumentCardScreen() {
       // на первый лист с комментарием, там decisionError уже отрисовывается.
       setRejectStep2(false);
       setDecisionError(errorMessage(err));
+      if (err instanceof ApiError && err.status === 409) {
+        // Шаг уже неактивен (STEP_NOT_ACTIVE) - другой согласующий решил раньше.
+        // Карточка должна сразу показать новый статус, а не оставаться со старыми
+        // кнопками, как будто ничего не произошло.
+        query.refresh();
+      }
     } finally {
       setDecisionBusy(false);
     }
@@ -126,7 +132,7 @@ export function DocumentCardScreen() {
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-            <Typography.Title variant="large-strong">{doc.title}</Typography.Title>
+            <Typography.Headline variant="large-strong">{doc.title}</Typography.Headline>
             <DocumentStatusBadge status={doc.status} />
           </div>
           <Typography.Text>
@@ -155,6 +161,11 @@ export function DocumentCardScreen() {
         </div>
       )}
 
+      {/* Не внутри блока activeSteps ("Согласовать" у него своего диалога нет) - иначе
+          409 STEP_NOT_ACTIVE после query.refresh() был бы виден максимум на миг: шаг
+          пропадает из myActiveStepIds вместе с баннером, который был бы вложен туда (#71, ревью). */}
+      {decisionError && decisionDialog === null && <ErrorText>{decisionError}</ErrorText>}
+
       {doc.route && <RouteStages route={doc.route} />}
 
       {currentVersion && currentVersion.files.length > 0 && (
@@ -176,7 +187,13 @@ export function DocumentCardScreen() {
         </div>
       )}
 
-      {doc.check && <CheckSummary status={doc.check.status} issueCount={doc.check.issues.length} />}
+      {doc.check && (
+        <CheckSummary
+          status={doc.check.status}
+          issueCount={doc.check.issues.length}
+          onOpen={() => navigate(documentCheckPath(doc.id))}
+        />
+      )}
 
       <HistoryAndVersions doc={doc} />
       </CenteredColumn>
@@ -229,6 +246,17 @@ export function DocumentCardScreen() {
         </BottomActionBar>
       )}
 
+      {/* canSubmit = false на черновике - из-за BLOCKER в проверке (экран 10). Без этой
+          кнопки открытый из списка черновик оставался тупиком: карточка вообще без кнопок,
+          а счётчик замечаний раньше не был кликабелен (#71, ревью). */}
+      {doc.status === 'DRAFT' && !doc.permissions.canSubmit && doc.check && (
+        <BottomActionBar>
+          <Button stretched variant="primary" onClick={() => navigate(documentCheckPath(doc.id))}>
+            Исправить замечания
+          </Button>
+        </BottomActionBar>
+      )}
+
       {doc.status === 'RETURNED' && doc.permissions.canUploadVersion && (
         <BottomActionBar>
           <Button stretched variant="primary" onClick={() => navigate(documentNewVersionPath(doc.id))}>
@@ -251,7 +279,7 @@ export function DocumentCardScreen() {
           placeholder="Опишите, что нужно исправить"
         />
         <Typography.Text>Комментарий обязателен — без него отправить нельзя</Typography.Text>
-        {decisionError && <ErrorState message={decisionError} onRetry={() => setDecisionError(null)} />}
+        {decisionError && <ErrorText>{decisionError}</ErrorText>}
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}>
             <Button stretched variant="secondary" onClick={closeDialog}>
@@ -341,43 +369,44 @@ function StageGroup({ stage }: { stage: RouteStage }) {
   );
 }
 
-// Свёрнуто, со счётчиком - сам список замечаний остаётся на экране 10 (#55),
-// сюда его текст переносить не нужно.
-function CheckSummary({ status, issueCount }: { status: 'CHECKED' | 'FAILED'; issueCount: number }) {
+// Свёрнуто, со счётчиком - сам список замечаний остаётся на экране 10 (#55), сюда его
+// текст переносить не нужно. Нажатие ведёт туда же (documentCheckPath) - без этого
+// черновик с замечаниями был тупиком: счётчик виден, а открыть список неоткуда (#71, ревью).
+// CellSimple, не самописная кнопка - тот же компонент, что уже даёт строки файлов
+// в этом экране (CLAUDE.md: "Компоненты @maxhub/max-ui предпочитать самописным").
+function CheckSummary({
+  status,
+  issueCount,
+  onOpen,
+}: {
+  status: 'CHECKED' | 'FAILED';
+  issueCount: number;
+  onOpen: () => void;
+}) {
   // status = FAILED значит "проверка не выполнилась", а не "прошла и ничего не нашла" -
   // issues тогда пуст не потому что всё в порядке, а потому что её не было. Показывать
-  // "нет" в этом случае значило бы соврать про состояние документа.
-  if (status === 'FAILED') {
-    return (
-      <div
-        style={{
-          padding: 10,
-          borderRadius: 8,
-          background: 'var(--status-warning-bg)',
-          color: 'var(--status-warning-fg)',
-          fontSize: 13,
-        }}
-      >
-        Проверка не выполнена
-      </div>
-    );
-  }
-
+  // "нет" в этом случае значило бы соврать про состояние документа. У CellSimple нет
+  // варианта с цветным фоном строки - предупреждение выражено цветом заголовка.
   return (
-    <div
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        padding: 10,
-        borderRadius: 8,
-        border: '1px solid var(--divider-primary)',
-        color: 'var(--text-primary)',
-        fontSize: 13,
-      }}
-    >
-      <span>Замечания проверки</span>
-      <span style={{ color: 'var(--text-tertiary)' }}>{issueCount === 0 ? 'нет' : issueCount}</span>
-    </div>
+    <CellList mode="full-width">
+      <CellSimple
+        as="button"
+        onClick={onOpen}
+        showChevron
+        title={
+          status === 'FAILED' ? (
+            <span style={{ color: 'var(--status-warning-fg)' }}>Проверка не выполнена</span>
+          ) : (
+            'Замечания проверки'
+          )
+        }
+        after={
+          status === 'CHECKED' && (
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{issueCount === 0 ? 'нет' : issueCount}</span>
+          )
+        }
+      />
+    </CellList>
   );
 }
 

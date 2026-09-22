@@ -20,6 +20,16 @@ export const ROUTE_PATTERNS = {
   routePreview: '/documents/:id/route',
 } as const;
 
+// Корневые экраны - без истории внутри приложения выше них некуда возвращаться,
+// поэтому системная BackButton моста на них скрыта (routes/useMaxBackButton.ts).
+// Рядом с ROUTE_PATTERNS, а не в самом хуке - иначе новый корневой экран можно
+// добавить в паттерны и забыть про этот список, ничто не укажет на связь.
+export const ROOT_ROUTE_PATTERNS: ReadonlySet<string> = new Set([
+  ROUTE_PATTERNS.documents,
+  ROUTE_PATTERNS.welcome,
+  ROUTE_PATTERNS.pending,
+]);
+
 export function joinPath(code?: string): string {
   return code ? `${ROUTE_PATTERNS.join}?code=${encodeURIComponent(code)}` : ROUTE_PATTERNS.join;
 }

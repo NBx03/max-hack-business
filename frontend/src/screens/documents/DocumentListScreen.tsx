@@ -32,6 +32,20 @@ function daysWaiting(iso: string): number {
   return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
 }
 
+/** "день"/"дня"/"дней" - обычные русские правила (11-14 всегда "дней"). */
+function pluralDays(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'день';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'дня';
+  return 'дней';
+}
+
+function waitingText(iso: string): string {
+  const days = daysWaiting(iso);
+  return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
+}
+
 type ScreenTab = DocumentTab | 'ADMIN';
 
 /** 8. Список документов - главный экран, плюс вход в 6/7/3 через вкладку "Админ" (docs/SCREENS.md). */
@@ -94,7 +108,7 @@ export function DocumentListScreen() {
     // CenteredColumn, а рядом с ним (см. components/base/Layout.tsx, BottomActionBar).
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-        <Typography.Title variant="large-strong">Документы</Typography.Title>
+        <Typography.Headline variant="large-strong">Документы</Typography.Headline>
 
         <Tabs tabs={tabs} activeKey={tab} onChange={setTab} />
 
@@ -184,10 +198,7 @@ function DocumentRow({
   separator: boolean;
   onOpen: () => void;
 }) {
-  const dateOrWaiting =
-    // Текст ровно как в docs/SCREENS.md: "ждёт N дней" - без склонения по числу
-    // (не "1 день"/"2 дня"), макет не просит сложную русскую плюрализацию.
-    showWaiting && item.waitingSince ? `ждёт ${daysWaiting(item.waitingSince)} дней` : formatDate(item.updatedAt);
+  const dateOrWaiting = showWaiting && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt);
 
   return (
     <CellSimple
