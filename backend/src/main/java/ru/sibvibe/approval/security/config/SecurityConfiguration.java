@@ -101,6 +101,9 @@ public class SecurityConfiguration implements EnvironmentAware {
                 .authorizeHttpRequests(authorize -> {
                     authorize.requestMatchers("/error", "/actuator/health/**").permitAll();
                     authorize.requestMatchers(HttpMethod.GET, "/api/v1/files/*/content").permitAll();
+                    // Вызывает сервер MAX, а не мини-приложение - initData здесь нет и быть не может.
+                    // Подлинность проверяется секретом подписки внутри BotWebhookController.
+                    authorize.requestMatchers(HttpMethod.POST, "/api/v1/bot/webhook").permitAll();
                     if (devProfile) {
                         authorize.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
                                 .permitAll();

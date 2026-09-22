@@ -35,6 +35,16 @@ class ModuleBoundariesTest {
         assertThat(violationsOf("organization")).isEmpty();
     }
 
+    /**
+     * {@code bot} читает получателей уведомлений только через {@code organization.service} и слушает
+     * события {@code approval.event} / {@code organization.event} (ARCHITECTURE.md, «Уведомления») -
+     * ни то, ни другое не считается {@code entity}/{@code repository} и здесь не флагуется.
+     */
+    @Test
+    void botDoesNotDependOnEntitiesOrRepositoriesOfOtherModules() throws IOException {
+        assertThat(violationsOf("bot")).isEmpty();
+    }
+
     private static List<String> violationsOf(String module) throws IOException {
         try (Stream<Path> files = Files.walk(SOURCES.resolve(module))) {
             return files.filter(path -> path.toString().endsWith(".java"))

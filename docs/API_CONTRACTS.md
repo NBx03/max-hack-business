@@ -442,5 +442,7 @@ type StepView = {
 
 ## Не для фронтенда
 
-`POST /bot/webhook` — события Bot API на стенде. Способ проверки подлинности входящих
-запросов сверить с dev.max.ru до включения webhook.
+`POST /bot/webhook` — события Bot API на стенде (`max.bot.update-mode=webhook`). Вызывает сервер
+MAX, а не мини-приложение — initData здесь нет, эндпоинт открыт в `SecurityConfiguration`. Подлинность
+проверяется заголовком `X-Max-Bot-Api-Secret` (значение задаётся при подписке, `max.bot.webhook-secret`);
+несовпадение — 401. Бэкенд подписывается сам при старте (`POST /subscriptions` на `<MAX_BOT_WEBHOOK_URL>/api/v1/bot/webhook`).
