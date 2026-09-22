@@ -3,7 +3,7 @@ import { useId, useRef } from 'react';
 // Выбор файла - макет document-upload-screen ("field-file-upload"): до выбора -
 // пунктирная зона с кнопкой "Выбрать файл", после - имя и размер файла и кнопка "Заменить".
 
-function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number): string {
   if (bytes < 1024) {
     return `${bytes} Б`;
   }

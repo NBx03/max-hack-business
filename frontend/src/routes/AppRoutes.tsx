@@ -5,6 +5,9 @@ import { ROUTE_PATTERNS } from './paths';
 import { hasCompany, resolveEntryRoute } from './resolveEntryRoute';
 import { ScreenStub } from './ScreenStub';
 import { WelcomeStub } from './WelcomeStub';
+import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
+import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
+import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
@@ -69,15 +72,15 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.documentUpload}
-        element={companyScreen(<ScreenStub title="9. Загрузка документа" issue="#55" />)}
+        element={companyScreen(<DocumentUploadScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.documentCheck}
-        element={companyScreen(<ScreenStub title="10. Результат проверки" issue="#55" />)}
+        element={companyScreen(<DocumentCheckScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.documentNewVersion}
-        element={companyScreen(<ScreenStub title="Новая версия документа" issue="#55" />)}
+        element={companyScreen(<NewDocumentVersionScreen />)}
       />
       <Route path={ROUTE_PATTERNS.documentCard} element={<ScreenStub title="11. Карточка документа" issue="#7" />} />
       <Route
