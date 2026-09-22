@@ -1,4 +1,4 @@
-import { Typography } from '@maxhub/max-ui';
+import { Input, Typography } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
@@ -107,7 +107,7 @@ export function DocumentUploadScreen() {
 
         <label style={fieldStyle}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>Название</span>
-          <input style={inputStyle} value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} required />
+          <Input size="large" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} required />
         </label>
 
         <FilePicker
@@ -134,7 +134,7 @@ export function DocumentUploadScreen() {
 
         {containsSensitive && selectedType && (
           <section style={sectionStyle}>
-            <Typography.Title variant="medium-strong">Данные документа</Typography.Title>
+            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
             <FieldInputs definitions={selectedType.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
           </section>
         )}

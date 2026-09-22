@@ -1,4 +1,4 @@
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
+import { Button, Input, Spinner, Typography } from '@maxhub/max-ui';
 import type { CSSProperties, ReactNode } from 'react';
 import type { DocumentTypeField } from '../../api/types';
 import { CenteredColumn, FullscreenCenter } from '../../components/base/Layout';
@@ -37,7 +37,7 @@ export const inputStyle: CSSProperties = {
 export function DocumentScreen({ title, children }: { title: string; children: ReactNode }) {
   return (
     <CenteredColumn style={{ minHeight: '100vh', padding: '20px 16px', color: 'var(--text-primary)' }}>
-      <Typography.Title variant="large-strong">{title}</Typography.Title>
+      <Typography.Headline variant="large-strong">{title}</Typography.Headline>
       {children}
     </CenteredColumn>
   );
@@ -94,14 +94,14 @@ export function FieldInputs({
       {definitions.map((field) => (
         <label style={fieldStyle} key={field.name}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>{field.label}</span>
-          <input
-            style={inputStyle}
+          <Input
+            size="large"
             inputMode={field.type === 'NUMBER' ? 'numeric' : 'text'}
             value={values[field.name] ?? ''}
             onChange={(event) => onChange(field.name, event.target.value)}
             maxLength={10_000}
+            hint={field.hint || undefined}
           />
-          {field.hint && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{field.hint}</span>}
         </label>
       ))}
     </div>

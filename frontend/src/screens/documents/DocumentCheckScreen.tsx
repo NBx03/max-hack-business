@@ -132,14 +132,14 @@ export function DocumentCheckScreen() {
         {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Сохраните поля ещё раз.</Notice>}
 
         <section style={sectionStyle}>
-          <Typography.Title variant="medium-strong">Замечания</Typography.Title>
+          <Typography.Headline variant="medium">Замечания</Typography.Headline>
           {!check || check.issues.length === 0 ? (
             <Notice tone="success">Замечаний нет</Notice>
           ) : (
             <div style={stackStyle}>
               {check.issues.map((issue) => (
                 <article
-                  key={issue.ruleId}
+                  key={`${issue.ruleId}:${issue.fieldName}`}
                   style={{ ...sectionStyle, borderLeft: `4px solid ${severityColor(issue.severity)}` }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -177,7 +177,7 @@ export function DocumentCheckScreen() {
 
         <section style={sectionStyle}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Typography.Title variant="medium-strong">Данные документа</Typography.Title>
+            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
             {card.permissions.canEditFields && !editing && <Button onClick={() => setEditing(true)}>Изменить</Button>}
           </div>
           {editing ? (

@@ -150,7 +150,7 @@ export function NewDocumentVersionScreen() {
 
         {containsSensitive && type && (
           <section style={sectionStyle}>
-            <Typography.Title variant="medium-strong">Данные документа</Typography.Title>
+            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
             <FieldInputs definitions={type.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
           </section>
         )}
