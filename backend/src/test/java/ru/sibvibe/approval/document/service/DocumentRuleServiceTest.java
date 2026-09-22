@@ -101,4 +101,32 @@ class DocumentRuleServiceTest {
         assertThat(result.fields()).extracting(DocumentCardResponse.FieldValue::source)
                 .containsExactly("MODEL", "MANUAL");
     }
+
+    @Test
+    void manualUpdatePreservesUnchangedModelFieldAndMarksChangedFieldManual() {
+        RuleEngine engine = mock(RuleEngine.class);
+        var service = new DocumentRuleService(
+                mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
+                mock(RequirementRuleRepository.class), engine,
+                Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
+        DocumentType type = new DocumentType();
+        type.setCode("MEMO");
+        DocumentTypeField date = new DocumentTypeField();
+        date.setFieldName("date");
+        DocumentTypeField author = new DocumentTypeField();
+        author.setFieldName("author");
+        var prepared = new DocumentRuleService.PreparedCheck(
+                type, List.of(date, author), Map.of("date", "2026-09-22", "author", "Исправлено"), List.of());
+        var previous = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
+                new DocumentCardResponse.FieldValue("author", "Из модели", "MODEL", "Автор", 1)), List.of());
+        when(engine.validate(any(), any(), any())).thenReturn(List.of());
+
+        var result = service.executeManualUpdate(prepared, previous);
+
+        assertThat(result.modelAvailable()).isTrue();
+        assertThat(result.fields()).containsExactly(
+                new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
+                new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null));
+    }
 }

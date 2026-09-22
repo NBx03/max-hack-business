@@ -123,13 +123,13 @@ public class DocumentCommandService {
         Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
                 ruleService.prepare(document.getDocumentTypeId(), request.fields());
-        DocumentPersistenceService.CheckAttempt attempt = persistenceService.beginFieldsUpdate(
+        DocumentPersistenceService.FieldsUpdateAttempt update = persistenceService.beginFieldsUpdate(
                 documentId,
                 versionNo,
                 membership.orgId(),
                 currentUser.userId(),
                 prepared);
-        runManualCheck(documentId, attempt, prepared);
+        runManualCheck(documentId, update, prepared);
         return viewService.card(documentId, currentUser).check();
     }
 
@@ -166,15 +166,18 @@ public class DocumentCommandService {
 
     private void runManualCheck(
             long documentId,
-            DocumentPersistenceService.CheckAttempt attempt,
+            DocumentPersistenceService.FieldsUpdateAttempt update,
             DocumentRuleService.PreparedCheck prepared
     ) {
         DocumentRuleService.CheckData pending = ruleService.pending(prepared);
         try {
-            persistenceService.completeCheck(documentId, attempt, ruleService.execute(prepared));
+            persistenceService.completeCheck(
+                    documentId,
+                    update.checkAttempt(),
+                    ruleService.executeManualUpdate(prepared, update.previous()));
         } catch (RuntimeException exception) {
-            LOGGER.error("Не удалось проверить правила для версии {}", attempt.versionId(), exception);
-            persistenceService.failCheck(documentId, attempt, pending);
+            LOGGER.error("Не удалось проверить правила для версии {}", update.checkAttempt().versionId(), exception);
+            persistenceService.failCheck(documentId, update.checkAttempt(), pending);
         }
     }
 

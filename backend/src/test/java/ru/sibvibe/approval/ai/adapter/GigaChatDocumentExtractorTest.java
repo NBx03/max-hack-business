@@ -89,22 +89,31 @@ class GigaChatDocumentExtractorTest {
     }
 
     @Test
-    void acceptsOnlyCompleteStrictJson() {
+    void acceptsMarkdownUnknownAndMissingFieldsButRejectsInvalidKnownValues() {
         var enabled = new GigaChatDocumentExtractor(
                 builders, new ObjectMapper(), true, "gigachat", "secret", 1);
         try {
             var valid = enabled.parse(
                     "{\"fields\":[{\"fieldName\":\"date\",\"value\":\"2026-09-22\",\"quote\":\"22.09.2026\",\"page\":1}]}",
                     schema);
-            var unknownProperty = enabled.parse(
-                    "{\"fields\":[{\"fieldName\":\"date\",\"value\":null,\"quote\":null,\"page\":null,\"extra\":true}]}",
+            var unknown = enabled.parse(
+                    "{\"fields\":[{\"fieldName\":\"unknown\",\"value\":42}],\"extra\":true}",
                     schema);
-            var markdown = enabled.parse("```json\\n{\"fields\":[]}\\n```", schema);
+            var markdown = enabled.parse("```json\n{\"fields\":[]}\n```", schema);
+            var invalid = enabled.parse(
+                    "{\"fields\":[{\"fieldName\":\"date\",\"value\":42}]}", schema);
+            var duplicate = enabled.parse(
+                    "{\"fields\":[{\"fieldName\":\"date\",\"value\":null},"
+                            + "{\"fieldName\":\"date\",\"value\":null}]}", schema);
 
             assertThat(valid.available()).isTrue();
             assertThat(valid.fields()).containsKey("date");
-            assertThat(unknownProperty.available()).isFalse();
-            assertThat(markdown.available()).isFalse();
+            assertThat(unknown.available()).isTrue();
+            assertThat(unknown.fields().get("date").value()).isNull();
+            assertThat(markdown.available()).isTrue();
+            assertThat(markdown.fields().get("date").value()).isNull();
+            assertThat(invalid.available()).isFalse();
+            assertThat(duplicate.available()).isFalse();
         } finally {
             enabled.closeExecutor();
         }

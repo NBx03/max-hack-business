@@ -15,11 +15,9 @@ import org.springframework.stereotype.Component;
 import ru.sibvibe.approval.ai.DocumentExtractor;
 
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,8 +29,6 @@ import java.util.concurrent.TimeoutException;
 public class GigaChatDocumentExtractor implements DocumentExtractor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GigaChatDocumentExtractor.class);
-    private static final Set<String> ROOT_FIELDS = Set.of("fields");
-    private static final Set<String> FIELD_FIELDS = Set.of("fieldName", "value", "quote", "page");
     private static final int MAX_VALUE_LENGTH = 10_000;
     private static final int MAX_QUOTE_LENGTH = 2_000;
     private static final String SYSTEM_PROMPT = """
@@ -122,19 +118,22 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
         try {
             JsonNode root = objectMapper.reader()
                     .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                    .readTree(response);
-            requireObjectWithFields(root, ROOT_FIELDS);
+                    .readTree(stripMarkdownFence(response));
+            requireObject(root);
             JsonNode fieldsNode = root.get("fields");
-            if (!fieldsNode.isArray() || fieldsNode.size() != schema.size()) {
+            if (fieldsNode == null || !fieldsNode.isArray()) {
                 return unavailable();
             }
-            Set<String> expected = new HashSet<>();
-            schema.forEach(field -> expected.add(field.fieldName()));
+            Map<String, FieldSpec> expected = new LinkedHashMap<>();
+            schema.forEach(field -> expected.put(field.fieldName(), field));
             Map<String, ExtractedField> fields = new LinkedHashMap<>();
             for (JsonNode node : fieldsNode) {
-                requireObjectWithFields(node, FIELD_FIELDS);
+                requireObject(node);
                 String name = requiredText(node, "fieldName", 255);
-                if (!expected.contains(name) || fields.containsKey(name)) {
+                if (!expected.containsKey(name)) {
+                    continue;
+                }
+                if (fields.containsKey(name)) {
                     return unavailable();
                 }
                 String value = nullableText(node, "value", MAX_VALUE_LENGTH);
@@ -142,8 +141,8 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
                 Integer page = nullablePositiveInteger(node, "page");
                 fields.put(name, new ExtractedField(value, quote, page));
             }
-            if (!fields.keySet().equals(expected)) {
-                return unavailable();
+            for (String name : expected.keySet()) {
+                fields.putIfAbsent(name, new ExtractedField(null, null, null));
             }
             return new ExtractionResult(Map.copyOf(fields), true, "gigachat");
         } catch (JsonProcessingException | IllegalArgumentException exception) {
@@ -152,13 +151,27 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
         }
     }
 
-    private void requireObjectWithFields(JsonNode node, Set<String> allowed) {
-        if (node == null || !node.isObject()) {
-            throw new IllegalArgumentException();
+    private String stripMarkdownFence(String response) {
+        if (response == null) {
+            return null;
         }
-        Set<String> actual = new HashSet<>();
-        node.fieldNames().forEachRemaining(actual::add);
-        if (!actual.equals(allowed)) {
+        String stripped = response.strip();
+        if (!stripped.startsWith("```") || !stripped.endsWith("```")) {
+            return stripped;
+        }
+        int firstLineEnd = stripped.indexOf('\n');
+        if (firstLineEnd < 0) {
+            return stripped;
+        }
+        String opening = stripped.substring(0, firstLineEnd).strip();
+        if (!"```".equals(opening) && !"```json".equalsIgnoreCase(opening)) {
+            return stripped;
+        }
+        return stripped.substring(firstLineEnd + 1, stripped.length() - 3).strip();
+    }
+
+    private void requireObject(JsonNode node) {
+        if (node == null || !node.isObject()) {
             throw new IllegalArgumentException();
         }
     }

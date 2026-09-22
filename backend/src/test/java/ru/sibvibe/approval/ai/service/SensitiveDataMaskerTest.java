@@ -1,6 +1,12 @@
 package ru.sibvibe.approval.ai.service;
 
 import org.junit.jupiter.api.Test;
+import ru.sibvibe.approval.ai.adapter.PdfDocxTextExtractor;
+
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,5 +33,27 @@ class SensitiveDataMaskerTest {
 
         assertThat(masked.text()).contains("<INN_1>", "<INN_2>");
         assertThat(masked.restore(masked.text())).isEqualTo("ИНН 1234567890, ИНН 0987654321");
+    }
+
+    @Test
+    void masksPeopleFromEverySyntheticDocument() throws Exception {
+        Path documents = Path.of("..", "testdata", "documents");
+        var extractor = new PdfDocxTextExtractor();
+        List<String> people = List.of(
+                "А.С. Петрова", "Анна Петрова", "Д.В. Смирнов",
+                "Кузнецов Игорь Олегович", "Соколовой Е.Н.", "Орлову В.П.");
+
+        try (var files = Files.list(documents)) {
+            for (Path file : files.filter(Files::isRegularFile).toList()) {
+                String mime = file.toString().endsWith(".pdf")
+                        ? "application/pdf"
+                        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                try (InputStream content = Files.newInputStream(file)) {
+                    String masked = masker.mask(extractor.extract(content, mime).orElseThrow().fullText()).text();
+                    assertThat(masked).as("персональные данные в %s", file.getFileName())
+                            .doesNotContain(people.toArray(String[]::new));
+                }
+            }
+        }
     }
 }

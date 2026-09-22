@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -125,6 +126,35 @@ public class DocumentRuleService {
                         issue.page()))
                 .toList();
         return new CheckData(extraction.available(), fields, issues);
+    }
+
+    public CheckData executeManualUpdate(PreparedCheck prepared, CheckData previous) {
+        Map<String, DocumentCardResponse.FieldValue> previousByName = new LinkedHashMap<>();
+        if (previous != null) {
+            previous.fields().forEach(field -> previousByName.putIfAbsent(field.name(), field));
+        }
+        Map<String, String> manual = new LinkedHashMap<>();
+        Map<String, DocumentExtractor.ExtractedField> extracted = new LinkedHashMap<>();
+        for (DocumentTypeField schemaField : prepared.schema()) {
+            String name = schemaField.getFieldName();
+            DocumentCardResponse.FieldValue old = previousByName.get(name);
+            boolean supplied = prepared.suppliedFields().containsKey(name);
+            String value = supplied
+                    ? prepared.suppliedFields().get(name)
+                    : old == null ? null : old.value();
+            boolean unchangedModel = old != null
+                    && "MODEL".equals(old.source())
+                    && Objects.equals(old.value(), value);
+            if (unchangedModel) {
+                extracted.put(name, new DocumentExtractor.ExtractedField(value, old.quote(), old.page()));
+            } else {
+                manual.put(name, value);
+            }
+        }
+        PreparedCheck merged = new PreparedCheck(
+                prepared.type(), prepared.schema(), Collections.unmodifiableMap(manual), prepared.rules());
+        return execute(merged, new DocumentExtractor.ExtractionResult(
+                Map.copyOf(extracted), previous != null && previous.modelAvailable(), "stored"));
     }
 
     public CheckData pending(PreparedCheck prepared) {

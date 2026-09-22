@@ -16,7 +16,13 @@ public class SensitiveDataMasker {
             new MaskPattern("PASSPORT", Pattern.compile("(?<!\\d)\\d{4}[ -]\\d{6}(?!\\d)")),
             new MaskPattern("PHONE", Pattern.compile("(?<!\\d)(?:\\+7|8)[ ()-]*\\d{3}[ ()-]*\\d{3}[- ]*\\d{2}[- ]*\\d{2}(?!\\d)")),
             new MaskPattern("INN", Pattern.compile("(?<!\\d)(?:\\d{12}|\\d{10})(?!\\d)")),
-            new MaskPattern("PERSON", Pattern.compile("(?U)(?<![\\p{L}-])[А-ЯЁ][а-яё-]+(?:\\s+[А-ЯЁ]\\.[А-ЯЁ]\\.|\\s+[А-ЯЁ][а-яё-]+\\s+[А-ЯЁ][а-яё-]+)(?![\\p{L}-])"))
+            new MaskPattern("PERSON", Pattern.compile(
+                    "(?U)(?<![\\p{L}-])(?:"
+                            + "[А-ЯЁ]\\.\\s?[А-ЯЁ]\\.\\s?[А-ЯЁ][а-яё-]+"
+                            + "|[А-ЯЁ][а-яё-]+\\s+[А-ЯЁ][а-яё-]*(?:ов|ова|ев|ева|ин|ина|ский|ская|цкий|цкая)"
+                            + "|[А-ЯЁ][а-яё-]+\\s+[А-ЯЁ]\\.[А-ЯЁ]\\."
+                            + "|[А-ЯЁ][а-яё-]+\\s+[А-ЯЁ][а-яё-]+\\s+[А-ЯЁ][а-яё-]+"
+                            + ")(?![\\p{L}-])"))
     );
 
     public MaskedText mask(String source) {
