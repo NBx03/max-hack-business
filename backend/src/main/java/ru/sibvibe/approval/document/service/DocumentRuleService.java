@@ -2,6 +2,7 @@ package ru.sibvibe.approval.document.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.sibvibe.approval.ai.DocumentExtractor;
 import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.entity.DocumentType;
@@ -90,15 +91,26 @@ public class DocumentRuleService {
     }
 
     public CheckData execute(PreparedCheck prepared) {
+        return execute(prepared, new DocumentExtractor.ExtractionResult(Map.of(), false, "none"));
+    }
+
+    public CheckData execute(
+            PreparedCheck prepared,
+            DocumentExtractor.ExtractionResult extraction
+    ) {
         if (prepared.type().isGeneric()) {
             return null;
         }
-        List<DocumentCardResponse.FieldValue> fields = manualFields(prepared);
+        Map<String, String> values = new LinkedHashMap<>();
+        Map<String, RuleEngine.FieldLocation> locations = new LinkedHashMap<>();
+        List<DocumentCardResponse.FieldValue> fields = prepared.schema().stream()
+                .map(field -> fieldValue(prepared, extraction, values, locations, field))
+                .toList();
         List<DocumentCardResponse.ValidationIssueView> issues = ruleEngine.validate(
-                        prepared.suppliedFields(),
+                        values,
                         prepared.rules(),
                         new RuleEngine.ValidationContext(
-                                LocalDate.ofInstant(clock.instant(), BUSINESS_ZONE), Map.of()))
+                                LocalDate.ofInstant(clock.instant(), BUSINESS_ZONE), locations))
                 .stream()
                 .map(issue -> new DocumentCardResponse.ValidationIssueView(
                         issue.ruleId(),
@@ -112,7 +124,7 @@ public class DocumentRuleService {
                         issue.quote(),
                         issue.page()))
                 .toList();
-        return new CheckData(false, fields, issues);
+        return new CheckData(extraction.available(), fields, issues);
     }
 
     public CheckData pending(PreparedCheck prepared) {
@@ -131,6 +143,33 @@ public class DocumentRuleService {
                         null,
                         null))
                 .toList();
+    }
+
+    private DocumentCardResponse.FieldValue fieldValue(
+            PreparedCheck prepared,
+            DocumentExtractor.ExtractionResult extraction,
+            Map<String, String> values,
+            Map<String, RuleEngine.FieldLocation> locations,
+            DocumentTypeField field
+    ) {
+        String name = field.getFieldName();
+        if (prepared.suppliedFields().containsKey(name)) {
+            String value = prepared.suppliedFields().get(name);
+            values.put(name, value);
+            return new DocumentCardResponse.FieldValue(name, value, "MANUAL", null, null);
+        }
+        DocumentExtractor.ExtractedField extracted = extraction.fields().get(name);
+        String value = extracted == null ? null : extracted.value();
+        values.put(name, value);
+        if (extracted != null && extracted.quote() != null) {
+            locations.put(name, new RuleEngine.FieldLocation(extracted.quote(), extracted.page()));
+        }
+        return new DocumentCardResponse.FieldValue(
+                name,
+                value,
+                extraction.available() ? "MODEL" : "MANUAL",
+                extracted == null ? null : extracted.quote(),
+                extracted == null ? null : extracted.page());
     }
 
     public record PreparedCheck(

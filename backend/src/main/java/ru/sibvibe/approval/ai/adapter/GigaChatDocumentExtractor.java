@@ -1,0 +1,204 @@
+package ru.sibvibe.approval.ai.adapter;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import ru.sibvibe.approval.ai.DocumentExtractor;
+
+import java.time.Duration;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+@Component
+public class GigaChatDocumentExtractor implements DocumentExtractor {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GigaChatDocumentExtractor.class);
+    private static final Set<String> ROOT_FIELDS = Set.of("fields");
+    private static final Set<String> FIELD_FIELDS = Set.of("fieldName", "value", "quote", "page");
+    private static final int MAX_VALUE_LENGTH = 10_000;
+    private static final int MAX_QUOTE_LENGTH = 2_000;
+    private static final String SYSTEM_PROMPT = """
+            Ты извлекаешь структурированные поля из текста документа.
+            Не проверяй правила, не оценивай документ и не добавляй сведения, которых нет в тексте.
+            Верни только JSON без markdown строго вида:
+            {"fields":[{"fieldName":"имя","value":"значение или null","quote":"дословная цитата или null","page":1}]}
+            Для каждого поля схемы верни ровно один объект. fieldName не изменяй.
+            quote должна быть дословным фрагментом переданного текста. Если поле не найдено,
+            value, quote и page должны быть null.
+            """;
+
+    private final ObjectProvider<ChatClient.Builder> builderProvider;
+    private final ObjectMapper objectMapper;
+    private final boolean enabled;
+    private final String provider;
+    private final String credentials;
+    private final Duration timeout;
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+
+    public GigaChatDocumentExtractor(
+            ObjectProvider<ChatClient.Builder> builderProvider,
+            ObjectMapper objectMapper,
+            @Value("${app.ai.enabled:true}") boolean enabled,
+            @Value("${app.ai.provider:gigachat}") String provider,
+            @Value("${spring.ai.gigachat.auth.bearer.api-key:}") String credentials,
+            @Value("${app.ai.timeout-seconds:30}") long timeoutSeconds
+    ) {
+        this.builderProvider = builderProvider;
+        this.objectMapper = objectMapper;
+        this.enabled = enabled;
+        this.provider = provider;
+        this.credentials = credentials;
+        this.timeout = Duration.ofSeconds(Math.max(1, timeoutSeconds));
+    }
+
+    @Override
+    public ExtractionResult extract(ExtractionRequest request) {
+        if (!enabled || !"gigachat".equalsIgnoreCase(provider)
+                || credentials == null || credentials.isBlank()
+                || request == null || request.schema() == null || request.schema().isEmpty()) {
+            return unavailable();
+        }
+        ChatClient.Builder builder = builderProvider.getIfAvailable();
+        if (builder == null) {
+            return unavailable();
+        }
+        Future<String> call = executor.submit(() -> builder.build().prompt()
+                .system(SYSTEM_PROMPT)
+                .user(buildUserPrompt(request))
+                .call()
+                .content());
+        try {
+            String response = call.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return parse(response, request.schema());
+        } catch (TimeoutException exception) {
+            call.cancel(true);
+            LOGGER.warn("Истёк тайм-аут извлечения полей GigaChat");
+            return unavailable();
+        } catch (InterruptedException exception) {
+            call.cancel(true);
+            Thread.currentThread().interrupt();
+            return unavailable();
+        } catch (ExecutionException | RuntimeException exception) {
+            LOGGER.warn("GigaChat недоступен при извлечении полей: {}", exception.getClass().getSimpleName());
+            return unavailable();
+        }
+    }
+
+    @PostConstruct
+    void reportDisabledModel() {
+        if (enabled && "gigachat".equalsIgnoreCase(provider)
+                && (credentials == null || credentials.isBlank())) {
+            LOGGER.warn("GigaChat credentials не заданы: извлечение полей моделью отключено");
+        }
+    }
+
+    private String buildUserPrompt(ExtractionRequest request) throws JsonProcessingException {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("documentType", request.documentTypeCode());
+        payload.put("schema", request.schema());
+        payload.put("text", request.maskedText());
+        return objectMapper.writeValueAsString(payload);
+    }
+
+    ExtractionResult parse(String response, List<FieldSpec> schema) {
+        try {
+            JsonNode root = objectMapper.reader()
+                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readTree(response);
+            requireObjectWithFields(root, ROOT_FIELDS);
+            JsonNode fieldsNode = root.get("fields");
+            if (!fieldsNode.isArray() || fieldsNode.size() != schema.size()) {
+                return unavailable();
+            }
+            Set<String> expected = new HashSet<>();
+            schema.forEach(field -> expected.add(field.fieldName()));
+            Map<String, ExtractedField> fields = new LinkedHashMap<>();
+            for (JsonNode node : fieldsNode) {
+                requireObjectWithFields(node, FIELD_FIELDS);
+                String name = requiredText(node, "fieldName", 255);
+                if (!expected.contains(name) || fields.containsKey(name)) {
+                    return unavailable();
+                }
+                String value = nullableText(node, "value", MAX_VALUE_LENGTH);
+                String quote = nullableText(node, "quote", MAX_QUOTE_LENGTH);
+                Integer page = nullablePositiveInteger(node, "page");
+                fields.put(name, new ExtractedField(value, quote, page));
+            }
+            if (!fields.keySet().equals(expected)) {
+                return unavailable();
+            }
+            return new ExtractionResult(Map.copyOf(fields), true, "gigachat");
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            LOGGER.warn("GigaChat вернул некорректный JSON извлечения полей");
+            return unavailable();
+        }
+    }
+
+    private void requireObjectWithFields(JsonNode node, Set<String> allowed) {
+        if (node == null || !node.isObject()) {
+            throw new IllegalArgumentException();
+        }
+        Set<String> actual = new HashSet<>();
+        node.fieldNames().forEachRemaining(actual::add);
+        if (!actual.equals(allowed)) {
+            throw new IllegalArgumentException();
+        }
+    }
+
+    private String requiredText(JsonNode node, String name, int maxLength) {
+        String value = nullableText(node, name, maxLength);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException();
+        }
+        return value;
+    }
+
+    private String nullableText(JsonNode node, String name, int maxLength) {
+        JsonNode value = node.get(name);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (!value.isTextual() || value.textValue().length() > maxLength) {
+            throw new IllegalArgumentException();
+        }
+        return value.textValue();
+    }
+
+    private Integer nullablePositiveInteger(JsonNode node, String name) {
+        JsonNode value = node.get(name);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (!value.canConvertToInt() || value.intValue() <= 0) {
+            throw new IllegalArgumentException();
+        }
+        return value.intValue();
+    }
+
+    private ExtractionResult unavailable() {
+        return new ExtractionResult(Map.of(), false, "gigachat");
+    }
+
+    @PreDestroy
+    void closeExecutor() {
+        executor.shutdownNow();
+    }
+}
