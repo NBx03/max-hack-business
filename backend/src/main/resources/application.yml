@@ -36,8 +36,20 @@ spring:
     gigachat:
       auth:
         bearer:
-          api-key: ${GIGACHAT_API_KEY:}
+          # GIGACHAT_CREDENTIALS — Authorization key (Base64 client_id:client_secret)
+          # из личного кабинета. Старое имя оставлено как локальный fallback.
+          api-key: ${GIGACHAT_CREDENTIALS:${GIGACHAT_API_KEY:}}
+          client-id: ${GIGACHAT_CLIENT_ID:}
         scope: ${GIGACHAT_SCOPE:GIGACHAT_API_PERS}
+      chat:
+        options:
+          model: ${GIGACHAT_MODEL:GigaChat-2-Max}
+          temperature: 0.0
+      embedding:
+        enabled: false
+      internal:
+        connect-timeout: 5s
+        read-timeout: ${AI_TIMEOUT_SECONDS:30}s
 
 server:
   port: ${SERVER_PORT:8080}

@@ -26,6 +26,7 @@ public class DocumentCommandService {
     private final DocumentReadRepository documentReadRepository;
     private final DocumentFileValidator fileValidator;
     private final DocumentRuleService ruleService;
+    private final DocumentAnalysisService analysisService;
     private final DocumentPersistenceService persistenceService;
     private final DocumentViewService viewService;
     private final FileStorage fileStorage;
@@ -35,6 +36,7 @@ public class DocumentCommandService {
             DocumentReadRepository documentReadRepository,
             DocumentFileValidator fileValidator,
             DocumentRuleService ruleService,
+            DocumentAnalysisService analysisService,
             DocumentPersistenceService persistenceService,
             DocumentViewService viewService,
             FileStorage fileStorage
@@ -43,6 +45,7 @@ public class DocumentCommandService {
         this.documentReadRepository = documentReadRepository;
         this.fileValidator = fileValidator;
         this.ruleService = ruleService;
+        this.analysisService = analysisService;
         this.persistenceService = persistenceService;
         this.viewService = viewService;
         this.fileStorage = fileStorage;
@@ -72,7 +75,7 @@ public class DocumentCommandService {
             compensate(stored.storageKey(), exception);
             throw exception;
         }
-        runCheck(created.documentId(), created.checkAttempt(), prepared);
+        runCheck(created.documentId(), created.checkAttempt(), request.containsSensitive(), prepared);
         return viewService.card(created.documentId(), currentUser);
     }
 
@@ -106,7 +109,7 @@ public class DocumentCommandService {
             }
             throw exception;
         }
-        runCheck(documentId, created.checkAttempt(), prepared);
+        runCheck(documentId, created.checkAttempt(), request.containsSensitive(), prepared);
         return viewService.card(documentId, currentUser);
     }
 
@@ -120,13 +123,13 @@ public class DocumentCommandService {
         Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
                 ruleService.prepare(document.getDocumentTypeId(), request.fields());
-        DocumentPersistenceService.CheckAttempt attempt = persistenceService.beginFieldsUpdate(
+        DocumentPersistenceService.FieldsUpdateAttempt update = persistenceService.beginFieldsUpdate(
                 documentId,
                 versionNo,
                 membership.orgId(),
                 currentUser.userId(),
                 prepared);
-        runCheck(documentId, attempt, prepared);
+        runManualCheck(documentId, update, prepared);
         return viewService.card(documentId, currentUser).check();
     }
 
@@ -143,6 +146,7 @@ public class DocumentCommandService {
     private void runCheck(
             long documentId,
             DocumentPersistenceService.CheckAttempt attempt,
+            boolean containsSensitive,
             DocumentRuleService.PreparedCheck prepared
     ) {
         if (prepared.type().isGeneric()) {
@@ -150,10 +154,30 @@ public class DocumentCommandService {
         }
         DocumentRuleService.CheckData pending = ruleService.pending(prepared);
         try {
-            persistenceService.completeCheck(documentId, attempt, ruleService.execute(prepared));
+            persistenceService.completeCheck(
+                    documentId,
+                    attempt,
+                    analysisService.analyze(attempt.versionId(), containsSensitive, prepared));
         } catch (RuntimeException exception) {
             LOGGER.error("Не удалось проверить правила для версии {}", attempt.versionId(), exception);
             persistenceService.failCheck(documentId, attempt, pending);
+        }
+    }
+
+    private void runManualCheck(
+            long documentId,
+            DocumentPersistenceService.FieldsUpdateAttempt update,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        DocumentRuleService.CheckData pending = ruleService.pending(prepared);
+        try {
+            persistenceService.completeCheck(
+                    documentId,
+                    update.checkAttempt(),
+                    ruleService.executeManualUpdate(prepared, update.previous()));
+        } catch (RuntimeException exception) {
+            LOGGER.error("Не удалось проверить правила для версии {}", update.checkAttempt().versionId(), exception);
+            persistenceService.failCheck(documentId, update.checkAttempt(), pending);
         }
     }
 

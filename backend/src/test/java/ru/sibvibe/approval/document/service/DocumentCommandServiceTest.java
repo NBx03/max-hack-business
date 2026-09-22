@@ -36,12 +36,13 @@ class DocumentCommandServiceTest {
     private final DocumentReadRepository documentReads = mock(DocumentReadRepository.class);
     private final DocumentFileValidator fileValidator = mock(DocumentFileValidator.class);
     private final DocumentRuleService rules = mock(DocumentRuleService.class);
+    private final DocumentAnalysisService analysis = mock(DocumentAnalysisService.class);
     private final DocumentPersistenceService persistence = mock(DocumentPersistenceService.class);
     private final DocumentViewService views = mock(DocumentViewService.class);
     private final FileStorage storage = mock(FileStorage.class);
     private final DocumentCommandService service =
             new DocumentCommandService(
-                    documents, documentReads, fileValidator, rules, persistence, views, storage);
+                    documents, documentReads, fileValidator, rules, analysis, persistence, views, storage);
 
     @Test
     void deletesNewObjectWhenMetadataTransactionFails() {
@@ -87,7 +88,7 @@ class DocumentCommandServiceTest {
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
         when(rules.prepare(5, Map.of())).thenReturn(prepared);
         when(rules.pending(prepared)).thenReturn(pending);
-        when(rules.execute(prepared)).thenThrow(new IllegalArgumentException("broken rule"));
+        when(analysis.analyze(2, false, prepared)).thenThrow(new IllegalArgumentException("broken rule"));
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
         when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));

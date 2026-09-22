@@ -140,6 +140,25 @@ class DocumentPersistenceServiceTest {
         assertThat(version.getExtractedFields().path("checkToken").asText()).isEqualTo("new-attempt");
     }
 
+    @Test
+    void fieldsUpdateReturnsPreviousExtractionBeforeWritingAttemptToken() {
+        current.setExtractedFields(new ObjectMapper().valueToTree(new DocumentPersistenceService.StoredFields(
+                true,
+                List.of(new ru.sibvibe.approval.document.dto.DocumentCardResponse.FieldValue(
+                        "date", "2026-09-22", "MODEL", "22.09.2026", 1)),
+                null)));
+
+        var update = service.beginFieldsUpdate(1L, 1, 10L, 7L, prepared());
+
+        assertThat(update.previous().modelAvailable()).isTrue();
+        assertThat(update.previous().fields()).singleElement().satisfies(field -> {
+            assertThat(field.source()).isEqualTo("MODEL");
+            assertThat(field.quote()).isEqualTo("22.09.2026");
+        });
+        assertThat(current.getExtractedFields().path("checkToken").asText())
+                .isEqualTo(update.checkAttempt().checkToken());
+    }
+
     private Document document(Document.Status status) {
         Document value = new Document();
         value.setId(1L);
