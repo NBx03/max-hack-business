@@ -78,6 +78,8 @@ class GigaChatLiveIntegrationTest {
         } catch (IOException exception) {
             throw new IllegalStateException("Не удалось прочитать testdata", exception);
         }
+        List<DocumentReport> reports = new ArrayList<>();
+        boolean issueMismatch = false;
         for (JsonNode document : expected.path("documents")) {
             String typeCode = document.path("type").asText();
             TypeData type = typeData(rules, typeCode);
@@ -92,22 +94,23 @@ class GigaChatLiveIntegrationTest {
             } catch (IOException exception) {
                 throw new IllegalStateException("Не удалось прочитать " + file, exception);
             }
-            assertThat(result.available()).as("GigaChat разобрал %s", file.getFileName()).isTrue();
+            if (!result.available()) {
+                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—"));
+                issueMismatch = true;
+                continue;
+            }
             Set<String> normalized = new HashSet<>();
             document.path("normalized").forEach(value -> normalized.add(value.asText()));
             Map<String, String> values = new LinkedHashMap<>();
+            List<String> fieldDifferences = new ArrayList<>();
             for (DocumentExtractor.FieldSpec field : schema) {
                 String value = result.fields().get(field.fieldName()).value();
                 values.put(field.fieldName(), value);
-                if (normalized.contains(field.fieldName())) {
-                    continue;
-                }
                 JsonNode expectedValue = document.path("fields").get(field.fieldName());
-                if (expectedValue == null) {
-                    assertThat(value).as("поле %s в %s", field.fieldName(), file.getFileName()).isNull();
-                } else {
-                    assertThat(value).as("поле %s в %s", field.fieldName(), file.getFileName())
-                            .isEqualTo(expectedValue.asText());
+                String wanted = expectedValue == null ? null : expectedValue.asText();
+                if (!java.util.Objects.equals(value, wanted)) {
+                    String suffix = normalized.contains(field.fieldName()) ? " (нормализация допустима)" : "";
+                    fieldDifferences.add(field.fieldName() + ": " + display(wanted) + " → " + display(value) + suffix);
                 }
             }
             RuleEngine engine = new DefaultRuleEngine(Clock.systemUTC(), mapper);
@@ -117,8 +120,38 @@ class GigaChatLiveIntegrationTest {
                     .stream().map(issue -> type.codeById().get(issue.ruleId())).toList();
             List<String> expectedIssues = new ArrayList<>();
             document.path("issues").forEach(issue -> expectedIssues.add(issue.asText()));
-            assertThat(actualIssues).as("замечания для %s", file.getFileName()).isEqualTo(expectedIssues);
+            boolean matches = actualIssues.equals(expectedIssues);
+            issueMismatch |= !matches;
+            reports.add(new DocumentReport(
+                    file.getFileName().toString(),
+                    String.join(" ", expectedIssues) + " → " + String.join(" ", actualIssues),
+                    matches ? "совпали" : "расхождение",
+                    fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences)));
         }
+        String report = report(reports);
+        if (issueMismatch) {
+            throw new AssertionError(report);
+        }
+        System.out.println(report);
+    }
+
+    private String report(List<DocumentReport> reports) {
+        StringBuilder result = new StringBuilder("Отчёт GigaChat по testdata/expected.json:\n\n")
+                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей |\n")
+                .append("| --- | --- | --- | --- |\n");
+        reports.forEach(row -> result.append("| ").append(table(row.file()))
+                .append(" | ").append(table(row.issues()))
+                .append(" | ").append(table(row.status()))
+                .append(" | ").append(table(row.fields())).append(" |\n"));
+        return result.toString();
+    }
+
+    private String display(String value) {
+        return value == null ? "null" : "«" + value + "»";
+    }
+
+    private String table(String value) {
+        return value.replace("|", "\\|").replaceAll("\\s+", " ").trim();
     }
 
     private TypeData typeData(JsonNode root, String typeCode) {
@@ -163,4 +196,6 @@ class GigaChatLiveIntegrationTest {
             List<RuleEngine.RequirementRule> rules,
             Map<Long, String> codeById
     ) {}
+
+    private record DocumentReport(String file, String issues, String status, String fields) {}
 }
