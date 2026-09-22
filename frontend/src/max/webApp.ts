@@ -30,3 +30,13 @@ export function getWebApp(): MaxWebApp | undefined {
 export function isInsideMax(): boolean {
   return Boolean(window.WebApp?.initData);
 }
+
+/** Скачивание файла - нативно внутри MAX, иначе обычная вкладка (docs/API_CONTRACTS.md). */
+export function downloadFile(url: string, fileName: string): void {
+  const webApp = getWebApp();
+  if (webApp) {
+    webApp.downloadFile(url, fileName);
+  } else {
+    window.open(url, '_blank');
+  }
+}

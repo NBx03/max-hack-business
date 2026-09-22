@@ -1,4 +1,7 @@
 // Общие объекты и ответ GET /me - см. docs/API_CONTRACTS.md.
+import type { AutoReason, DocumentStatus, StepDecision } from '../theme/status';
+
+export type { DocumentStatus, StepDecision };
 
 export interface UserRef {
   id: number;
@@ -58,7 +61,15 @@ export interface DemoSandboxResponse {
   users: DemoSandboxUser[];
 }
 
-export type DocumentStatus = 'DRAFT' | 'IN_APPROVAL' | 'APPROVED' | 'RETURNED' | 'REJECTED';
+// ---------- Документы (#7, #55) - docs/API_CONTRACTS.md, "Документы" и "Маршрут и решения" ----------
+
+export interface Page<T> {
+  items: T[];
+  page: number;
+  size: number;
+  total: number;
+}
+
 export type Visibility = 'PRIVATE' | 'ORG';
 export type Severity = 'BLOCKER' | 'WARNING' | 'INFO';
 export type RuleKind = 'LEGAL' | 'INTERNAL_POLICY' | 'PRODUCT_RULE';
@@ -68,6 +79,12 @@ export interface DocumentTypeField {
   type: 'STRING' | 'DATE' | 'NUMBER' | 'PERSON' | 'ORGANIZATION';
   label: string;
   hint: string;
+}
+
+/** Тип документа в DocumentListItem - только то, что нужно строке списка. */
+export interface DocumentTypeRef {
+  id: number;
+  name: string;
 }
 
 export interface DocumentType {
@@ -86,6 +103,19 @@ export interface FileRef {
   size: number;
   downloadUrl: string;
   downloadExpiresAt: string;
+}
+
+export interface DocumentListItem {
+  id: number;
+  title: string;
+  type: DocumentTypeRef;
+  status: DocumentStatus;
+  author: UserRef;
+  currentVersionNo: number;
+  currentStage: number | null;
+  updatedAt: string;
+  /** Только во вкладке "Ждут меня" - activatedAt моего шага, для "ждёт N дней". */
+  waitingSince: string | null;
 }
 
 export interface ValidationIssue {
@@ -125,6 +155,43 @@ export interface DocumentVersion {
   files: FileRef[];
 }
 
+export type StepOrigin = 'TEMPLATE' | 'ADDED_BY_AUTHOR';
+export type StageState = 'WAITING' | 'ACTIVE' | 'DONE';
+
+export interface StepView {
+  id: number;
+  versionNo: number;
+  stageOrder: number;
+  role: RoleRef;
+  approver: UserRef;
+  origin: StepOrigin;
+  decision: StepDecision;
+  comment: string | null;
+  activatedAt: string | null;
+  decidedAt: string | null;
+  autoReason: AutoReason;
+}
+
+export interface RouteStage {
+  stageOrder: number;
+  state: StageState;
+  steps: StepView[];
+}
+
+export interface RouteView {
+  versionNo: number;
+  stages: RouteStage[];
+  /** Шаги прошлых версий - только чтение. */
+  history: StepView[];
+}
+
+export interface DocumentPermissions {
+  canEditFields: boolean;
+  canUploadVersion: boolean;
+  canSubmit: boolean;
+  canAddApprover: boolean;
+}
+
 export interface DocumentCard {
   id: number;
   title: string;
@@ -134,13 +201,37 @@ export interface DocumentCard {
   author: UserRef;
   currentVersionNo: number;
   versions: DocumentVersion[];
+  /** Для текущей версии; null только у generic-типа. */
   check: CheckResult | null;
-  route: unknown | null;
-  permissions: {
-    canEditFields: boolean;
-    canUploadVersion: boolean;
-    canSubmit: boolean;
-    canAddApprover: boolean;
-  };
+  /** null у черновика, который ещё не отправлялся. */
+  route: RouteView | null;
+  permissions: DocumentPermissions;
   myActiveStepIds: number[];
+}
+
+export type RouteResolution = 'SELECT' | 'AUTO' | 'SKIPPED' | 'AUTHOR_HOLDS_ROLE';
+
+export interface RoutePreviewParticipant {
+  role: RoleRef;
+  mandatory: boolean;
+  /** Автор исключён. */
+  candidates: UserRef[];
+  /** Проставлен, если кандидат один. */
+  selectedUserId: number | null;
+  resolution: RouteResolution;
+}
+
+export interface RoutePreviewStage {
+  stageOrder: number;
+  participants: RoutePreviewParticipant[];
+}
+
+export interface RoutePreviewProblem {
+  code: 'ROUTE_ROLE_EMPTY' | 'BLOCKING_ISSUES';
+  message: string;
+}
+
+export interface RoutePreview {
+  stages: RoutePreviewStage[];
+  problems: RoutePreviewProblem[];
 }
