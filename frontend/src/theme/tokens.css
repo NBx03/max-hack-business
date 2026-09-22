@@ -1,0 +1,59 @@
+/*
+ * .MaxUI__ (корневой div компонента <MaxUI>) красит себя в var(--background-primary),
+ * но высоту не задаёт - под коротким содержимым (например, ErrorState) снизу видна
+ * не закрашенная часть страницы: сама тема живёт только внутри этого div (переменные
+ * определены на классе .MaxUI_colorScheme_*), а не на html/body. min-height растягивает
+ * закрашенный фон на весь экран даже когда контента на нём меньше вьюпорта.
+ */
+.app-root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/*
+ * Цвета тонов статуса/решения (StatusTone) - дополняют палитру @maxhub/max-ui,
+ * в которой нет готовых "оранжевого"/"жёлтого" семантических токенов (есть только
+ * --icon-negative/--icon-positive). Светлая/тёмная пара, а не расчёт в JS -
+ * тогда цвет переживает смену темы без перерисовки компонента.
+ *
+ * Заливка светлая, текст тёмный того же тона (не наоборот) - у белого текста на
+ * --status-progress-bg/--status-success-bg контраст ~2:1, при 11px это не прочитать.
+ * orange/yellow (IN_APPROVAL/RETURNED) должны быть заметно разными тонами, а не
+ * соседними оттенками янтарного - иначе они неотличимы на маленькой метке (ревью PR).
+ * Тёмная тема - те же два цвета пары, поменянные местами (фон тёмный, текст светлый).
+ */
+:root {
+  --status-neutral-bg: #f3f4f6;
+  --status-neutral-fg: #374151;
+
+  --status-progress-bg: #ffedd5;
+  --status-progress-fg: #9a3412;
+
+  --status-warning-bg: #fef9c3;
+  --status-warning-fg: #854d0e;
+
+  --status-danger-bg: #fee2e2;
+  --status-danger-fg: #991b1b;
+
+  --status-success-bg: #dcfce7;
+  --status-success-fg: #166534;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --status-neutral-bg: #374151;
+    --status-neutral-fg: #f3f4f6;
+
+    --status-progress-bg: #9a3412;
+    --status-progress-fg: #ffedd5;
+
+    --status-warning-bg: #854d0e;
+    --status-warning-fg: #fef9c3;
+
+    --status-danger-bg: #991b1b;
+    --status-danger-fg: #fee2e2;
+
+    --status-success-bg: #166534;
+    --status-success-fg: #dcfce7;
+  }
+}
