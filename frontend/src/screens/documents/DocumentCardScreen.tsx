@@ -1,0 +1,446 @@
+import { useState } from 'react';
+import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { decideStep, getDocument, type StepDecisionAction } from '../../api/documents';
+import { ApiError, errorMessage } from '../../api/errors';
+import type { DocumentCard, RouteStage, RouteView, StepView } from '../../api/types';
+import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
+import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
+import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
+import { AccessErrorState, ErrorState, ErrorText } from '../../components/base/StateCard';
+import { Toast } from '../../components/base/Toast';
+import { formatFileSize } from '../../components/base/FilePicker';
+import { useAsync } from '../../hooks/useAsync';
+import { downloadFile } from '../../max/webApp';
+import { documentCheckPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Последнее решение RETURNED - в текущем маршруте или в истории прошлых версий. */
+function findReturnReason(route: RouteView | null): StepView | null {
+  if (!route) {
+    return null;
+  }
+  const steps = [...route.stages.flatMap((stage) => stage.steps), ...route.history];
+  const returned = steps.filter((step) => step.decision === 'RETURNED');
+  return returned.reduce<StepView | null>((latest, step) => {
+    if (!latest) return step;
+    return (step.decidedAt ?? '') > (latest.decidedAt ?? '') ? step : latest;
+  }, null);
+}
+
+function findStep(route: RouteView | null, stepId: number): StepView | null {
+  if (!route) {
+    return null;
+  }
+  return route.stages.flatMap((stage) => stage.steps).find((step) => step.id === stepId) ?? null;
+}
+
+type DecisionDialog = { stepId: number; role: string; action: 'RETURN' | 'REJECT' };
+
+/** 11. Карточка документа (docs/SCREENS.md). */
+export function DocumentCardScreen() {
+  const { id } = useParams<{ id: string }>();
+  const documentId = Number(id);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const query = useAsync(() => getDocument(documentId), [documentId]);
+
+  const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
+  const [decisionDialog, setDecisionDialog] = useState<DecisionDialog | null>(null);
+  const [rejectStep2, setRejectStep2] = useState(false);
+  const [comment, setComment] = useState('');
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+
+  function dismissToast() {
+    setToast(null);
+    if (location.state) {
+      navigate(location.pathname, { replace: true });
+    }
+  }
+
+  function closeDialog() {
+    setDecisionDialog(null);
+    setRejectStep2(false);
+    setComment('');
+    setDecisionError(null);
+  }
+
+  async function submitDecision(action: StepDecisionAction, stepId: number, decisionComment?: string) {
+    setDecisionBusy(true);
+    setDecisionError(null);
+    try {
+      await decideStep(stepId, action, decisionComment);
+      if (action === 'RETURN') {
+        setToast('Документ возвращён автору');
+      } else if (action === 'REJECT') {
+        setToast('Документ отклонён');
+      }
+      closeDialog();
+      query.refresh();
+    } catch (err) {
+      // Второй шаг (ConfirmSheet у "Отклонить") не показывает ошибку сам - откатываемся
+      // на первый лист с комментарием, там decisionError уже отрисовывается.
+      setRejectStep2(false);
+      setDecisionError(errorMessage(err));
+      if (err instanceof ApiError && err.status === 409) {
+        // Шаг уже неактивен (STEP_NOT_ACTIVE) - другой согласующий решил раньше.
+        // Карточка должна сразу показать новый статус, а не оставаться со старыми
+        // кнопками, как будто ничего не произошло.
+        query.refresh();
+      }
+    } finally {
+      setDecisionBusy(false);
+    }
+  }
+
+  if (query.status === 'loading') {
+    return (
+      <CenteredColumn style={{ padding: 16, display: 'flex', justifyContent: 'center' }}>
+        <Spinner />
+      </CenteredColumn>
+    );
+  }
+
+  if (query.status === 'error') {
+    const { error } = query;
+    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+      return (
+        <CenteredColumn style={{ padding: 16 }}>
+          <AccessErrorState text="Документ недоступен или удалён" />
+        </CenteredColumn>
+      );
+    }
+    return (
+      <CenteredColumn style={{ padding: 16 }}>
+        <ErrorState message={errorMessage(error)} onRetry={query.refresh} />
+      </CenteredColumn>
+    );
+  }
+
+  const doc = query.data;
+  const returnReason = doc.status === 'RETURNED' ? findReturnReason(doc.route) : null;
+  const currentVersion = doc.versions.find((v) => v.versionNo === doc.currentVersionNo);
+  const activeSteps = doc.myActiveStepIds.map((stepId) => findStep(doc.route, stepId)).filter((s): s is StepView => s !== null);
+
+  return (
+    <ScreenShell>
+      <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <Typography.Headline variant="large-strong">{doc.title}</Typography.Headline>
+            <DocumentStatusBadge status={doc.status} />
+          </div>
+          <Typography.Text>
+            {doc.type.name} · {doc.author.fullName} · Версия {doc.currentVersionNo}
+          </Typography.Text>
+        </div>
+
+      {returnReason && (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            background: 'var(--status-warning-bg)',
+            color: 'var(--status-warning-fg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Причина возврата</span>
+          <span style={{ fontSize: 13 }}>
+            {returnReason.approver.fullName}
+            {returnReason.decidedAt ? `, ${formatDateTime(returnReason.decidedAt)}` : ''}
+          </span>
+          {returnReason.comment && <span style={{ fontSize: 13 }}>{returnReason.comment}</span>}
+        </div>
+      )}
+
+      {/* Не внутри блока activeSteps ("Согласовать" у него своего диалога нет) - иначе
+          409 STEP_NOT_ACTIVE после query.refresh() был бы виден максимум на миг: шаг
+          пропадает из myActiveStepIds вместе с баннером, который был бы вложен туда (#71, ревью). */}
+      {decisionError && decisionDialog === null && <ErrorText>{decisionError}</ErrorText>}
+
+      {doc.route && <RouteStages route={doc.route} />}
+
+      {currentVersion && currentVersion.files.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Typography.Text>Файлы</Typography.Text>
+          <CellList mode="full-width">
+            {currentVersion.files.map((file, index) => (
+              <CellSimple
+                key={file.id}
+                as="button"
+                onClick={() => downloadFile(file.downloadUrl, file.fileName)}
+                // .CellSimple_separator - border-top, не border-bottom (см. DocumentListScreen).
+                separator={index > 0}
+                title={file.fileName}
+                after={<span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{formatFileSize(file.size)}</span>}
+              />
+            ))}
+          </CellList>
+        </div>
+      )}
+
+      {doc.check && (
+        <CheckSummary
+          status={doc.check.status}
+          issueCount={doc.check.issues.length}
+          onOpen={() => navigate(documentCheckPath(doc.id))}
+        />
+      )}
+
+      <HistoryAndVersions doc={doc} />
+      </CenteredColumn>
+
+      {/* Кнопки внизу - по permissions/myActiveStepIds (docs/SCREENS.md, экран 11). */}
+      {activeSteps.length > 0 && (
+        <BottomActionBar>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {activeSteps.map((step) => (
+              <div key={step.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {activeSteps.length > 1 && <Typography.Text>Ваше решение как «{step.role.name}»</Typography.Text>}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button stretched variant="primary" disabled={decisionBusy} onClick={() => void submitDecision('APPROVE', step.id)}>
+                    Согласовать
+                  </Button>
+                  <Button
+                    stretched
+                    variant="secondary"
+                    disabled={decisionBusy}
+                    onClick={() => {
+                      setDecisionDialog({ stepId: step.id, role: step.role.name, action: 'RETURN' });
+                      setComment('');
+                    }}
+                  >
+                    Вернуть
+                  </Button>
+                  <Button
+                    stretched
+                    variant="destructive"
+                    disabled={decisionBusy}
+                    onClick={() => {
+                      setDecisionDialog({ stepId: step.id, role: step.role.name, action: 'REJECT' });
+                      setComment('');
+                    }}
+                  >
+                    Отклонить
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </BottomActionBar>
+      )}
+
+      {doc.status === 'DRAFT' && doc.permissions.canSubmit && (
+        <BottomActionBar>
+          <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(doc.id))}>
+            К маршруту
+          </Button>
+        </BottomActionBar>
+      )}
+
+      {/* canSubmit = false на черновике - из-за BLOCKER в проверке (экран 10). Без этой
+          кнопки открытый из списка черновик оставался тупиком: карточка вообще без кнопок,
+          а счётчик замечаний раньше не был кликабелен (#71, ревью). */}
+      {doc.status === 'DRAFT' && !doc.permissions.canSubmit && doc.check && (
+        <BottomActionBar>
+          <Button stretched variant="primary" onClick={() => navigate(documentCheckPath(doc.id))}>
+            Исправить замечания
+          </Button>
+        </BottomActionBar>
+      )}
+
+      {doc.status === 'RETURNED' && doc.permissions.canUploadVersion && (
+        <BottomActionBar>
+          <Button stretched variant="primary" onClick={() => navigate(documentNewVersionPath(doc.id))}>
+            Загрузить исправленную версию
+          </Button>
+        </BottomActionBar>
+      )}
+
+      {toast && <Toast message={toast} onDismiss={dismissToast} />}
+
+      <BottomSheet
+        open={decisionDialog !== null && !rejectStep2}
+        onClose={closeDialog}
+        title={decisionDialog?.action === 'RETURN' ? 'Вернуть на доработку' : 'Отклонить документ'}
+      >
+        <Typography.Text>Комментарий</Typography.Text>
+        <Textarea
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+          placeholder="Опишите, что нужно исправить"
+        />
+        <Typography.Text>Комментарий обязателен — без него отправить нельзя</Typography.Text>
+        {decisionError && <ErrorText>{decisionError}</ErrorText>}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <Button stretched variant="secondary" onClick={closeDialog}>
+              Отмена
+            </Button>
+          </div>
+          <div style={{ flex: 1 }}>
+            <Button
+              stretched
+              variant={decisionDialog?.action === 'REJECT' ? 'destructive' : 'primary'}
+              disabled={!comment.trim() || decisionBusy}
+              onClick={() => {
+                if (decisionDialog?.action === 'REJECT') {
+                  setRejectStep2(true);
+                } else if (decisionDialog) {
+                  void submitDecision('RETURN', decisionDialog.stepId, comment.trim());
+                }
+              }}
+            >
+              {decisionDialog?.action === 'RETURN' ? 'Вернуть' : 'Отклонить'}
+            </Button>
+          </div>
+        </div>
+      </BottomSheet>
+
+      <ConfirmSheet
+        open={decisionDialog !== null && rejectStep2}
+        onClose={() => setRejectStep2(false)}
+        title="Отклонение окончательное"
+        description="Дальше пути для этого документа нет."
+        confirmLabel="Отклонить"
+        destructive
+        busy={decisionBusy}
+        onConfirm={() => {
+          if (decisionDialog) {
+            void submitDecision('REJECT', decisionDialog.stepId, comment.trim());
+          }
+        }}
+      />
+    </ScreenShell>
+  );
+}
+
+function RouteStages({ route }: { route: RouteView }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Typography.Text>Маршрут</Typography.Text>
+      {route.stages.map((stage) => (
+        <StageGroup key={stage.stageOrder} stage={stage} />
+      ))}
+    </div>
+  );
+}
+
+function StageGroup({ stage }: { stage: RouteStage }) {
+  const parallel = stage.steps.length > 1;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: 12,
+        borderRadius: 8,
+        border: stage.state === 'ACTIVE' ? '1px solid var(--status-progress-fg)' : '1px solid var(--divider-primary)',
+        background: 'var(--background-secondary)',
+      }}
+    >
+      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+        Этап {stage.stageOrder}
+        {parallel ? ' — согласуют параллельно' : ''}
+      </span>
+      {stage.steps.map((step) => (
+        <div key={step.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+            {step.role.name} — {step.approver.fullName}
+            {/* Маршрут может только расти относительно шаблона (CLAUDE.md) - добавленные
+                автором согласующие обязаны быть видны всем в цепочке, не только автору. */}
+            {step.origin === 'ADDED_BY_AUTHOR' && (
+              <span style={{ color: 'var(--text-tertiary)' }}> · добавлен автором</span>
+            )}
+          </span>
+          <StepDecisionBadge decision={step.decision} autoReason={step.autoReason} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Свёрнуто, со счётчиком - сам список замечаний остаётся на экране 10 (#55), сюда его
+// текст переносить не нужно. Нажатие ведёт туда же (documentCheckPath) - без этого
+// черновик с замечаниями был тупиком: счётчик виден, а открыть список неоткуда (#71, ревью).
+// CellSimple, не самописная кнопка - тот же компонент, что уже даёт строки файлов
+// в этом экране (CLAUDE.md: "Компоненты @maxhub/max-ui предпочитать самописным").
+function CheckSummary({
+  status,
+  issueCount,
+  onOpen,
+}: {
+  status: 'CHECKED' | 'FAILED';
+  issueCount: number;
+  onOpen: () => void;
+}) {
+  // status = FAILED значит "проверка не выполнилась", а не "прошла и ничего не нашла" -
+  // issues тогда пуст не потому что всё в порядке, а потому что её не было. Показывать
+  // "нет" в этом случае значило бы соврать про состояние документа. У CellSimple нет
+  // варианта с цветным фоном строки - предупреждение выражено цветом заголовка.
+  return (
+    <CellList mode="full-width">
+      <CellSimple
+        as="button"
+        onClick={onOpen}
+        showChevron
+        title={
+          status === 'FAILED' ? (
+            <span style={{ color: 'var(--status-warning-fg)' }}>Проверка не выполнена</span>
+          ) : (
+            'Замечания проверки'
+          )
+        }
+        after={
+          status === 'CHECKED' && (
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{issueCount === 0 ? 'нет' : issueCount}</span>
+          )
+        }
+      />
+    </CellList>
+  );
+}
+
+function HistoryAndVersions({ doc }: { doc: DocumentCard }) {
+  // "История: решения с комментариями и номером версии; прошлые версии" (docs/SCREENS.md,
+  // экран 11) - решения берём из текущего маршрута (уже закрытые этапы) и из route.history
+  // (прошлые версии), а не только из history: иначе решения по текущей версии,
+  // принятые до активного этапа, никогда бы не попали в список.
+  const decidedSteps = doc.route
+    ? [...doc.route.stages.flatMap((stage) => stage.steps), ...doc.route.history].filter((step) => step.decision !== 'PENDING')
+    : [];
+  const sortedSteps = decidedSteps.slice().sort((a, b) => (b.decidedAt ?? '').localeCompare(a.decidedAt ?? ''));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Typography.Text>История</Typography.Text>
+      {sortedSteps.length === 0 && <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Решений пока нет</span>}
+      {sortedSteps.map((step) => (
+        <div key={step.id} style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+          Версия {step.versionNo} · {step.approver.fullName} ({step.role.name}) —{' '}
+          <StepDecisionBadge decision={step.decision} autoReason={step.autoReason} />
+          {step.comment ? `: ${step.comment}` : ''}
+        </div>
+      ))}
+
+      <Typography.Text>Версии</Typography.Text>
+      {doc.versions
+        .slice()
+        .reverse()
+        .map((version) => (
+          <div key={version.versionNo} style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            Версия {version.versionNo} — загружена {formatDateTime(version.createdAt)}, {version.createdBy.fullName}
+          </div>
+        ))}
+    </div>
+  );
+}

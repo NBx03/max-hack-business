@@ -62,6 +62,7 @@ export function ConfirmSheet({
   confirmLabel,
   cancelLabel = 'Отмена',
   destructive,
+  busy,
   onConfirm,
 }: {
   open: boolean;
@@ -71,6 +72,8 @@ export function ConfirmSheet({
   confirmLabel: string;
   cancelLabel?: string;
   destructive?: boolean;
+  /** Идёт запрос - блокирует обе кнопки, чтобы не отправить действие дважды. */
+  busy?: boolean;
   onConfirm: () => void;
 }) {
   return (
@@ -78,12 +81,12 @@ export function ConfirmSheet({
       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{description}</p>
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>
-          <Button stretched variant="secondary" onClick={onClose}>
+          <Button stretched variant="secondary" disabled={busy} onClick={onClose}>
             {cancelLabel}
           </Button>
         </div>
         <div style={{ flex: 1 }}>
-          <Button stretched variant={destructive ? 'destructive' : 'primary'} onClick={onConfirm}>
+          <Button stretched variant={destructive ? 'destructive' : 'primary'} disabled={busy} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

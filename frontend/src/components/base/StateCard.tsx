@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Button } from '@maxhub/max-ui';
+import { Button, Typography } from '@maxhub/max-ui';
 
 // Общие состояния "пусто" / "ошибка" / "нет доступа" - docs/SCREENS.md, "Общие правила"
 // ("пусто (текст + следующее действие)", "ошибка (текст из message + «Повторить»)"),
@@ -73,6 +73,19 @@ export function EmptyState({
 /** Ошибка сети/сервиса: текст берётся из ApiError.message бэкенда, не свой. */
 export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return <StateCard icon="!" text={message} action={<OutlineButton label="Повторить" onClick={onRetry} />} />;
+}
+
+/**
+ * Ошибка действия без своего "Повторить" (например, решение по шагу или отправка на
+ * маршрут) - у ErrorState "Повторить" там означало бы просто спрятать текст, ничего
+ * не повторяя на самом деле, а это вводит в заблуждение (PR #71, ревью).
+ */
+export function ErrorText({ children }: { children: ReactNode }) {
+  return (
+    <div role="alert" style={{ color: 'var(--text-negative)' }}>
+      <Typography.Body variant="medium">{children}</Typography.Body>
+    </div>
+  );
 }
 
 /** 403/404 на документе, недействительное приглашение - без общей ErrorState "Повторить". */

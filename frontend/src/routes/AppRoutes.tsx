@@ -1,6 +1,9 @@
 import type { ReactElement } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
+import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
+import { DocumentListScreen } from '../screens/documents/DocumentListScreen';
+import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
 import { hasCompany, resolveEntryRoute } from './resolveEntryRoute';
 import { ScreenStub } from './ScreenStub';
@@ -8,6 +11,7 @@ import { WelcomeStub } from './WelcomeStub';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
+import { useMaxBackButton } from './useMaxBackButton';
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
@@ -16,6 +20,10 @@ import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersio
 export function AppRoutes({ me }: { me: MeResponse }) {
   const entryRoute = resolveEntryRoute(me);
   const companyReady = hasCompany(me);
+
+  // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
+  // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.
+  useMaxBackButton(entryRoute);
 
   // Экраны 1-5 (приветствие, создание, код, личная ссылка, ожидание) - только пока
   // компании нет. Свежий /me проверяется на каждом рендере, а не только при входе на
@@ -66,10 +74,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
         path={ROUTE_PATTERNS.adminMembers}
         element={companyScreen(<ScreenStub title="7. Участники" issue="#54" />)}
       />
-      <Route
-        path={ROUTE_PATTERNS.documents}
-        element={companyScreen(<ScreenStub title="8. Список документов" issue="#7" />)}
-      />
+      <Route path={ROUTE_PATTERNS.documents} element={companyScreen(<DocumentListScreen />)} />
       <Route
         path={ROUTE_PATTERNS.documentUpload}
         element={companyScreen(<DocumentUploadScreen />)}
@@ -82,11 +87,8 @@ export function AppRoutes({ me }: { me: MeResponse }) {
         path={ROUTE_PATTERNS.documentNewVersion}
         element={companyScreen(<NewDocumentVersionScreen />)}
       />
-      <Route path={ROUTE_PATTERNS.documentCard} element={<ScreenStub title="11. Карточка документа" issue="#7" />} />
-      <Route
-        path={ROUTE_PATTERNS.routePreview}
-        element={companyScreen(<ScreenStub title="12. Предпросмотр маршрута" issue="#7" />)}
-      />
+      <Route path={ROUTE_PATTERNS.documentCard} element={<DocumentCardScreen />} />
+      <Route path={ROUTE_PATTERNS.routePreview} element={companyScreen(<RoutePreviewScreen />)} />
       {/* Неизвестный путь - не 404, а туда же, куда привело бы свежее /me. */}
       <Route path="*" element={<Navigate to={entryRoute} replace />} />
     </Routes>

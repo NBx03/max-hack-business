@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { setActingAsId } from '../api/client';
-import { ApiError } from '../api/errors';
+import { ApiError, GENERIC_ERROR_MESSAGE } from '../api/errors';
 import { createDemoSandbox, getDemoSandbox, getMe } from '../api/session';
 import type { DemoSandboxUser, MeResponse } from '../api/types';
 
@@ -35,7 +35,7 @@ function toApiError(err: unknown): ApiError {
   }
   return new ApiError(0, {
     code: 'UNKNOWN',
-    message: 'Сервис временно недоступен, попробуйте ещё раз',
+    message: GENERIC_ERROR_MESSAGE,
   });
 }
 
