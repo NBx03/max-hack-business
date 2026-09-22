@@ -5,15 +5,9 @@ import { createCompany } from '../../api/onboarding';
 import { errorMessage } from '../../api/errors';
 import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
 
+// Лимиты — как в CreateOrganizationRequest на бэкенде. ИНН по SCREENS.md не проверяется.
 const NAME_MAX = 255;
-
-/** ИНН не проверяется, но явная опечатка в формате — повод подсказать до отправки. */
-function innProblem(inn: string): string | null {
-  if (inn === '') {
-    return null;
-  }
-  return /^(\d{10}|\d{12})$/.test(inn) ? null : 'ИНН — 10 или 12 цифр';
-}
+const INN_MAX = 255;
 
 /** 2. Создание компании (docs/SCREENS.md). */
 export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
@@ -24,9 +18,8 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const trimmedName = name.trim();
-  const trimmedInn = inn.replace(/\s+/g, '');
-  const innError = innProblem(trimmedInn);
-  const canSubmit = trimmedName.length > 0 && innError === null && !busy;
+  const trimmedInn = inn.trim();
+  const canSubmit = trimmedName.length > 0 && !busy;
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -37,7 +30,8 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
     setError(null);
     try {
       await createCompany(trimmedName, trimmedInn === '' ? null : trimmedInn);
-      // После создания человек — администратор своей компании: /me отведёт его дальше.
+      // После создания человек — администратор своей компании: роутер по свежему /me
+      // сразу откроет «3. Приглашение» (AppRoutes, guardTarget).
       await refresh();
     } catch (err) {
       setError(errorMessage(err));
@@ -76,11 +70,11 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
           <Input
             value={inn}
             inputMode="numeric"
-            maxLength={14}
+            maxLength={INN_MAX}
             placeholder="Необязательно"
             onChange={(event) => setInn(event.target.value)}
           />
-          {innError ? <ErrorText>{innError}</ErrorText> : <Hint>Необязательно и не проверяется.</Hint>}
+          <Hint>Необязательно, не проверяется.</Hint>
         </label>
         {/* Отправка по Enter с клавиатуры телефона. */}
         <button type="submit" hidden aria-hidden />

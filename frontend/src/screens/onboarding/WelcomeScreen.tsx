@@ -11,14 +11,16 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
   const [demoBusy, setDemoBusy] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
 
-  const hasSandbox = Boolean(me?.sandbox) && sandboxUsers !== null && sandboxUsers.length > 0;
+  // SessionContext загружает участников песочницы до перехода в ready, поэтому
+  // me.sandbox — надёжный признак: песочница есть, её нельзя пересоздавать.
+  const hasSandbox = Boolean(me?.sandbox);
 
   const openDemo = async () => {
     setDemoBusy(true);
     setDemoError(null);
     try {
       // Уже созданную песочницу не пересоздаём: проверяющий вернётся к своим документам.
-      const users = hasSandbox ? sandboxUsers : await startSandbox();
+      const users = hasSandbox ? (sandboxUsers ?? []) : await startSandbox();
       const entry = demoEntryUser(users);
       if (entry === null) {
         setDemoError('Не удалось открыть демо-компанию, попробуйте ещё раз');

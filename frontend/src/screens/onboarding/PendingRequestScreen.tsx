@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { cancelJoinRequest } from '../../api/onboarding';
-import { errorMessage } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import type { PendingJoinRequestRef } from '../../api/types';
 import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
 
@@ -27,6 +27,11 @@ export function PendingRequestScreen({ request }: { request: PendingJoinRequestR
       await cancelJoinRequest(request.id);
       await refresh();
     } catch (err) {
+      // Администратор успел рассмотреть заявку: свежий /me откроет компанию или приветствие.
+      if (err instanceof ApiError && err.code === 'INVALID_STATE') {
+        await refresh();
+        return;
+      }
       setError(errorMessage(err));
       setBusy(false);
     }

@@ -3,23 +3,8 @@ import { Button, Input, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { previewInviteCode, submitJoinRequest } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
+import { CODE_LENGTH, codeProblem, normalizeCode } from './joinCode';
 import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
-
-/** Алфавит кода — тот же, что у бэкенда (InviteSecrets): без 0, 1, O, I, L. */
-const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const CODE_LENGTH = 8;
-
-/** Код могли переписать с пробелами, дефисами или строчными буквами. */
-export function normalizeCode(raw: string): string {
-  return raw.replace(/[\s-]+/g, '').toUpperCase();
-}
-
-function codeProblem(code: string): string | null {
-  if ([...code].some((ch) => !CODE_ALPHABET.includes(ch))) {
-    return 'В коде нет букв O, I, L и цифр 0, 1 — проверьте, не перепутаны ли символы';
-  }
-  return null;
-}
 
 /** «Слишком много попыток» — с подсказкой, когда пробовать снова. */
 function attemptMessage(err: unknown): string {
@@ -36,7 +21,11 @@ function attemptMessage(err: unknown): string {
 export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string; onBack: () => void }) {
   const { refresh } = useSession();
   const [raw, setRaw] = useState(initialCode ?? '');
-  const [orgName, setOrgName] = useState<string | null>(null);
+  // Название компании привязано к коду, по которому его получили: заявка уходит только
+  // по подтверждённому коду, даже если поле успели поменять, пока шёл запрос.
+  const [confirmed, setConfirmed] = useState<{ code: string; orgName: string } | null>(null);
+  // Номер последней проверки: поздний ответ на уже изменённый код отбрасывается.
+  const checkSeq = useRef(0);
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +33,7 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
   const code = normalizeCode(raw);
   const problem = codeProblem(code);
   const complete = code.length === CODE_LENGTH && problem === null;
+  const orgName = confirmed !== null && confirmed.code === code ? confirmed.orgName : null;
 
   // Каждая неверная попытка расходует лимит, поэтому проверяем по нажатию, а не на каждый символ.
   const check = async (event?: FormEvent) => {
@@ -51,15 +41,23 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
     if (!complete || checking) {
       return;
     }
+    const seq = ++checkSeq.current;
+    const checkedCode = code;
     setChecking(true);
     setError(null);
     try {
-      const preview = await previewInviteCode(code);
-      setOrgName(preview.orgName);
+      const preview = await previewInviteCode(checkedCode);
+      if (seq === checkSeq.current) {
+        setConfirmed({ code: checkedCode, orgName: preview.orgName });
+      }
     } catch (err) {
-      setError(attemptMessage(err));
+      if (seq === checkSeq.current) {
+        setError(attemptMessage(err));
+      }
     } finally {
-      setChecking(false);
+      if (seq === checkSeq.current) {
+        setChecking(false);
+      }
     }
   };
 
@@ -74,10 +72,13 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
   }, []);
 
   const send = async () => {
+    if (confirmed === null || confirmed.code !== code) {
+      return;
+    }
     setSending(true);
     setError(null);
     try {
-      await submitJoinRequest(code);
+      await submitJoinRequest(confirmed.code);
       // Дальше /me покажет экран ожидания решения.
       await refresh();
     } catch (err) {
@@ -93,7 +94,9 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
 
   const edit = (value: string) => {
     setRaw(value);
-    setOrgName(null);
+    // Идущая проверка относится к прежнему коду — её ответ больше не нужен.
+    checkSeq.current += 1;
+    setChecking(false);
     setError(null);
   };
 
@@ -104,7 +107,7 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
       footer={
         <>
           {orgName ? (
-            <Button size="large" stretched loading={sending} onClick={() => void send()}>
+            <Button size="large" stretched disabled={!complete} loading={sending} onClick={() => void send()}>
               Отправить заявку
             </Button>
           ) : (

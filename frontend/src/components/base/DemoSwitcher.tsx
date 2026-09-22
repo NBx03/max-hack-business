@@ -18,7 +18,7 @@ function describeParticipant(roles: { name: string }[], isAdmin: boolean): strin
  * здесь только механизм переключения, без финальной вёрстки.
  */
 export function DemoSwitcher() {
-  const { me, sandboxUsers, actAs, startSandbox } = useSession();
+  const { me, sandboxUsers, actAs, startSandbox, refresh } = useSession();
   const [expanded, setExpanded] = useState(false);
 
   // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
@@ -61,10 +61,13 @@ export function DemoSwitcher() {
           <Button
             onClick={() => {
               // После пересоздания прежние id недействительны - сразу входим от имени автора.
-              void startSandbox().then((users) => {
-                const entry = demoEntryUser(users);
-                return entry === null ? undefined : actAs(entry);
-              });
+              void startSandbox()
+                .then((users) => {
+                  const entry = demoEntryUser(users);
+                  return entry === null ? undefined : actAs(entry);
+                })
+                // Не удалось пересоздать — свежий /me покажет текущее состояние.
+                .catch(() => refresh());
               setExpanded(false);
             }}
           >

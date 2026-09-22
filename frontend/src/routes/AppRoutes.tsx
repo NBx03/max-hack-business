@@ -9,7 +9,8 @@ import {
   WelcomeRoute,
 } from '../screens/onboarding/OnboardingRoutes';
 import { ROUTE_PATTERNS } from './paths';
-import { hasCompany, resolveEntryRoute } from './resolveEntryRoute';
+import { guardTarget, type GuardKind } from './guards';
+import { resolveEntryRoute } from './resolveEntryRoute';
 import { ScreenStub } from './ScreenStub';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
@@ -37,35 +38,14 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   }, [location.pathname]);
 
   const entryRoute = resolveEntryRoute(me, !startParamUsed);
-  const companyReady = hasCompany(me);
-  const pending = Boolean(me.pendingJoinRequest);
 
-  // Экраны 1-4 (приветствие, создание, код, личная ссылка) - только пока нет компании
-  // и заявки. Свежий /me проверяется на каждом рендере: как только компания появляется
-  // (создали, вступили, открыли демо) или подана заявка, человека уводит с экрана сам
-  // роутер - экрану достаточно вызвать refresh().
-  function onboardingScreen(element: ReactElement): ReactElement {
-    if (companyReady) return <Navigate to={ROUTE_PATTERNS.documents} replace />;
-    if (pending) return <Navigate to={ROUTE_PATTERNS.pending} replace />;
-    return element;
-  }
-
-  // 5. Ожидание решения - только пока заявка висит. Одобрили - к документам,
-  // отменили или отклонили - туда, куда ведёт свежий /me (приветствие).
-  function pendingScreen(element: ReactElement): ReactElement {
-    if (companyReady) return <Navigate to={ROUTE_PATTERNS.documents} replace />;
-    if (!pending) return <Navigate to={entryRoute} replace />;
-    return element;
-  }
-
-  // Документы и админка - только при компании. Карточка документа (documentCard) -
-  // исключение и здесь не участвует: на неё ведёт d_<id> из уведомления бота
-  // независимо от companyReady, а доступ проверяет сам экран через GET /documents/{id}
-  // (см. resolveEntryRoute). Если бы карточка тоже требовала companyReady, человека
-  // без компании после d_<id> зациклило бы: entryRoute снова укажет на неё же.
-  function companyScreen(element: ReactElement): ReactElement {
-    return companyReady ? element : <Navigate to={entryRoute} replace />;
-  }
+  const guarded = (kind: GuardKind) => (element: ReactElement): ReactElement => {
+    const target = guardTarget(kind, me, entryRoute);
+    return target === null ? element : <Navigate to={target} replace />;
+  };
+  const onboardingScreen = guarded('onboarding');
+  const pendingScreen = guarded('pending');
+  const companyScreen = guarded('company');
 
   return (
     <Routes>
@@ -73,7 +53,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       <Route path={ROUTE_PATTERNS.welcome} element={onboardingScreen(<WelcomeRoute />)} />
       <Route
         path={ROUTE_PATTERNS.createCompany}
-        element={onboardingScreen(<CreateCompanyRoute />)}
+        element={guarded('createCompany')(<CreateCompanyRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminInvite}

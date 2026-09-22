@@ -2,14 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { acceptPersonalInvite, previewPersonalInvite } from '../../api/onboarding';
-import { errorMessage } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import type { PersonalInvitePreview } from '../../api/types';
+import { isInviteGone } from './inviteErrors';
 import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
 
 type State =
   | { kind: 'loading' }
   | { kind: 'ready'; invite: PersonalInvitePreview }
-  | { kind: 'invalid'; message: string };
+  | { kind: 'invalid'; message: string }
+  // Временный сбой (сеть, 5xx, тайм-аут): ссылка может быть в порядке — нужен «Повторить».
+  | { kind: 'error'; message: string };
 
 /**
  * 4б. Вступление по личной ссылке (docs/SCREENS.md, SHOULD). При открытии ничего не происходит:
@@ -27,7 +30,7 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       setState({ kind: 'ready', invite: await previewPersonalInvite(token) });
     } catch (err) {
       // Использована, просрочена, отозвана или не найдена — текст бэкенда объясняет, что именно.
-      setState({ kind: 'invalid', message: errorMessage(err) });
+      setState({ kind: isInviteGone(err) ? 'invalid' : 'error', message: errorMessage(err) });
     }
   }, [token]);
 
@@ -40,10 +43,20 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
     setError(null);
     try {
       await acceptPersonalInvite(token);
+      // Ответ accept — уже MeResponse, но refresh() всё равно нужен: он же подгружает
+      // песочницу и остаётся единственным местом, где сессия меняет состояние.
       await refresh();
     } catch (err) {
-      // Ссылку могли успеть использовать или отозвать, пока экран был открыт.
-      setError(errorMessage(err));
+      if (isInviteGone(err)) {
+        // Ссылку успели использовать, отозвать или она истекла, пока экран был открыт.
+        setState({ kind: 'invalid', message: errorMessage(err) });
+      } else if (err instanceof ApiError && err.code === 'ALREADY_MEMBER') {
+        // Уже состоит в компании — актуальный /me знает, какой экран показать.
+        await refresh();
+        return;
+      } else {
+        setError(errorMessage(err));
+      }
       setBusy(false);
     }
   };
@@ -52,6 +65,21 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
     return (
       <OnboardingLayout title="Приглашение">
         <Spinner />
+      </OnboardingLayout>
+    );
+  }
+
+  if (state.kind === 'error') {
+    return (
+      <OnboardingLayout
+        title="Приглашение"
+        footer={
+          <Button size="large" stretched onClick={() => void load()}>
+            Повторить
+          </Button>
+        }
+      >
+        <ErrorText>{state.message}</ErrorText>
       </OnboardingLayout>
     );
   }
