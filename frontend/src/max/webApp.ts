@@ -31,11 +31,15 @@ export function isInsideMax(): boolean {
   return Boolean(window.WebApp?.initData);
 }
 
-/** Скачивание файла - нативно внутри MAX, иначе обычная вкладка (docs/API_CONTRACTS.md). */
+/**
+ * Скачивание файла - нативно внутри MAX, иначе обычная вкладка (docs/API_CONTRACTS.md).
+ * Проверяем isInsideMax() (есть initData), а не просто наличие window.WebApp - скрипт
+ * моста грузится в index.html безусловно, поэтому объект существует и в обычном
+ * браузере вне MAX, где downloadFile() у него ничего реально не сделает.
+ */
 export function downloadFile(url: string, fileName: string): void {
-  const webApp = getWebApp();
-  if (webApp) {
-    webApp.downloadFile(url, fileName);
+  if (isInsideMax()) {
+    window.WebApp?.downloadFile(url, fileName);
   } else {
     window.open(url, '_blank');
   }

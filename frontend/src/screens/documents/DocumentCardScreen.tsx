@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Button, Spinner, Textarea, Typography } from '@maxhub/max-ui';
+import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { decideStep, getDocument, type StepDecisionAction } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentCard, RouteStage, RouteView, StepView } from '../../api/types';
-import { BottomActionBar, CenteredColumn } from '../../components/base/Layout';
+import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
 import { AccessErrorState, ErrorState } from '../../components/base/StateCard';
@@ -83,6 +83,9 @@ export function DocumentCardScreen() {
       closeDialog();
       query.refresh();
     } catch (err) {
+      // Второй шаг (ConfirmSheet у "Отклонить") не показывает ошибку сам - откатываемся
+      // на первый лист с комментарием, там decisionError уже отрисовывается.
+      setRejectStep2(false);
       setDecisionError(errorMessage(err));
     } finally {
       setDecisionBusy(false);
@@ -119,16 +122,17 @@ export function DocumentCardScreen() {
   const activeSteps = doc.myActiveStepIds.map((stepId) => findStep(doc.route, stepId)).filter((s): s is StepView => s !== null);
 
   return (
-    <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-          <Typography.Title variant="large-strong">{doc.title}</Typography.Title>
-          <DocumentStatusBadge status={doc.status} />
+    <ScreenShell>
+      <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <Typography.Title variant="large-strong">{doc.title}</Typography.Title>
+            <DocumentStatusBadge status={doc.status} />
+          </div>
+          <Typography.Text>
+            {doc.type.name} · {doc.author.fullName} · Версия {doc.currentVersionNo}
+          </Typography.Text>
         </div>
-        <Typography.Text>
-          {doc.type.name} · {doc.author.fullName} · Версия {doc.currentVersionNo}
-        </Typography.Text>
-      </div>
 
       {returnReason && (
         <div
@@ -156,34 +160,26 @@ export function DocumentCardScreen() {
       {currentVersion && currentVersion.files.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Typography.Text>Файлы</Typography.Text>
-          {currentVersion.files.map((file) => (
-            <button
-              key={file.id}
-              type="button"
-              onClick={() => downloadFile(file.downloadUrl, file.fileName)}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                padding: 10,
-                borderRadius: 8,
-                border: '1px solid var(--divider-primary)',
-                background: 'var(--background-secondary)',
-                color: 'var(--text-primary)',
-                fontSize: 13,
-                textAlign: 'left',
-                cursor: 'pointer',
-              }}
-            >
-              <span>{file.fileName}</span>
-              <span style={{ color: 'var(--text-tertiary)' }}>{formatFileSize(file.size)}</span>
-            </button>
-          ))}
+          <CellList mode="full-width">
+            {currentVersion.files.map((file, index) => (
+              <CellSimple
+                key={file.id}
+                as="button"
+                onClick={() => downloadFile(file.downloadUrl, file.fileName)}
+                // .CellSimple_separator - border-top, не border-bottom (см. DocumentListScreen).
+                separator={index > 0}
+                title={file.fileName}
+                after={<span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{formatFileSize(file.size)}</span>}
+              />
+            ))}
+          </CellList>
         </div>
       )}
 
-      {doc.check && <CheckSummary issueCount={doc.check.issues.length} />}
+      {doc.check && <CheckSummary status={doc.check.status} issueCount={doc.check.issues.length} />}
 
       <HistoryAndVersions doc={doc} />
+      </CenteredColumn>
 
       {/* Кнопки внизу - по permissions/myActiveStepIds (docs/SCREENS.md, экран 11). */}
       {activeSteps.length > 0 && (
@@ -288,13 +284,14 @@ export function DocumentCardScreen() {
         description="Дальше пути для этого документа нет."
         confirmLabel="Отклонить"
         destructive
+        busy={decisionBusy}
         onConfirm={() => {
           if (decisionDialog) {
             void submitDecision('REJECT', decisionDialog.stepId, comment.trim());
           }
         }}
       />
-    </CenteredColumn>
+    </ScreenShell>
   );
 }
 
@@ -331,6 +328,11 @@ function StageGroup({ stage }: { stage: RouteStage }) {
         <div key={step.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
             {step.role.name} — {step.approver.fullName}
+            {/* Маршрут может только расти относительно шаблона (CLAUDE.md) - добавленные
+                автором согласующие обязаны быть видны всем в цепочке, не только автору. */}
+            {step.origin === 'ADDED_BY_AUTHOR' && (
+              <span style={{ color: 'var(--text-tertiary)' }}> · добавлен автором</span>
+            )}
           </span>
           <StepDecisionBadge decision={step.decision} autoReason={step.autoReason} />
         </div>
@@ -341,7 +343,26 @@ function StageGroup({ stage }: { stage: RouteStage }) {
 
 // Свёрнуто, со счётчиком - сам список замечаний остаётся на экране 10 (#55),
 // сюда его текст переносить не нужно.
-function CheckSummary({ issueCount }: { issueCount: number }) {
+function CheckSummary({ status, issueCount }: { status: 'CHECKED' | 'FAILED'; issueCount: number }) {
+  // status = FAILED значит "проверка не выполнилась", а не "прошла и ничего не нашла" -
+  // issues тогда пуст не потому что всё в порядке, а потому что её не было. Показывать
+  // "нет" в этом случае значило бы соврать про состояние документа.
+  if (status === 'FAILED') {
+    return (
+      <div
+        style={{
+          padding: 10,
+          borderRadius: 8,
+          background: 'var(--status-warning-bg)',
+          color: 'var(--status-warning-fg)',
+          fontSize: 13,
+        }}
+      >
+        Проверка не выполнена
+      </div>
+    );
+  }
+
   return (
     <div
       style={{

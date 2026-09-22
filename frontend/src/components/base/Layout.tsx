@@ -15,6 +15,17 @@ export function CenteredColumn({ children, style }: { children: ReactNode; style
   return <div style={{ ...columnStyle, ...style }}>{children}</div>;
 }
 
+/**
+ * Внешняя обёртка экрана, у которого есть BottomActionBar - растягивает экран на весь
+ * вьюпорт, чтобы кнопка внизу не повисала сразу под коротким контентом (см. BottomActionBar
+ * про то, почему одного position:sticky для этого недостаточно). CenteredColumn с самим
+ * контентом внутри всё равно нужно пометить flex:1 - ScreenShell этого не делает сам,
+ * чтобы не навязывать, что именно должно растягиваться на экранах с несколькими блоками.
+ */
+export function ScreenShell({ children }: { children: ReactNode }) {
+  return <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>{children}</div>;
+}
+
 /** Центрирует контент по всему экрану - загрузка и общая ошибка сессии (App.tsx). */
 export function FullscreenCenter({ children }: { children: ReactNode }) {
   return (
@@ -35,6 +46,15 @@ export function FullscreenCenter({ children }: { children: ReactNode }) {
 /**
  * Главная кнопка экрана, прибитая к низу вьюпорта - остаётся видимой на длинных экранах
  * (карточка, результат проверки, список) независимо от прокрутки контента над ней.
+ *
+ * position:sticky держит кнопку у низа только пока есть что прокручивать. На коротком
+ * экране (мало данных, пустое состояние) без прокрутки кнопка просто встанет сразу под
+ * контентом, а не у края экрана. Чтобы этого не было, экран нужно обернуть в ScreenShell,
+ * а CenteredColumn с основным контентом внутри пометить `flex:1` (растягивается и
+ * выталкивает эту панель к низу). Не кладите BottomActionBar внутрь того же
+ * CenteredColumn, что и контент - у него свой внутренний CenteredColumn, и
+ * паддинг/stretch применятся дважды (см. screens/documents/DocumentListScreen.tsx
+ * как пример правильной раскладки).
  */
 export function BottomActionBar({ children }: { children: ReactNode }) {
   return (

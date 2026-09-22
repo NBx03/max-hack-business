@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
-import { useNavigate } from 'react-router-dom';
+import { Button, CellList, CellSimple, Input, Spinner, Typography } from '@maxhub/max-ui';
+import { useNavigate, type NavigateFunction } from 'react-router-dom';
 import { useSession } from '../../app/SessionContext';
 import { getDocuments, getDocumentTypes, type DocumentTab, type DocumentListFilters } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
+import { getPendingJoinRequestsCount } from '../../api/organization';
 import type { DocumentListItem, DocumentStatus, DocumentType, UserRef } from '../../api/types';
 import { BottomSheet } from '../../components/base/BottomSheet';
-import { BottomActionBar, CenteredColumn } from '../../components/base/Layout';
+import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { DocumentStatusBadge } from '../../components/base/StatusBadge';
-import { Tabs, type TabItem } from '../../components/base/Tabs';
+import { CountBadge, Tabs, type TabItem } from '../../components/base/Tabs';
 import { EmptyState, ErrorState } from '../../components/base/StateCard';
 import { documentStatusMeta } from '../../theme/status';
 import { useAsync } from '../../hooks/useAsync';
@@ -31,22 +32,28 @@ function daysWaiting(iso: string): number {
   return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
 }
 
-/** 8. Список документов - главный экран (docs/SCREENS.md). */
+type ScreenTab = DocumentTab | 'ADMIN';
+
+/** 8. Список документов - главный экран, плюс вход в 6/7/3 через вкладку "Админ" (docs/SCREENS.md). */
 export function DocumentListScreen() {
   const navigate = useNavigate();
   const { me } = useSession();
   const isAdmin = Boolean(me?.actingAs ? me.actingAs.isAdmin : me?.membership?.isAdmin);
-  const [tab, setTab] = useState<DocumentTab>('WAITING_ME');
+  const [tab, setTab] = useState<ScreenTab>('WAITING_ME');
   const [filters, setFilters] = useState<DocumentListFilters>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Известные авторы - накапливаются из уже загруженных документов, отдельного
   // эндпоинта "все авторы" для не-админа нет (GET /orgs/current/members - только ADMIN).
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
 
-  const listQuery = useAsync(() => getDocuments(tab, { ...filters, size: 50 }), [tab, filters]);
+  // "ADMIN" - не документная вкладка, а отдельный экран-меню; списку документов
+  // подсовываем валидную вкладку, чтобы не городить условный вызов хука.
+  const docTab: DocumentTab = tab === 'ADMIN' ? 'WAITING_ME' : tab;
+  const listQuery = useAsync(() => getDocuments(docTab, { ...filters, size: 50 }), [docTab, filters]);
   // "Ждут меня" со счётчиком - total отдельного запроса с size=1, независимо от фильтров текущей вкладки.
   const waitingCountQuery = useAsync(() => getDocuments('WAITING_ME', { size: 1 }), []);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
+  const pendingRequestsQuery = useAsync(() => (isAdmin ? getPendingJoinRequestsCount() : Promise.resolve(0)), [isAdmin]);
 
   useEffect(() => {
     if (listQuery.status !== 'ready') {
@@ -59,70 +66,97 @@ export function DocumentListScreen() {
     });
   }, [listQuery]);
 
-  const tabs = useMemo<TabItem<DocumentTab>[]>(
+  // Стоя на вкладке "Админ", можно перестать быть админом прямо на этом экране -
+  // например, переключившись в DemoSwitcher на участника без прав. Компонент при
+  // этом не размонтируется, а сама вкладка из tabs пропадает - без сброса tab
+  // экран продолжил бы показывать админ-меню тому, кому оно уже не положено.
+  useEffect(() => {
+    if (!isAdmin && tab === 'ADMIN') {
+      setTab('WAITING_ME');
+    }
+  }, [isAdmin, tab]);
+
+  const tabs = useMemo<TabItem<ScreenTab>[]>(
     () => [
       { key: 'WAITING_ME', label: 'Ждут меня', count: waitingCountQuery.status === 'ready' ? waitingCountQuery.data.total : undefined },
       { key: 'MINE', label: 'Мои' },
       { key: 'AVAILABLE', label: 'Доступные мне' },
+      ...(isAdmin ? [{ key: 'ADMIN' as const, label: 'Админ' }] : []),
     ],
-    [waitingCountQuery],
+    [waitingCountQuery, isAdmin],
   );
 
   const activeFiltersCount = Object.values(filters).filter((value) => value !== undefined).length;
 
   return (
-    <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Typography.Title variant="large-strong">Документы</Typography.Title>
+    // ScreenShell + flex:1 на CenteredColumn - чтобы BottomActionBar не повисал сразу
+    // под коротким контентом, а стоял у края экрана; BottomActionBar - не внутри этого
+    // CenteredColumn, а рядом с ним (см. components/base/Layout.tsx, BottomActionBar).
+    <ScreenShell>
+      <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+        <Typography.Title variant="large-strong">Документы</Typography.Title>
 
-      <Tabs tabs={tabs} activeKey={tab} onChange={setTab} />
+        <Tabs tabs={tabs} activeKey={tab} onChange={setTab} />
 
-      {isAdmin && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="ghost" size="small" onClick={() => navigate(ROUTE_PATTERNS.adminInvite)}>
-            Приглашение
+        {tab === 'ADMIN' ? (
+          <AdminSectionsList
+            pendingRequests={pendingRequestsQuery.status === 'ready' ? pendingRequestsQuery.data : undefined}
+            onNavigate={navigate}
+          />
+        ) : (
+          <>
+            {/* Родитель - flex-column без alignItems, поэтому по умолчанию (stretch) кнопка
+                растянулась бы на всю ширину колонки, хотя это второстепенное действие,
+                а не главная кнопка экрана - alignSelf возвращает ей размер по содержимому. */}
+            <Button variant="secondary" size="small" style={{ alignSelf: 'flex-start' }} onClick={() => setFiltersOpen(true)}>
+              {activeFiltersCount > 0 ? `Фильтры (${activeFiltersCount})` : 'Фильтры'}
+            </Button>
+
+            {listQuery.status === 'loading' && (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
+                <Spinner />
+              </div>
+            )}
+
+            {listQuery.status === 'error' && <ErrorState message={errorMessage(listQuery.error)} onRetry={listQuery.refresh} />}
+
+            {listQuery.status === 'ready' && listQuery.data.items.length === 0 && (
+              // docs/SCREENS.md для "Мои" называет и текст, и кнопку "Новый документ" в
+              // пустом состоянии - но она внизу экрана есть всегда (BottomActionBar), так
+              // что повторять её в самой карточке - чистое дублирование без пользы, только
+              // текст без действия.
+              <EmptyState text={TAB_EMPTY_TEXT[docTab]} />
+            )}
+
+            {listQuery.status === 'ready' && listQuery.data.items.length > 0 && (
+              <CellList mode="full-width" style={{ marginBottom: 16 }}>
+                {listQuery.data.items.map((item, index) => (
+                  <DocumentRow
+                    key={item.id}
+                    item={item}
+                    showWaiting={docTab === 'WAITING_ME'}
+                    // .CellSimple_separator рисует border-top, не border-bottom - черта
+                    // нужна перед КАЖДЫМ элементом, кроме первого, а не после каждого, кроме последнего.
+                    separator={index > 0}
+                    onOpen={() => navigate(documentCardPath(item.id))}
+                  />
+                ))}
+              </CellList>
+            )}
+          </>
+        )}
+      </CenteredColumn>
+
+      {/* "Новый документ" не показываем на вкладке "Админ" - создание документа не
+          относится к администрированию компании, в макете admin-management-screen
+          нижней кнопки тоже нет. */}
+      {tab !== 'ADMIN' && (
+        <BottomActionBar>
+          <Button stretched variant="primary" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
+            Новый документ
           </Button>
-          <Button variant="ghost" size="small" onClick={() => navigate(ROUTE_PATTERNS.adminRequests)}>
-            Заявки
-          </Button>
-          <Button variant="ghost" size="small" onClick={() => navigate(ROUTE_PATTERNS.adminMembers)}>
-            Участники
-          </Button>
-        </div>
+        </BottomActionBar>
       )}
-
-      <Button variant="secondary" size="small" onClick={() => setFiltersOpen(true)}>
-        {activeFiltersCount > 0 ? `Фильтры (${activeFiltersCount})` : 'Фильтры'}
-      </Button>
-
-      {listQuery.status === 'loading' && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
-          <Spinner />
-        </div>
-      )}
-
-      {listQuery.status === 'error' && <ErrorState message={errorMessage(listQuery.error)} onRetry={listQuery.refresh} />}
-
-      {listQuery.status === 'ready' && listQuery.data.items.length === 0 && (
-        <EmptyState
-          text={TAB_EMPTY_TEXT[tab]}
-          actionLabel={tab !== 'WAITING_ME' ? 'Новый документ' : undefined}
-          onAction={tab !== 'WAITING_ME' ? () => navigate(ROUTE_PATTERNS.documentUpload) : undefined}
-        />
-      )}
-
-      {listQuery.status === 'ready' && listQuery.data.items.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 16 }}>
-          {listQuery.data.items.map((item) => (
-            <DocumentRow key={item.id} item={item} showWaiting={tab === 'WAITING_ME'} onOpen={() => navigate(documentCardPath(item.id))} />
-          ))}
-        </div>
-      )}
-
-      <BottomActionBar>
-        <Button stretched variant="primary" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
-          Новый документ
-        </Button>
-      </BottomActionBar>
 
       <BottomSheet open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Фильтры">
         <FiltersForm
@@ -135,46 +169,70 @@ export function DocumentListScreen() {
           }}
         />
       </BottomSheet>
-    </CenteredColumn>
+    </ScreenShell>
   );
 }
 
 function DocumentRow({
   item,
   showWaiting,
+  separator,
   onOpen,
 }: {
   item: DocumentListItem;
   showWaiting: boolean;
+  separator: boolean;
   onOpen: () => void;
 }) {
+  const dateOrWaiting =
+    // Текст ровно как в docs/SCREENS.md: "ждёт N дней" - без склонения по числу
+    // (не "1 день"/"2 дня"), макет не просит сложную русскую плюрализацию.
+    showWaiting && item.waitingSince ? `ждёт ${daysWaiting(item.waitingSince)} дней` : formatDate(item.updatedAt);
+
   return (
-    <button
-      type="button"
+    <CellSimple
+      as="button"
       onClick={onOpen}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        padding: 12,
-        borderRadius: 8,
-        border: '1px solid var(--divider-primary)',
-        background: 'var(--background-secondary)',
-        textAlign: 'left',
-        cursor: 'pointer',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{item.title}</span>
-        <DocumentStatusBadge status={item.status} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-tertiary)' }}>
-        <span>{item.type.name}</span>
-        <span>
-          {item.author.fullName} · {showWaiting && item.waitingSince ? `ждёт ${daysWaiting(item.waitingSince)} дн.` : formatDate(item.updatedAt)}
-        </span>
-      </div>
-    </button>
+      separator={separator}
+      title={item.title}
+      subtitle={`${item.type.name} · ${item.author.fullName} · ${dateOrWaiting}`}
+      after={<DocumentStatusBadge status={item.status} />}
+    />
+  );
+}
+
+/** Вкладка "Админ" - вход в экраны 3/6/7 (макет admin-management-screen). */
+function AdminSectionsList({
+  pendingRequests,
+  onNavigate,
+}: {
+  pendingRequests: number | undefined;
+  onNavigate: NavigateFunction;
+}) {
+  return (
+    <CellList mode="full-width">
+      <CellSimple
+        as="button"
+        onClick={() => onNavigate(ROUTE_PATTERNS.adminInvite)}
+        title="Приглашение"
+        subtitle="Код подключения и ссылки"
+      />
+      <CellSimple
+        as="button"
+        separator
+        onClick={() => onNavigate(ROUTE_PATTERNS.adminRequests)}
+        title="Заявки"
+        subtitle="Заявки на вступление в компанию"
+        after={pendingRequests ? <CountBadge count={pendingRequests} /> : undefined}
+      />
+      <CellSimple
+        as="button"
+        separator
+        onClick={() => onNavigate(ROUTE_PATTERNS.adminMembers)}
+        title="Участники"
+        subtitle="Список сотрудников и управление доступом"
+      />
+    </CellList>
   );
 }
 
@@ -246,11 +304,11 @@ function FiltersForm({
       <div style={{ display: 'flex', gap: 8 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
           <Typography.Text>С</Typography.Text>
-          <input style={selectStyle} type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+          <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
           <Typography.Text>По</Typography.Text>
-          <input style={selectStyle} type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+          <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         </label>
       </div>
 

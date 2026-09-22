@@ -3,7 +3,7 @@ import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument, type RouteSelection } from '../../api/documents';
 import type { RoutePreviewParticipant } from '../../api/types';
-import { BottomActionBar, CenteredColumn } from '../../components/base/Layout';
+import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { useAsync } from '../../hooks/useAsync';
 import { errorMessage } from '../../api/errors';
@@ -76,50 +76,52 @@ export function RoutePreviewScreen() {
   }
 
   return (
-    <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Typography.Title variant="large-strong">Предпросмотр маршрута</Typography.Title>
+    <ScreenShell>
+      <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+        <Typography.Title variant="large-strong">Предпросмотр маршрута</Typography.Title>
 
-      {data.problems.map((problem) => (
-        <div
-          key={problem.code}
-          style={{
-            padding: 12,
-            borderRadius: 8,
-            background: 'var(--status-danger-bg)',
-            color: 'var(--status-danger-fg)',
-            fontSize: 13,
-          }}
-        >
-          {problem.message}
-        </div>
-      ))}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 16 }}>
-        {data.stages.map((stage) => (
-          <div key={stage.stageOrder} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <Typography.Text>Этап {stage.stageOrder}</Typography.Text>
-            {stage.participants.map((participant) => (
-              <ParticipantRow
-                key={participant.role.id}
-                participant={participant}
-                selectedUserId={selections.get(selectionKey(stage.stageOrder, participant.role.id)) ?? null}
-                onSelect={(userId) =>
-                  setSelections((prev) => new Map(prev).set(selectionKey(stage.stageOrder, participant.role.id), userId))
-                }
-              />
-            ))}
+        {data.problems.map((problem) => (
+          <div
+            key={problem.code}
+            style={{
+              padding: 12,
+              borderRadius: 8,
+              background: 'var(--status-danger-bg)',
+              color: 'var(--status-danger-fg)',
+              fontSize: 13,
+            }}
+          >
+            {problem.message}
           </div>
         ))}
-      </div>
 
-      {submitError && <ErrorState message={submitError} onRetry={() => setSubmitError(null)} />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 16 }}>
+          {data.stages.map((stage) => (
+            <div key={stage.stageOrder} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Typography.Text>Этап {stage.stageOrder}</Typography.Text>
+              {stage.participants.map((participant) => (
+                <ParticipantRow
+                  key={participant.role.id}
+                  participant={participant}
+                  selectedUserId={selections.get(selectionKey(stage.stageOrder, participant.role.id)) ?? null}
+                  onSelect={(userId) =>
+                    setSelections((prev) => new Map(prev).set(selectionKey(stage.stageOrder, participant.role.id), userId))
+                  }
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {submitError && <ErrorState message={submitError} onRetry={() => setSubmitError(null)} />}
+      </CenteredColumn>
 
       <BottomActionBar>
         <Button stretched variant="primary" disabled={!canSubmit || submitting} onClick={() => void handleSubmit()}>
           {submitting ? <Spinner /> : 'Отправить на согласование'}
         </Button>
       </BottomActionBar>
-    </CenteredColumn>
+    </ScreenShell>
   );
 }
 
