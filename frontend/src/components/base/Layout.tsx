@@ -8,11 +8,25 @@ const columnStyle: CSSProperties = {
   width: '100%',
   maxWidth: 560,
   margin: '0 auto',
+  // Экраны задают колонке внутренние отступы: без border-box ширина 100% + padding
+  // выходила за экран телефона, и страница прокручивалась вбок.
+  boxSizing: 'border-box',
 };
 
 /** Колонка контента - оборачивает экран целиком, чтобы на вебе/десктопе он не растягивался. */
 export function CenteredColumn({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return <div style={{ ...columnStyle, ...style }}>{children}</div>;
+}
+
+/**
+ * Внешняя обёртка экрана, у которого есть BottomActionBar - растягивает экран на весь
+ * вьюпорт, чтобы кнопка внизу не повисала сразу под коротким контентом (см. BottomActionBar
+ * про то, почему одного position:sticky для этого недостаточно). CenteredColumn с самим
+ * контентом внутри всё равно нужно пометить flex:1 - ScreenShell этого не делает сам,
+ * чтобы не навязывать, что именно должно растягиваться на экранах с несколькими блоками.
+ */
+export function ScreenShell({ children }: { children: ReactNode }) {
+  return <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>{children}</div>;
 }
 
 /** Центрирует контент по всему экрану - загрузка и общая ошибка сессии (App.tsx). */

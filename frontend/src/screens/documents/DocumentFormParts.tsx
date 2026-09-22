@@ -1,7 +1,7 @@
 import { Button, Input, Spinner, Typography } from '@maxhub/max-ui';
 import type { CSSProperties, ReactNode } from 'react';
 import type { DocumentTypeField } from '../../api/types';
-import { CenteredColumn, FullscreenCenter } from '../../components/base/Layout';
+import { BottomActionBar, CenteredColumn, FullscreenCenter, ScreenShell } from '../../components/base/Layout';
 
 export const stackStyle: CSSProperties = {
   display: 'flex',
@@ -32,14 +32,31 @@ export const inputStyle: CSSProperties = {
   background: 'var(--background-primary)',
   color: 'var(--text-primary)',
   font: 'inherit',
+  boxSizing: 'border-box',
 };
 
-export function DocumentScreen({ title, children }: { title: string; children: ReactNode }) {
+/** Подпись поля формы — одна на все экраны документов. */
+export const labelStyle: CSSProperties = { fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' };
+
+/** Ссылка на источник правила: цвет из темы, иначе браузерный синий нечитаем в тёмной теме. */
+export const linkStyle: CSSProperties = { color: 'var(--text-themed)' };
+
+/**
+ * Экран документа: заголовок и содержимое в колонке, главное действие — в нижней панели.
+ * Панель стоит рядом с колонкой, а не внутри неё: у BottomActionBar своя колонка, и внутри
+ * чужой отступы удваивались — кнопка съезжала вправо (components/base/Layout.tsx).
+ */
+export function DocumentScreen({ title, children, footer }: { title: string; children: ReactNode; footer?: ReactNode }) {
   return (
-    <CenteredColumn style={{ minHeight: '100vh', padding: '20px 16px', color: 'var(--text-primary)' }}>
-      <Typography.Headline variant="large-strong">{title}</Typography.Headline>
-      {children}
-    </CenteredColumn>
+    <ScreenShell>
+      <CenteredColumn
+        style={{ ...stackStyle, flex: 1, padding: '20px 16px 16px', color: 'var(--text-primary)' }}
+      >
+        <Typography.Headline variant="large-strong">{title}</Typography.Headline>
+        {children}
+      </CenteredColumn>
+      {footer && <BottomActionBar>{footer}</BottomActionBar>}
+    </ScreenShell>
   );
 }
 
@@ -108,9 +125,20 @@ export function FieldInputs({
   );
 }
 
-export function SubmitButton({ busy, disabled, children }: { busy: boolean; disabled?: boolean; children: ReactNode }) {
+/** `form` — id формы: кнопка стоит в нижней панели, вне самой формы. */
+export function SubmitButton({
+  busy,
+  disabled,
+  form,
+  children,
+}: {
+  busy: boolean;
+  disabled?: boolean;
+  form?: string;
+  children: ReactNode;
+}) {
   return (
-    <Button stretched type="submit" variant="primary" size="large" loading={busy} disabled={busy || disabled}>
+    <Button stretched type="submit" form={form} variant="primary" size="large" loading={busy} disabled={busy || disabled}>
       {children}
     </Button>
   );

@@ -2,10 +2,9 @@ import { Button, Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/documents';
-import { ApiError } from '../../api/errors';
+import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
 import { FilePicker, formatFileSize } from '../../components/base/FilePicker';
-import { BottomActionBar } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { documentCheckPath } from '../../routes/paths';
 import {
@@ -18,7 +17,7 @@ import {
   stackStyle,
 } from './DocumentFormParts';
 
-const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
+const FORM_ID = 'document-version-form';
 
 export function NewDocumentVersionScreen() {
   const navigate = useNavigate();
@@ -52,7 +51,7 @@ export function NewDocumentVersionScreen() {
       setKeptAttachments(new Set(current?.files.filter((file) => file.kind === 'ATTACHMENT').map((file) => file.id) ?? []));
       setFields(Object.fromEntries(nextCard.check?.fields.map((field) => [field.name, field.value ?? '']) ?? []));
     } catch (loadError) {
-      setError(loadError instanceof ApiError ? loadError.message : FALLBACK_ERROR);
+      setError(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
@@ -86,7 +85,7 @@ export function NewDocumentVersionScreen() {
       });
       navigate(documentCheckPath(updated.id), { state: { card: updated } });
     } catch (versionError) {
-      setSubmitError(versionError instanceof ApiError ? versionError.message : FALLBACK_ERROR);
+      setSubmitError(errorMessage(versionError));
     } finally {
       setSubmitting(false);
     }
@@ -102,9 +101,19 @@ export function NewDocumentVersionScreen() {
   }
 
   return (
-    <DocumentScreen title="Исправленная версия">
+    <DocumentScreen
+      title="Исправленная версия"
+      footer={
+        <div style={{ ...stackStyle, gap: 8 }}>
+          <SubmitButton form={FORM_ID} busy={submitting}>Загрузить и проверить</SubmitButton>
+          <Button stretched type="button" variant="secondary" size="large" disabled={submitting} onClick={() => navigate(documentCheckPath(card.id))}>
+            Отмена
+          </Button>
+        </div>
+      }
+    >
       <Typography.Text>{card.title}</Typography.Text>
-      <form style={{ ...stackStyle, marginTop: 20 }} onSubmit={(event) => void submit(event)}>
+      <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
         <div style={sectionStyle}>
           <strong>Текущий основной файл</strong>
           <span>{currentMain.fileName} · {formatFileSize(currentMain.size)}</span>
@@ -121,8 +130,8 @@ export function NewDocumentVersionScreen() {
         />
 
         {attachments.length > 0 && (
-          <fieldset style={sectionStyle}>
-            <legend style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Оставить приложения</legend>
+          <div style={{ ...sectionStyle, gap: 12 }}>
+            <strong>Оставить приложения</strong>
             {attachments.map((file) => (
               <label key={file.id} style={{ display: 'flex', gap: 8 }}>
                 <input
@@ -137,7 +146,7 @@ export function NewDocumentVersionScreen() {
                 {file.fileName} · {formatFileSize(file.size)}
               </label>
             ))}
-          </fieldset>
+          </div>
         )}
 
         <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center' }}>
@@ -157,12 +166,6 @@ export function NewDocumentVersionScreen() {
 
         {submitError && <Notice tone="danger">{submitError}</Notice>}
         {submitting && <Typography.Text>Проверяем документ</Typography.Text>}
-        <BottomActionBar>
-          <div style={stackStyle}>
-            <SubmitButton busy={submitting}>Загрузить и проверить</SubmitButton>
-            <Button stretched type="button" onClick={() => navigate(documentCheckPath(card.id))}>Отмена</Button>
-          </div>
-        </BottomActionBar>
       </form>
     </DocumentScreen>
   );
