@@ -1,11 +1,13 @@
 package ru.sibvibe.approval.bot.service;
 
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
 import ru.sibvibe.approval.bot.Notifier;
+import ru.sibvibe.approval.bot.config.BotConfiguration;
 import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
 import ru.sibvibe.approval.organization.event.JoinRequestSubmittedEvent;
 import ru.sibvibe.approval.organization.event.MemberJoinedByLinkEvent;
@@ -22,7 +24,13 @@ import java.util.Map;
  *
  * {@code @TransactionalEventListener(phase = AFTER_COMMIT)} обязателен: уведомление должно уйти только
  * после того, как изменение действительно сохранилось, иначе оно придёт по операции, которая откатится.
- * Слушатель не открывает собственную транзакцию: {@link NotificationDirectoryService} читает только для чтения.
+ *
+ * {@code @Async} обязателен не меньше (PR #70, замечание №1): без него слушатель выполняется в потоке
+ * исходного HTTP-запроса, и «Отправить на согласование» / «Согласовать» не вернут ответ, пока
+ * {@link Notifier} не разошлёт сообщения всем получателям - при недоступном Bot API это выглядело бы
+ * как зависший основной сценарий (гейт №2, CLAUDE.md). Каждый метод читает получателей из базы в своей
+ * отдельной {@code readOnly}-транзакции ({@link NotificationDirectoryService}) - у слушателя к этому
+ * моменту исходной транзакции уже нет (AFTER_COMMIT), а на новом потоке её и не было.
  */
 @Component
 public class NotificationListener {
@@ -41,6 +49,7 @@ public class NotificationListener {
     }
 
     /** Подана заявка на вступление - уведомляются все активные администраторы компании. */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(JoinRequestSubmittedEvent event) {
         String applicantName = directory.find(event.applicantUserId())
@@ -52,6 +61,7 @@ public class NotificationListener {
     }
 
     /** По заявке принято решение - уведомляется заявитель. */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(JoinRequestDecidedEvent event) {
         directory.find(event.applicantUserId()).ifPresent(applicant -> {
@@ -68,6 +78,7 @@ public class NotificationListener {
      * уведомлении не сделана: это самостоятельное административное действие вне сессии MAX, которое
      * нельзя безопасно подписать чужой initData - исключить можно из экрана участников за одно нажатие.
      */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(MemberJoinedByLinkEvent event) {
         directory.find(event.invitedByUserId()).ifPresent(admin -> {
@@ -80,6 +91,7 @@ public class NotificationListener {
     }
 
     /** Этап согласования стал активным - уведомляются все его согласующие. */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(ApprovalRequestedEvent event) {
         String text = "Документ ждёт вашего решения.";
@@ -89,6 +101,7 @@ public class NotificationListener {
     }
 
     /** По документу принято итоговое решение - уведомляется автор. */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(DocumentDecidedEvent event) {
         String text = switch (event.outcome()) {

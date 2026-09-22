@@ -50,10 +50,33 @@ class BotWebhookSubscriberTest {
     void subscribeFailureDoesNotPropagate() {
         doThrow(new RuntimeException("Bot API недоступен"))
                 .when(client).subscribe(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        BotWebhookSubscriber subscriber = new BotWebhookSubscriber(
+                client, "https://documentics.ru", "webhook-secret", true);
+
+        subscriber.run(null);
+
+        verify(client).subscribe(eq("https://documentics.ru/api/v1/bot/webhook"), eq("webhook-secret"));
+    }
+
+    /**
+     * PR #70, замечание №2: без секрета не подписываемся вовсе - подписка без него была бы
+     * бесполезна, потому что {@code BotWebhookController} и так отвечает 401 без секрета (fail closed).
+     */
+    @Test
+    void doesNothingWithoutWebhookSecret() {
+        BotWebhookSubscriber subscriber = new BotWebhookSubscriber(client, "https://documentics.ru", "", true);
+
+        subscriber.run(null);
+
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void doesNothingWithNullWebhookSecret() {
         BotWebhookSubscriber subscriber = new BotWebhookSubscriber(client, "https://documentics.ru", null, true);
 
         subscriber.run(null);
 
-        verify(client).subscribe(eq("https://documentics.ru/api/v1/bot/webhook"), eq(null));
+        verifyNoInteractions(client);
     }
 }

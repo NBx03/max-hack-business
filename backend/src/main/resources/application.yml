@@ -79,7 +79,8 @@ max:
     # (бэкенд сам вызовет POST /subscriptions на этот адрес + /api/v1/bot/webhook при старте).
     webhook-url: ${MAX_BOT_WEBHOOK_URL:}
     # Секрет подписки: MAX присылает его в заголовке X-Max-Bot-Api-Secret каждого webhook-запроса,
-    # контроллер сверяет. Пусто - проверка входящих запросов пропускается (только для локальной отладки).
+    # контроллер сверяет. Обязателен при update-mode=webhook: пустой секрет не пропускает проверку,
+    # а запрещает всё (fail closed) - контроллер отвечает 401, подписчик вовсе не подписывается.
     webhook-secret: ${MAX_BOT_WEBHOOK_SECRET:}
   mini-app:
     url: ${MAX_MINI_APP_URL:}

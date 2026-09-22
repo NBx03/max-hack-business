@@ -12,13 +12,21 @@ import java.util.List;
  * {@link ru.sibvibe.approval.bot.config.BotConfiguration}. Методы бросают исключение при ошибке HTTP;
  * решение, что делать с ошибкой (залогировать и продолжить или повторить), принимает вызывающий код -
  * этот класс сам ничего не решает и ничего не знает про домен приложения.
+ *
+ * Два {@link RestClient} с разными тайм-аутами (PR #70, замечание №1): {@code restClient} - короткий
+ * (connect 5 с, read 10 с) для {@code sendMessage}/{@code subscribe}/{@code GET /me}, вызываемых из
+ * обработки обычного запроса; {@code pollingRestClient} - долгий read timeout только для
+ * {@code GET /updates}, где MAX сам держит соединение до 90 с. Общий клиент с долгим тайм-аутом на
+ * отправку означал бы, что медленный или недоступный Bot API держит ответ пользователю мини-аппа.
  */
 public class MaxBotApiClient {
 
     private final RestClient restClient;
+    private final RestClient pollingRestClient;
 
-    public MaxBotApiClient(RestClient restClient) {
+    public MaxBotApiClient(RestClient restClient, RestClient pollingRestClient) {
         this.restClient = restClient;
+        this.pollingRestClient = pollingRestClient;
     }
 
     /** Отправляет сообщение пользователю в личный диалог с ботом. */
@@ -41,7 +49,7 @@ public class MaxBotApiClient {
      * @param marker маркер предыдущей страницы; {@code null} для первого вызова
      */
     public UpdatesPage getUpdates(Long marker, int timeoutSeconds) {
-        UpdatesPage page = restClient.get()
+        UpdatesPage page = pollingRestClient.get()
                 .uri(uriBuilder -> {
                     uriBuilder.path("/updates")
                             .queryParam("timeout", timeoutSeconds)
@@ -66,7 +74,7 @@ public class MaxBotApiClient {
                 .toBodilessEntity();
     }
 
-    /** {@code GET /me} - используется только для ручной проверки токена (CONTRIBUTING.md), не в рантайме. */
+    /** {@code GET /me} - используется только для ручной проверки токена (CONTRIBUTING.md, раздел «Бот»), не в рантайме. */
     public String getMyUsername() {
         JsonNode node = restClient.get().uri("/me").retrieve().body(JsonNode.class);
         return node == null || node.get("username") == null ? null : node.get("username").asText(null);

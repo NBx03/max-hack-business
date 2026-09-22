@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,6 +13,9 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import ru.sibvibe.approval.bot.service.BotUpdateHandler;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Входящие события MAX Bot API на стенде ({@code max.bot.update-mode=webhook}, API_CONTRACTS.md,
@@ -22,9 +26,17 @@ import ru.sibvibe.approval.bot.service.BotUpdateHandler;
  *
  * Отвечает 200 всегда, кроме неверного секрета - MAX повторяет недоставленные обновления, а ошибка
  * обработки одного события не должна превращаться в постоянные повторы.
+ *
+ * <p><b>PR #70, замечание №2.</b> Контроллер существует только при {@code update-mode=webhook}
+ * (иначе 404, вместо принятия сообщений эндпоинтом, который никто не проверяет) и <b>всегда</b> требует
+ * непустой {@code max.bot.webhook-secret}: пустой секрет раньше означал «пропускать проверку», то есть
+ * любой мог прислать поддельный {@code bot_started} с чужим {@code user_id}, и бот начал бы писать
+ * произвольным людям от нашего имени. Сравнение - {@link MessageDigest#isEqual}, не {@code String.equals},
+ * чтобы не утекало время сравнения по совпавшим префиксам секрета.
  */
 @RestController
 @RequestMapping("/api/v1/bot")
+@ConditionalOnProperty(prefix = "max.bot", name = "update-mode", havingValue = "webhook")
 public class BotWebhookController {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BotWebhookController.class);
@@ -45,7 +57,10 @@ public class BotWebhookController {
             @RequestHeader(value = SECRET_HEADER, required = false) String secret,
             @RequestBody(required = false) JsonNode update
     ) {
-        if (!expectedSecret.isBlank() && !expectedSecret.equals(secret)) {
+        // Пустой ожидаемый секрет - это не "проверка отключена", а неверная конфигурация: отказываем
+        // всем, а не пропускаем всех (fail closed). BotWebhookSubscriber с тем же условием не подписывает
+        // бота вовсе, так что штатно секрет пустым в этом режиме быть не должно.
+        if (expectedSecret.isBlank() || !secretMatches(secret)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         try {
@@ -54,5 +69,13 @@ public class BotWebhookController {
             LOGGER.warn("Ошибка обработки webhook-события бота: {}", exception.getMessage());
         }
         return ResponseEntity.ok().build();
+    }
+
+    private boolean secretMatches(String received) {
+        if (received == null) {
+            return false;
+        }
+        return MessageDigest.isEqual(
+                expectedSecret.getBytes(StandardCharsets.UTF_8), received.getBytes(StandardCharsets.UTF_8));
     }
 }

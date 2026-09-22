@@ -12,7 +12,13 @@ import ru.sibvibe.approval.bot.adapter.MaxBotApiClient;
  * и бот не отвечает на {@code /start} и сообщения (прямой риск гейта №2, CLAUDE.md).
  *
  * Сбой не должен мешать запуску: подписка - операция стенда, а не основного сценария; повторный
- * запуск бэкенда или ручной вызов {@code POST /subscriptions} (см. CONTRIBUTING.md) поправит дело.
+ * запуск бэкенда или ручной вызов {@code POST /subscriptions} (см. CONTRIBUTING.md, раздел «Бот»)
+ * поправит дело.
+ *
+ * <p><b>PR #70, замечание №2.</b> Без секрета не подписываемся вовсе, а не подписываемся с пустым
+ * секретом: {@code BotWebhookController} в этом режиме и так всегда отвечает 401 без секрета
+ * (fail closed), так что подписка без него была бы бесполезной - webhook принимал бы события,
+ * на которые бот никогда не ответит. Это ошибка конфигурации стенда, а не штатная деградация.
  */
 public class BotWebhookSubscriber implements ApplicationRunner {
 
@@ -41,7 +47,12 @@ public class BotWebhookSubscriber implements ApplicationRunner {
         }
         if (webhookBaseUrl == null || webhookBaseUrl.isBlank()) {
             LOGGER.warn("MAX_BOT_WEBHOOK_URL не задан: подписку на webhook нужно оформить вручную "
-                    + "(CONTRIBUTING.md, POST /subscriptions)");
+                    + "(CONTRIBUTING.md, раздел «Бот»)");
+            return;
+        }
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            LOGGER.error("MAX_BOT_WEBHOOK_SECRET не задан: подписка на webhook не выполнена, "
+                    + "иначе входящие события никто не сможет подтвердить (BotWebhookController)");
             return;
         }
         String url = webhookBaseUrl.replaceAll("/+$", "") + WEBHOOK_PATH;
