@@ -1,4 +1,4 @@
-import { Input, Typography } from '@maxhub/max-ui';
+import { Input, Radio, Switch, Typography } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
@@ -120,12 +120,18 @@ export function DocumentUploadScreen() {
 
         <fieldset style={sectionStyle}>
           <legend style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Видимость</legend>
-          <label style={{ display: 'flex', gap: 8 }}><input type="radio" checked={visibility === 'PRIVATE'} onChange={() => setVisibility('PRIVATE')} /> Только участники согласования</label>
-          <label style={{ display: 'flex', gap: 8 }}><input type="radio" checked={visibility === 'ORG'} onChange={() => setVisibility('ORG')} /> Вся компания</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Radio name="visibility" checked={visibility === 'PRIVATE'} onChange={() => setVisibility('PRIVATE')} />
+            Только участники согласования
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Radio name="visibility" checked={visibility === 'ORG'} onChange={() => setVisibility('ORG')} />
+            Вся компания
+          </label>
         </fieldset>
 
-        <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'flex-start' }}>
-          <input type="checkbox" checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
+        <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center' }}>
+          <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
             <small style={{ color: 'var(--text-tertiary)' }}>Файл не будет отправлен на автоматический разбор, поля заполните вручную.</small>

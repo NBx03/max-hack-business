@@ -1,4 +1,4 @@
-import { Button, Typography } from '@maxhub/max-ui';
+import { Button, Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/documents';
@@ -140,8 +140,8 @@ export function NewDocumentVersionScreen() {
           </fieldset>
         )}
 
-        <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'flex-start' }}>
-          <input type="checkbox" checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
+        <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center' }}>
+          <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
             <small style={{ color: 'var(--text-tertiary)' }}>Файл не будет отправлен на автоматический разбор, поля заполните вручную.</small>

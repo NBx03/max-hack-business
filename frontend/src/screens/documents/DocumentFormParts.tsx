@@ -56,10 +56,10 @@ export function LoadingState({ label = 'Загрузка' }: { label?: string })
 
 export function Notice({ tone = 'info', children }: { tone?: 'info' | 'danger' | 'success'; children: ReactNode }) {
   const accent = tone === 'danger'
-    ? 'var(--status-danger-bg)'
+    ? 'var(--status-danger-fg)'
     : tone === 'success'
-      ? 'var(--status-success-bg)'
-      : 'var(--status-progress-bg)';
+      ? 'var(--status-success-fg)'
+      : 'var(--status-progress-fg)';
   return (
     <div
       role={tone === 'danger' ? 'alert' : undefined}
@@ -110,8 +110,8 @@ export function FieldInputs({
 
 export function SubmitButton({ busy, disabled, children }: { busy: boolean; disabled?: boolean; children: ReactNode }) {
   return (
-    <Button stretched type="submit" variant="primary" size="large" disabled={busy || disabled}>
-      {busy ? <Spinner /> : children}
+    <Button stretched type="submit" variant="primary" size="large" loading={busy} disabled={busy || disabled}>
+      {children}
     </Button>
   );
 }

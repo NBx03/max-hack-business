@@ -81,5 +81,6 @@ export function updateDocumentFields(
   return apiRequest<CheckResult>(`/documents/${documentId}/versions/${versionNo}/fields`, {
     method: 'PUT',
     body: { fields },
+    timeoutMs: 120_000,
   });
 }

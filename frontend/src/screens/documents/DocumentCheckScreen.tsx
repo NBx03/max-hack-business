@@ -26,9 +26,9 @@ const SEVERITY_LABELS: Record<Severity, string> = {
 };
 
 const KIND_LABELS: Record<RuleKind, string> = {
-  LEGAL: 'Нормативный акт',
+  LEGAL: 'Закон',
   INTERNAL_POLICY: 'Регламент компании',
-  PRODUCT_RULE: 'Правило сервиса',
+  PRODUCT_RULE: 'Правило продукта',
 };
 
 function documentIdFrom(value: string | undefined): number | null {
@@ -52,6 +52,12 @@ function severityColor(severity: Severity): string {
 }
 
 function severityTextColor(severity: Severity): string {
+  if (severity === 'BLOCKER') return 'var(--status-danger-fg)';
+  if (severity === 'WARNING') return 'var(--status-warning-fg)';
+  return 'var(--status-neutral-fg)';
+}
+
+function severityAccentColor(severity: Severity): string {
   if (severity === 'BLOCKER') return 'var(--status-danger-fg)';
   if (severity === 'WARNING') return 'var(--status-warning-fg)';
   return 'var(--status-neutral-fg)';
@@ -140,7 +146,7 @@ export function DocumentCheckScreen() {
               {check.issues.map((issue) => (
                 <article
                   key={`${issue.ruleId}:${issue.fieldName}`}
-                  style={{ ...sectionStyle, borderLeft: `4px solid ${severityColor(issue.severity)}` }}
+                  style={{ ...sectionStyle, borderLeft: `4px solid ${severityAccentColor(issue.severity)}` }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span
