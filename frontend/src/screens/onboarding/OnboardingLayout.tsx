@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { Typography } from '@maxhub/max-ui';
+import { CenteredColumn } from '../../components/base/Layout';
 
 /**
- * Общая раскладка экранов подключения: колонка до 560 px по центру (веб-версия MAX),
- * заголовок сверху, главное действие внизу (docs/SCREENS.md, «Общие правила»).
- * Когда в #53 появится общий каркас экранов, эту обёртку заменяем на него.
+ * Общая раскладка экранов подключения на колонке каркаса (#53): заголовок сверху,
+ * главное действие внизу (docs/SCREENS.md, «Общие правила»).
  */
 export function OnboardingLayout({
   title,
@@ -18,10 +18,8 @@ export function OnboardingLayout({
   footer?: ReactNode;
 }) {
   return (
-    <div
+    <CenteredColumn
       style={{
-        maxWidth: 560,
-        margin: '0 auto',
         minHeight: '100vh',
         boxSizing: 'border-box',
         padding: '24px 16px calc(16px + env(safe-area-inset-bottom))',
@@ -37,7 +35,7 @@ export function OnboardingLayout({
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>{children}</div>
       {footer && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{footer}</div>}
-    </div>
+    </CenteredColumn>
   );
 }
 

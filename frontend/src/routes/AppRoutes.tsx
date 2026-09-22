@@ -1,25 +1,53 @@
-import type { ReactElement } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, useState, type ReactElement } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
+import {
+  CreateCompanyRoute,
+  JoinRoute,
+  PendingRoute,
+  PersonalInviteRoute,
+  WelcomeRoute,
+} from '../screens/onboarding/OnboardingRoutes';
 import { ROUTE_PATTERNS } from './paths';
 import { hasCompany, resolveEntryRoute } from './resolveEntryRoute';
 import { ScreenStub } from './ScreenStub';
-import { WelcomeStub } from './WelcomeStub';
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
- * Сами экраны - заглушки с названиями, вёрстка каждого - отдельные задачи (#18, #54, #7, #55).
+ * Экраны подключения - #18, остальные пока заглушки (#54, #7, #55).
  */
 export function AppRoutes({ me }: { me: MeResponse }) {
-  const entryRoute = resolveEntryRoute(me);
-  const companyReady = hasCompany(me);
+  // startParam действует один раз за запуск: он приходит в каждом /me, и без этой отметки
+  // любой переход на "/" (кнопка "К списку", выход из демо, отмена заявки) снова открывал
+  // бы документ или приглашение из ссылки. Первый уход с "/" - это и есть переход по ссылке.
+  const location = useLocation();
+  const [startParamUsed, setStartParamUsed] = useState(false);
+  useEffect(() => {
+    if (location.pathname !== '/') {
+      setStartParamUsed(true);
+    }
+  }, [location.pathname]);
 
-  // Экраны 1-5 (приветствие, создание, код, личная ссылка, ожидание) - только пока
-  // компании нет. Свежий /me проверяется на каждом рендере, а не только при входе на
-  // "/": как только компания появляется (создали, вступили, открыли демо), человека
-  // уводит со экрана онбординга без ручного navigate() в каждом обработчике.
+  const entryRoute = resolveEntryRoute(me, !startParamUsed);
+  const companyReady = hasCompany(me);
+  const pending = Boolean(me.pendingJoinRequest);
+
+  // Экраны 1-4 (приветствие, создание, код, личная ссылка) - только пока нет компании
+  // и заявки. Свежий /me проверяется на каждом рендере: как только компания появляется
+  // (создали, вступили, открыли демо) или подана заявка, человека уводит с экрана сам
+  // роутер - экрану достаточно вызвать refresh().
   function onboardingScreen(element: ReactElement): ReactElement {
-    return companyReady ? <Navigate to={ROUTE_PATTERNS.documents} replace /> : element;
+    if (companyReady) return <Navigate to={ROUTE_PATTERNS.documents} replace />;
+    if (pending) return <Navigate to={ROUTE_PATTERNS.pending} replace />;
+    return element;
+  }
+
+  // 5. Ожидание решения - только пока заявка висит. Одобрили - к документам,
+  // отменили или отклонили - туда, куда ведёт свежий /me (приветствие).
+  function pendingScreen(element: ReactElement): ReactElement {
+    if (companyReady) return <Navigate to={ROUTE_PATTERNS.documents} replace />;
+    if (!pending) return <Navigate to={entryRoute} replace />;
+    return element;
   }
 
   // Документы и админка - только при компании. Карточка документа (documentCard) -
@@ -34,10 +62,10 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   return (
     <Routes>
       <Route path="/" element={<Navigate to={entryRoute} replace />} />
-      <Route path={ROUTE_PATTERNS.welcome} element={onboardingScreen(<WelcomeStub />)} />
+      <Route path={ROUTE_PATTERNS.welcome} element={onboardingScreen(<WelcomeRoute />)} />
       <Route
         path={ROUTE_PATTERNS.createCompany}
-        element={onboardingScreen(<ScreenStub title="2. Создание компании" issue="#18" />)}
+        element={onboardingScreen(<CreateCompanyRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminInvite}
@@ -45,15 +73,15 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.join}
-        element={onboardingScreen(<ScreenStub title="4. Присоединение по коду" issue="#18" />)}
+        element={onboardingScreen(<JoinRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.joinPersonal}
-        element={onboardingScreen(<ScreenStub title="4б. Вступление по личной ссылке" issue="#18" />)}
+        element={onboardingScreen(<PersonalInviteRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.pending}
-        element={onboardingScreen(<ScreenStub title="5. Ожидание решения" issue="#18" />)}
+        element={pendingScreen(<PendingRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminRequests}
