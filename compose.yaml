@@ -83,6 +83,7 @@ services:
       GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
       GIGACHAT_CLIENT_ID: ${GIGACHAT_CLIENT_ID:-}
       GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
+      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat-2-Max}
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
       MAX_BOT_API_URL: ${MAX_BOT_API_URL:-https://platform-api2.max.ru}
       # polling локально, webhook на стенде сдачи

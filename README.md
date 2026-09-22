@@ -83,6 +83,7 @@ cp .env.example .env && docker compose up --build
 | `MAX_MINI_APP_URL` | да | Публичный HTTPS-адрес мини-аппа |
 | `GIGACHAT_CREDENTIALS` | нет | Authorization key GigaChat. Без него ИИ-сверка деградирует (раздел 12) |
 | `GIGACHAT_CLIENT_ID` | нет | Идентификатор проекта GigaChat; секрет уже входит в Authorization key |
+| `GIGACHAT_MODEL` | нет | Модель извлечения полей; по умолчанию `GigaChat-2-Max` |
 | `DEMO_MODE` | нет | `true` включает переключатель участника для проверки (раздел 10) |
 
 ## 6. Переменные окружения

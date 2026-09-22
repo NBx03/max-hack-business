@@ -44,6 +44,7 @@ class GigaChatLiveIntegrationTest {
         String credentials = System.getenv("GIGACHAT_CREDENTIALS");
         String clientId = System.getenv().getOrDefault("GIGACHAT_CLIENT_ID", "");
         String scope = System.getenv().getOrDefault("GIGACHAT_SCOPE", "GIGACHAT_API_PERS");
+        String modelName = System.getenv().getOrDefault("GIGACHAT_MODEL", "GigaChat-2-Max");
         var context = new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(
                         GigaChatAutoConfiguration.class, ChatClientAutoConfiguration.class))
@@ -52,6 +53,7 @@ class GigaChatLiveIntegrationTest {
                         "spring.ai.gigachat.auth.bearer.api-key=" + credentials,
                         "spring.ai.gigachat.auth.bearer.client-id=" + clientId,
                         "spring.ai.gigachat.auth.scope=" + scope,
+                        "spring.ai.gigachat.chat.options.model=" + modelName,
                         "spring.ai.gigachat.chat.options.temperature=0.0");
 
         context.run(application -> {

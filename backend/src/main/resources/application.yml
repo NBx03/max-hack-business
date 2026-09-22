@@ -43,6 +43,7 @@ spring:
         scope: ${GIGACHAT_SCOPE:GIGACHAT_API_PERS}
       chat:
         options:
+          model: ${GIGACHAT_MODEL:GigaChat-2-Max}
           temperature: 0.0
       embedding:
         enabled: false
