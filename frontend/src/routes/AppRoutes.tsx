@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
 import {
@@ -15,6 +15,9 @@ import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
 
+/** Параметр запуска уже отработал в этом запуске приложения (см. AppRoutes). */
+let startParamUsed = false;
+
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
  * Экраны подключения - #18, документов - #55, остальные пока заглушки (#54, #7).
@@ -23,11 +26,13 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   // startParam действует один раз за запуск: он приходит в каждом /me, и без этой отметки
   // любой переход на "/" (кнопка "К списку", выход из демо, отмена заявки) снова открывал
   // бы документ или приглашение из ссылки. Первый уход с "/" - это и есть переход по ссылке.
+  // Отметка живёт на уровне модуля, а не в состоянии компонента: refresh() в SessionContext
+  // показывает общий спиннер и пересоздаёт роутер, и состояние сбросилось бы - после отмены
+  // заявки или выхода из демо человека снова отбросило бы на экран из ссылки.
   const location = useLocation();
-  const [startParamUsed, setStartParamUsed] = useState(false);
   useEffect(() => {
     if (location.pathname !== '/') {
-      setStartParamUsed(true);
+      startParamUsed = true;
     }
   }, [location.pathname]);
 
