@@ -61,6 +61,44 @@ export interface DemoSandboxResponse {
   users: DemoSandboxUser[];
 }
 
+// ---------- Подключение компании: приглашение, заявки, участники (#54) ----------
+
+export interface InviteCodeInfo {
+  code: string;
+  /** https://max.ru/<бот>?startapp=c_<code> - готовая ссылка, бэкенд собирает сам. */
+  link: string;
+  createdAt: string;
+}
+
+/** SHOULD: личная ссылка - см. API_CONTRACTS.md, "SHOULD: личные ссылки". */
+export interface PersonalInviteView {
+  id: number;
+  /** https://max.ru/<бот>?startapp=p_<token> */
+  link: string;
+  expiresAt: string;
+  roles: RoleRef[];
+}
+
+export type JoinRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export interface JoinRequestView {
+  id: number;
+  user: UserRef;
+  status: JoinRequestStatus;
+  createdAt: string;
+}
+
+export type MemberStatus = 'ACTIVE' | 'DISABLED';
+
+export interface MemberView {
+  memberId: number;
+  user: UserRef;
+  status: MemberStatus;
+  roles: RoleRef[];
+  isAdmin: boolean;
+  joinedAt: string;
+}
+
 // ---------- Документы (#7, #55) - docs/API_CONTRACTS.md, "Документы" и "Маршрут и решения" ----------
 
 export interface Page<T> {

@@ -11,6 +11,9 @@ import { WelcomeStub } from './WelcomeStub';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
+import { InviteScreen } from '../screens/admin/InviteScreen';
+import { JoinRequestsScreen } from '../screens/admin/JoinRequestsScreen';
+import { MembersScreen } from '../screens/admin/MembersScreen';
 import { useMaxBackButton } from './useMaxBackButton';
 
 /**
@@ -52,7 +55,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.adminInvite}
-        element={companyScreen(<ScreenStub title="3. Приглашение" issue="#54" />)}
+        element={companyScreen(<InviteScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.join}
@@ -68,11 +71,11 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.adminRequests}
-        element={companyScreen(<ScreenStub title="6. Заявки" issue="#54" />)}
+        element={companyScreen(<JoinRequestsScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminMembers}
-        element={companyScreen(<ScreenStub title="7. Участники" issue="#54" />)}
+        element={companyScreen(<MembersScreen />)}
       />
       <Route path={ROUTE_PATTERNS.documents} element={companyScreen(<DocumentListScreen />)} />
       <Route
