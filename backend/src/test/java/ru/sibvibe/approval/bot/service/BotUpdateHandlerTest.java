@@ -103,6 +103,22 @@ class BotUpdateHandlerTest {
         assertThat(text.getValue()).contains("Заявление на отпуск").contains("Заявление на командировку");
     }
 
+    /**
+     * Ручной {@code /start} (не нажатие «Начать» - тогда пришёл бы {@code bot_started}) приходит как
+     * обычное сообщение. Без этой проверки участник компании получил бы «Не нашёл документ» на первое
+     * же слово, с которого может начаться проверка бота (PR #83, ревью, блокирующее замечание).
+     */
+    @Test
+    void slashCommandsTypedAsMessagesGetTheGreetingNotADocumentSearch() throws Exception {
+        when(links.appLink()).thenReturn(APP_LINK);
+        when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.of(new Membership(7L, 1L)));
+
+        handler.handle(message("/start"));
+
+        verify(notifier).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+        verify(documents, never()).findByTitleFragment(anyLong(), anyLong(), anyString(), anyInt());
+    }
+
     @Test
     void messagesFromBotsAreIgnoredToAvoidLoops() throws Exception {
         JsonNode update = json("""

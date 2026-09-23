@@ -29,10 +29,12 @@ import java.util.stream.Collectors;
 public class BotUpdateHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BotUpdateHandler.class);
-    private static final String GREETING = "Здравствуйте! Здесь готовятся и согласуются документы компании.";
+    private static final String GREETING = "Здравствуйте! Здесь готовятся и согласуются документы компании. "
+            + "Напишите часть названия документа — пришлю его статус.";
     private static final String OPEN_BUTTON = "Открыть мини-приложение";
     private static final String OPEN_DOCUMENT = "Открыть документ";
-    private static final String NOT_FOUND = "Не нашёл документ с таким названием.";
+    private static final String NOT_FOUND = "Не нашёл документ с таким названием. "
+            + "Напишите часть названия точнее или откройте мини-приложение.";
 
     /** Больше - неудобно читать одним сообщением в мессенджере, меньше - можно не найти нужный. */
     private static final int SEARCH_LIMIT = 5;
@@ -86,7 +88,10 @@ public class BotUpdateHandler {
         }
         LOGGER.debug("Сообщение боту от пользователя {}", userId);
         String text = message.path("body").path("text").asText("").strip();
-        if (text.isEmpty() || !replyWithDocumentStatus(userId, text)) {
+        // Слэш-команда (/start, /help, набранные вручную, а не нажатием "Начать" - тогда пришёл бы
+        // bot_started) - это не название документа. Без проверки первый же ручной /start участника
+        // компании получил бы «Не нашёл документ» вместо приветствия (PR #83, ревью, блокирующее).
+        if (text.isEmpty() || text.startsWith("/") || !replyWithDocumentStatus(userId, text)) {
             greet(userId);
         }
     }
