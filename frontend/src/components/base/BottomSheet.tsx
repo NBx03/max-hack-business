@@ -6,35 +6,47 @@ import { Button } from '@maxhub/max-ui';
 // со скруглёнными верхними углами. Закрывается по тапу на затемнение и по Esc
 // (веб-версия MAX), фокус уходит в панель и возвращается туда, откуда её открыли.
 
+// Открытые панели по порядку открытия: Esc закрывает только верхнюю. Иначе Esc в «Отключить?»
+// закрыл бы и шторку участника под ней — у каждой свой обработчик на document (ревью #87).
+const openSheets: symbol[] = [];
+
 export function BottomSheet({
   open,
   onClose,
   title,
   children,
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** false — идёт запрос: ни Esc, ни тап по затемнению панель не закрывают, как и заблокированная «Отмена». */
+  dismissible?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const dismissibleRef = useRef(dismissible);
+  dismissibleRef.current = dismissible;
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    const id = Symbol('sheet');
+    openSheets.push(id);
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panelRef.current?.focus();
     function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && openSheets[openSheets.length - 1] === id && dismissibleRef.current) {
         onCloseRef.current();
       }
     }
     document.addEventListener('keydown', handleKey);
     return () => {
       document.removeEventListener('keydown', handleKey);
+      openSheets.splice(openSheets.indexOf(id), 1);
       opener?.focus();
     };
   }, [open]);
@@ -46,7 +58,9 @@ export function BottomSheet({
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
       <div
-        onClick={onClose}
+        onClick={() => {
+          if (dismissible) onClose();
+        }}
         style={{ position: 'absolute', inset: 0, background: 'rgba(17, 24, 39, 0.45)' }}
       />
       <div
@@ -106,7 +120,7 @@ export function ConfirmSheet({
   onConfirm: () => void;
 }) {
   return (
-    <BottomSheet open={open} onClose={onClose} title={title}>
+    <BottomSheet open={open} onClose={onClose} title={title} dismissible={!busy}>
       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{description}</p>
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>

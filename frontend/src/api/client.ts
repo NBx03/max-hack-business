@@ -24,6 +24,10 @@ export function setActingAsId(id: number | null): void {
   actingAsId = id;
 }
 
+export function getActingAsId(): number | null {
+  return actingAsId;
+}
+
 interface ApiRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;

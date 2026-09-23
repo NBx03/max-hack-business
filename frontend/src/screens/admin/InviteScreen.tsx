@@ -237,7 +237,7 @@ export function InviteScreen() {
         onConfirm={() => void regenerate()}
       />
 
-      <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка">
+      <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка" dismissible={!creating}>
         {createdInvite ? (
           <div style={stackStyle}>
             <Notice tone="success">Ссылка создана: {roleNames(createdInvite.roles)}</Notice>

@@ -204,7 +204,12 @@ export function MembersScreen() {
         })}
       </div>
 
-      <BottomSheet open={editing !== null} onClose={closeEdit} title={editing?.user.fullName ?? ''}>
+      <BottomSheet
+        open={editing !== null}
+        onClose={closeEdit}
+        title={editing?.user.fullName ?? ''}
+        dismissible={!saving && !disabling}
+      >
         <div style={stackStyle}>
           <RolePicker roles={roles} selectedRoleIds={editRoleIds} onChange={setEditRoleIds} disabled={saving || disabling} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

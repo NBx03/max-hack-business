@@ -4,10 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
-import { setActingAsId } from '../api/client';
+import { getActingAsId, setActingAsId } from '../api/client';
 import { ApiError, GENERIC_ERROR_MESSAGE } from '../api/errors';
 import { createDemoSandbox, getDemoSandbox, getMe } from '../api/session';
 import type { DemoSandboxUser, MeResponse } from '../api/types';
@@ -107,13 +108,35 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   // Ошибку создания бросает вызывающему: экран приветствия показывает её у своей кнопки.
-  const startSandbox = useCallback(async () => {
-    // Прежние id участников после пересоздания недействительны (403) - сбрасываем сразу.
-    setActingAsId(null);
-    const sandbox = await createDemoSandbox();
-    await refresh();
-    return sandbox.users;
-  }, [refresh]);
+  // Двойное нажатие успевает вызвать создание дважды до перерисовки с заблокированной кнопкой:
+  // второй вызов получает тот же запрос, а не вторую песочницу (ревью #87).
+  const sandboxInFlight = useRef<Promise<DemoSandboxUser[]> | null>(null);
+  const startSandbox = useCallback(() => {
+    if (sandboxInFlight.current) {
+      return sandboxInFlight.current;
+    }
+    const run = async () => {
+      // Прежние id участников после пересоздания недействительны (403) - сбрасываем сразу.
+      const previous = getActingAsId();
+      setActingAsId(null);
+      try {
+        const sandbox = await createDemoSandbox();
+        await refresh();
+        return sandbox.users;
+      } catch (err) {
+        // Иначе экран показывал бы участника песочницы, а запросы шли бы от реальной учётной
+        // записи (ревью #87). Возвращаем прежнего участника и перечитываем /me: если прежняя
+        // песочница всё же пропала, getMeWithDemoRecovery сам выведет из демо.
+        setActingAsId(previous);
+        await load(true);
+        throw err;
+      } finally {
+        sandboxInFlight.current = null;
+      }
+    };
+    sandboxInFlight.current = run();
+    return sandboxInFlight.current;
+  }, [refresh, load]);
 
   const value = useMemo<SessionValue>(
     () => ({ status, me, error, sandboxUsers, refresh, actAs, startSandbox }),

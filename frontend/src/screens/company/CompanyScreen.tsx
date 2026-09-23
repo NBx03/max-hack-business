@@ -1,5 +1,7 @@
 import { Button, CellList, CellSimple, Typography } from '@maxhub/max-ui';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { errorMessage } from '../../api/errors';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
 import { demoEntryUser } from '../../app/demo';
@@ -33,10 +35,27 @@ export function CompanyScreen() {
   const pendingQuery = useAsync(() => (isAdmin ? getPendingJoinRequestsCount() : Promise.resolve(0)), [isAdmin]);
   const pending = pendingQuery.status === 'ready' ? pendingQuery.data : 0;
 
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
+
   async function restartDemo() {
-    const users = await startSandbox();
-    const entry = demoEntryUser(users);
-    if (entry !== null) await actAs(entry);
+    if (restarting) return;
+    setRestarting(true);
+    setRestartError(null);
+    try {
+      const users = await startSandbox();
+      const entry = demoEntryUser(users);
+      if (entry === null) {
+        setRestartError('Не удалось открыть демо-компанию, попробуйте ещё раз');
+        return;
+      }
+      await actAs(entry);
+    } catch (err) {
+      // Песочницу создать не удалось — startSandbox уже вернул прежнего участника.
+      setRestartError(errorMessage(err));
+    } finally {
+      setRestarting(false);
+    }
   }
 
   return (
@@ -97,9 +116,14 @@ export function CompanyScreen() {
                 кроме вас.
               </Typography.Text>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button variant="secondary" onClick={() => void restartDemo()}>Начать заново</Button>
-                <Button variant="secondary" onClick={() => void actAs(null)}>Выйти из демо</Button>
+                <Button variant="secondary" loading={restarting} onClick={() => void restartDemo()}>
+                  Начать заново
+                </Button>
+                <Button variant="secondary" disabled={restarting} onClick={() => void actAs(null)}>
+                  Выйти из демо
+                </Button>
               </div>
+              {restartError && <ErrorText>{restartError}</ErrorText>}
             </>
           ) : (
             <>

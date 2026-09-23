@@ -295,6 +295,7 @@ export function DocumentCardScreen() {
       <BottomSheet
         open={decisionDialog !== null && !rejectStep2}
         onClose={closeDialog}
+        dismissible={!decisionBusy}
         title={decisionDialog?.action === 'RETURN' ? 'Вернуть на доработку' : 'Отклонить документ'}
       >
         <Typography.Text>Комментарий</Typography.Text>
