@@ -95,6 +95,11 @@ class SecurityIntegrationTest {
         long secondActor = secondSandbox.path("users").get(0).path("user").path("id").asLong();
         assertThat(firstActor).isNotEqualTo(secondActor);
 
+        JsonNode demoMetrics = json(get("/api/v1/orgs/current/metrics", OWNER_ONE, Long.toString(firstActor)));
+        assertThat(demoMetrics.path("documentsCount").asLong()).isEqualTo(4);
+        assertThat(demoMetrics.path("medianApprovalHours").isNumber()).isTrue();
+        assertThat(demoMetrics.path("returnRate").asDouble()).isEqualTo(0.25);
+
         JsonNode acting = json(get("/api/v1/me", OWNER_ONE, Long.toString(firstActor)));
         assertThat(acting.path("user").path("id").asLong()).isEqualTo(firstMe.path("user").path("id").asLong());
         assertThat(acting.path("actingAs").path("user").path("id").asLong()).isEqualTo(firstActor);
