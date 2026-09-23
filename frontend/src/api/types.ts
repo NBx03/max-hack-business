@@ -123,6 +123,15 @@ export interface MemberView {
   joinedAt: string;
 }
 
+// ---------- Показатели эффекта (#58) ----------
+
+export interface OrganizationMetrics {
+  medianApprovalHours: number | null;
+  /** Доля документов с хотя бы одним возвратом, от 0 до 1. */
+  returnRate: number | null;
+  documentsCount: number;
+}
+
 // ---------- Документы (#7, #55) - docs/API_CONTRACTS.md, "Документы" и "Маршрут и решения" ----------
 
 export interface Page<T> {

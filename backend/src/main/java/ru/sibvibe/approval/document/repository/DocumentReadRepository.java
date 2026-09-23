@@ -6,6 +6,7 @@ import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.service.DocumentListTab;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,6 +61,62 @@ public class DocumentReadRepository {
                 .query(Boolean.class)
                 .single();
         return Boolean.TRUE.equals(result);
+    }
+
+    /**
+     * Показатели процесса по документам компании. Момент первой отправки берётся из
+     * первого созданного шага: отдельного submitted_at в схеме нет, а все шаги версии
+     * создаются атомарно при отправке. Повторная версия не начинает измерение заново.
+     */
+    public MetricsRow metrics(long orgId, Instant from, Instant toExclusive) {
+        StringBuilder period = new StringBuilder();
+        if (from != null) {
+            period.append(" and submitted_at >= :from");
+        }
+        if (toExclusive != null) {
+            period.append(" and submitted_at < :toExclusive");
+        }
+
+        String sql = """
+                with submitted_documents as (
+                    select d.id,
+                           d.status,
+                           d.updated_at,
+                           min(step.created_at) as submitted_at,
+                           bool_or(step.decision = 'RETURNED') as was_returned
+                    from document d
+                    join approval_step step on step.document_id = d.id
+                    where d.org_id = :orgId
+                    group by d.id, d.status, d.updated_at
+                ), period_documents as (
+                    select id,
+                           status,
+                           was_returned,
+                           extract(epoch from (updated_at - submitted_at))::double precision / 3600.0
+                               as approval_hours
+                    from submitted_documents
+                    where 1 = 1
+                """ + period + """
+                )
+                select percentile_cont(0.5) within group (order by approval_hours)
+                           filter (where status = 'APPROVED') as median_approval_hours,
+                       avg(case when was_returned then 1.0 else 0.0 end) as return_rate,
+                       count(*) as documents_count
+                from period_documents
+                """;
+
+        JdbcClient.StatementSpec statement = jdbc.sql(sql).param("orgId", orgId);
+        if (from != null) {
+            statement = statement.param("from", from.atOffset(ZoneOffset.UTC));
+        }
+        if (toExclusive != null) {
+            statement = statement.param("toExclusive", toExclusive.atOffset(ZoneOffset.UTC));
+        }
+        return statement.query((rs, rowNum) -> new MetricsRow(
+                number(rs.getObject("median_approval_hours")),
+                number(rs.getObject("return_rate")),
+                rs.getLong("documents_count")))
+                .single();
     }
 
     public PageRows findDocuments(
@@ -257,7 +314,13 @@ public class DocumentReadRepository {
         return value == null ? null : value.toInstant();
     }
 
+    private static Double number(Object value) {
+        return value == null ? null : ((Number) value).doubleValue();
+    }
+
     public record PageRows(List<ListRow> items, long total) {}
+
+    public record MetricsRow(Double medianApprovalHours, Double returnRate, long documentsCount) {}
 
     public record ListRow(
             long id,
