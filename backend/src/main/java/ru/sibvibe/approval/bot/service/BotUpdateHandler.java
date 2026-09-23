@@ -23,14 +23,21 @@ import java.util.stream.Collectors;
  * {@code /start} - кнопка открытия мини-приложения (issue #19). Любое другое сообщение (issue #74)
  * сначала пробуется как поиск документа по названию среди видимых отправителю в его реальной компании
  * (не в демо-песочнице - у входящего сообщения нет и не может быть {@code X-Demo-Act-As}); не нашли
- * совпадений или отправитель не участник компании - тот же ответ, что и раньше.
+ * совпадений - «не нашёл». Поиск обещаем только тем, кому он доступен: участнику реальной компании.
+ * Остальным (без компании, в том числе проверяющему в демо-песочнице) бот объясняет, что поиск - для
+ * сотрудников, и предлагает мини-приложение: иначе на название приходило бы то же приветствие с тем же
+ * обещанием, и бот выглядел бы зависшим (ревью #83, #50).
  */
 @Component
 public class BotUpdateHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(BotUpdateHandler.class);
-    private static final String GREETING = "Здравствуйте! Здесь готовятся и согласуются документы компании. "
-            + "Напишите часть названия документа — пришлю его статус.";
+    private static final String GREETING = "Здравствуйте! Здесь готовятся и согласуются документы компании.";
+    private static final String GREETING_MEMBER = GREETING + " Напишите часть названия документа — пришлю его статус.";
+    private static final String GREETING_GUEST = GREETING + " Откройте мини-приложение: создайте компанию, "
+            + "вступите по коду или попробуйте демо-компанию.";
+    private static final String MEMBERS_ONLY = "Статус документа по названию доступен сотрудникам компании. "
+            + "Откройте мини-приложение: там можно создать компанию, вступить по коду или открыть демо-компанию.";
     private static final String OPEN_BUTTON = "Открыть мини-приложение";
     private static final String OPEN_DOCUMENT = "Открыть документ";
     private static final String NOT_FOUND = "Не нашёл документ с таким названием. "
@@ -69,7 +76,12 @@ public class BotUpdateHandler {
         }
         String type = update.path("update_type").asText("");
         switch (type) {
-            case "bot_started" -> greet(userId(update.path("user")));
+            case "bot_started" -> {
+                Long userId = userId(update.path("user"));
+                if (userId != null) {
+                    greet(userId, membership(userId));
+                }
+            }
             case "message_created" -> handleMessage(update.path("message"));
             default -> {
                 // Реакции на кнопки, системные события чата и т. д. - вне чек-листа задачи, игнорируем.
@@ -91,26 +103,27 @@ public class BotUpdateHandler {
         // Слэш-команда (/start, /help, набранные вручную, а не нажатием "Начать" - тогда пришёл бы
         // bot_started) - это не название документа. Без проверки первый же ручной /start участника
         // компании получил бы «Не нашёл документ» вместо приветствия (PR #83, ревью, блокирующее).
-        if (text.isEmpty() || text.startsWith("/") || !replyWithDocumentStatus(userId, text)) {
-            greet(userId);
+        Optional<Membership> membership = membership(userId);
+        if (text.isEmpty() || text.startsWith("/")) {
+            greet(userId, membership);
+        } else if (membership.isEmpty()) {
+            notifier.send(userId, MEMBERS_ONLY, OPEN_BUTTON, links.appLink());
+        } else {
+            replyWithDocumentStatus(userId, membership.get(), text);
         }
     }
 
-    private void greet(Long userId) {
-        if (userId == null) {
-            return;
-        }
-        notifier.send(userId, GREETING, OPEN_BUTTON, links.appLink());
+    private Optional<Membership> membership(long maxUserId) {
+        return directory.findRealMembershipByMaxUserId(maxUserId);
     }
 
-    /** @return true, если текст уже обработан как поиск документа (даже без единого совпадения) */
-    private boolean replyWithDocumentStatus(long maxUserId, String text) {
-        Optional<Membership> membership = directory.findRealMembershipByMaxUserId(maxUserId);
-        if (membership.isEmpty()) {
-            return false; // не участник компании - обычное приветствие понятнее, чем «не нашёл»
-        }
+    private void greet(long userId, Optional<Membership> membership) {
+        notifier.send(userId, membership.isPresent() ? GREETING_MEMBER : GREETING_GUEST, OPEN_BUTTON, links.appLink());
+    }
+
+    private void replyWithDocumentStatus(long maxUserId, Membership membership, String text) {
         List<DocumentLookup.Match> matches = documents.findByTitleFragment(
-                membership.get().orgId(), membership.get().userId(), text, SEARCH_LIMIT);
+                membership.orgId(), membership.userId(), text, SEARCH_LIMIT);
         if (matches.isEmpty()) {
             notifier.send(maxUserId, NOT_FOUND, OPEN_BUTTON, links.appLink());
         } else if (matches.size() == 1) {
@@ -126,7 +139,6 @@ public class BotUpdateHandler {
             notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing + "\nУточните название.",
                     OPEN_BUTTON, links.appLink());
         }
-        return true;
     }
 
     private String statusText(DocumentLookup.Match match) {

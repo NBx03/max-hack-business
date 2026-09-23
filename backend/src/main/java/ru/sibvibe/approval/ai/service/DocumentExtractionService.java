@@ -10,6 +10,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class DocumentExtractionService {
@@ -21,6 +24,8 @@ public class DocumentExtractionService {
      * номера страниц и мусор распознавания.
      */
     private static final int MIN_TEXT_LETTERS = 10;
+    /** Любые пробелы, включая неразрывный и перевод строки. */
+    private static final String WHITESPACE = "[\\s\\u00A0]+";
 
     private final TextExtractor textExtractor;
     private final DocumentExtractor documentExtractor;
@@ -73,28 +78,46 @@ public class DocumentExtractionService {
             String value = masked.restore(field.value());
             String quote = masked.restore(field.quote());
             VerifiedQuote verified = verifyQuote(original, quote);
-            if (!verified.valid()) {
-                quote = null;
-            }
             restored.put(spec.fieldName(), new DocumentExtractor.ExtractedField(
-                    value, quote, verified.valid() ? verified.page() : null));
+                    value, verified.valid() ? verified.quote() : null, verified.valid() ? verified.page() : null));
         }
         return new DocumentExtractor.ExtractionResult(Map.copyOf(restored), true, model.providerId());
     }
 
+    /**
+     * Цитата принимается, только если она есть в тексте документа. Пробелы сравниваются без учёта
+     * их вида и числа: модель возвращает перенос строки одним пробелом, и точное сравнение отбрасывало
+     * верную цитату (ревью #67). Возвращается фрагмент самого документа, а не пересказ модели.
+     */
     private VerifiedQuote verifyQuote(TextExtractor.ExtractedText text, String quote) {
-        if (quote == null || quote.isBlank() || !text.fullText().contains(quote)) {
-            return new VerifiedQuote(false, null);
+        Optional<Pattern> pattern = quotePattern(quote);
+        if (pattern.isEmpty()) {
+            return new VerifiedQuote(false, null, null);
+        }
+        Matcher inFullText = pattern.get().matcher(text.fullText());
+        if (!inFullText.find()) {
+            return new VerifiedQuote(false, null, null);
         }
         if (!text.paged()) {
-            return new VerifiedQuote(true, null);
+            return new VerifiedQuote(true, inFullText.group(), null);
         }
         for (int index = 0; index < text.pages().size(); index++) {
-            if (text.pages().get(index).contains(quote)) {
-                return new VerifiedQuote(true, index + 1);
+            Matcher onPage = pattern.get().matcher(text.pages().get(index));
+            if (onPage.find()) {
+                return new VerifiedQuote(true, onPage.group(), index + 1);
             }
         }
-        return new VerifiedQuote(false, null);
+        return new VerifiedQuote(false, null, null);
+    }
+
+    private static Optional<Pattern> quotePattern(String quote) {
+        if (quote == null || quote.isBlank()) {
+            return Optional.empty();
+        }
+        String regex = Pattern.compile(WHITESPACE).splitAsStream(quote.strip())
+                .map(Pattern::quote)
+                .collect(Collectors.joining(WHITESPACE));
+        return Optional.of(Pattern.compile(regex));
     }
 
     /**
@@ -127,5 +150,5 @@ public class DocumentExtractionService {
         return new DocumentExtractor.ExtractionResult(Map.of(), false, "none");
     }
 
-    private record VerifiedQuote(boolean valid, Integer page) {}
+    private record VerifiedQuote(boolean valid, String quote, Integer page) {}
 }
