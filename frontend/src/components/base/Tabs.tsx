@@ -1,6 +1,27 @@
 // Вкладки списка документов (docs/SCREENS.md, экран 8) - вид по макету documents-list-screen:
 // активная вкладка выделена заливкой и жирным текстом, у неё может быть счётчик.
 
+/** Тот же бейдж-счётчик, что на вкладке "Ждут меня" - переиспользуется везде,
+ *  где нужен числовой счётчик (например, "Заявки" в админ-меню). */
+export function CountBadge({ count }: { count: number }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        padding: '2px 6px',
+        borderRadius: 10,
+        background: 'var(--icon-primary)',
+        color: 'var(--text-primary-inverse)',
+        fontSize: 10,
+        fontWeight: 700,
+      }}
+    >
+      {count}
+    </span>
+  );
+}
+
 export interface TabItem<K extends string> {
   key: K;
   label: string;
@@ -18,7 +39,8 @@ export function Tabs<K extends string>({
   onChange: (key: K) => void;
 }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} role="tablist">
+    // Макет (documents-list-screen, admin-management-screen): tabs-row с justify-content: center.
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center' }} role="tablist">
       {tabs.map((tab) => {
         const active = tab.key === activeKey;
         return (
@@ -43,22 +65,7 @@ export function Tabs<K extends string>({
             }}
           >
             {tab.label}
-            {!!tab.count && (
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  padding: '2px 6px',
-                  borderRadius: 10,
-                  background: 'var(--icon-primary)',
-                  color: 'var(--text-primary-inverse)',
-                  fontSize: 10,
-                  fontWeight: 700,
-                }}
-              >
-                {tab.count}
-              </span>
-            )}
+            {!!tab.count && <CountBadge count={tab.count} />}
           </button>
         );
       })}

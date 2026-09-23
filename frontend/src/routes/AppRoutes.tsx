@@ -8,20 +8,26 @@ import {
   PersonalInviteRoute,
   WelcomeRoute,
 } from '../screens/onboarding/OnboardingRoutes';
+import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
+import { DocumentListScreen } from '../screens/documents/DocumentListScreen';
+import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
 import { guardTarget, type GuardKind } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
-import { ScreenStub } from './ScreenStub';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
+import { InviteScreen } from '../screens/admin/InviteScreen';
+import { JoinRequestsScreen } from '../screens/admin/JoinRequestsScreen';
+import { MembersScreen } from '../screens/admin/MembersScreen';
+import { useMaxBackButton } from './useMaxBackButton';
 
 /** Параметр запуска уже отработал в этом запуске приложения (см. AppRoutes). */
 let startParamUsed = false;
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
- * Экраны подключения - #18, документов - #55, остальные пока заглушки (#54, #7).
+ * Экраны подключения - #18, администрирования - #54, документов - #7 и #55.
  */
 export function AppRoutes({ me }: { me: MeResponse }) {
   // startParam действует один раз за запуск: он приходит в каждом /me, и без этой отметки
@@ -38,6 +44,10 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   }, [location.pathname]);
 
   const entryRoute = resolveEntryRoute(me, !startParamUsed);
+
+  // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
+  // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.
+  useMaxBackButton(entryRoute);
 
   const guarded = (kind: GuardKind) => (element: ReactElement): ReactElement => {
     const target = guardTarget(kind, me, entryRoute);
@@ -57,7 +67,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.adminInvite}
-        element={companyScreen(<ScreenStub title="3. Приглашение" issue="#54" />)}
+        element={companyScreen(<InviteScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.join}
@@ -73,16 +83,13 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route
         path={ROUTE_PATTERNS.adminRequests}
-        element={companyScreen(<ScreenStub title="6. Заявки" issue="#54" />)}
+        element={companyScreen(<JoinRequestsScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminMembers}
-        element={companyScreen(<ScreenStub title="7. Участники" issue="#54" />)}
+        element={companyScreen(<MembersScreen />)}
       />
-      <Route
-        path={ROUTE_PATTERNS.documents}
-        element={companyScreen(<ScreenStub title="8. Список документов" issue="#7" />)}
-      />
+      <Route path={ROUTE_PATTERNS.documents} element={companyScreen(<DocumentListScreen />)} />
       <Route
         path={ROUTE_PATTERNS.documentUpload}
         element={companyScreen(<DocumentUploadScreen />)}
@@ -95,11 +102,8 @@ export function AppRoutes({ me }: { me: MeResponse }) {
         path={ROUTE_PATTERNS.documentNewVersion}
         element={companyScreen(<NewDocumentVersionScreen />)}
       />
-      <Route path={ROUTE_PATTERNS.documentCard} element={<ScreenStub title="11. Карточка документа" issue="#7" />} />
-      <Route
-        path={ROUTE_PATTERNS.routePreview}
-        element={companyScreen(<ScreenStub title="12. Предпросмотр маршрута" issue="#7" />)}
-      />
+      <Route path={ROUTE_PATTERNS.documentCard} element={<DocumentCardScreen />} />
+      <Route path={ROUTE_PATTERNS.routePreview} element={companyScreen(<RoutePreviewScreen />)} />
       {/* Неизвестный путь - не 404, а туда же, куда привело бы свежее /me. */}
       <Route path="*" element={<Navigate to={entryRoute} replace />} />
     </Routes>

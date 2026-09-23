@@ -1,6 +1,7 @@
 import { Spinner } from '@maxhub/max-ui';
 import { BrowserRouter } from 'react-router-dom';
 import { useSession } from './app/SessionContext';
+import { GENERIC_ERROR_MESSAGE } from './api/errors';
 import { DemoSwitcher } from './components/base/DemoSwitcher';
 import { FullscreenCenter } from './components/base/Layout';
 import { ErrorState } from './components/base/StateCard';
@@ -26,7 +27,7 @@ export function App() {
     return (
       <FullscreenCenter>
         <ErrorState
-          message={error?.message ?? 'Сервис временно недоступен, попробуйте ещё раз'}
+          message={error?.message ?? GENERIC_ERROR_MESSAGE}
           onRetry={() => void refresh()}
         />
       </FullscreenCenter>

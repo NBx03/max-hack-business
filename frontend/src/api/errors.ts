@@ -1,3 +1,6 @@
+/** Общий текст для сетевых сбоев и неизвестных ошибок - один на весь фронтенд (client.ts, errors.ts). */
+export const GENERIC_ERROR_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
+
 /** Формат ошибки бэкенда - см. docs/API_CONTRACTS.md, раздел "Ошибки". */
 export interface ApiErrorBody {
   code: string;
@@ -19,9 +22,7 @@ export class ApiError extends Error {
   }
 }
 
-const GENERIC_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
-
-/** Текст для пользователя: сообщение бэкенда или общий текст для сетевых сбоев. */
+/** Текст для ErrorState - "Ошибки бэкенда показываем его текстом" (docs/SCREENS.md). */
 export function errorMessage(err: unknown): string {
-  return err instanceof ApiError ? err.message : GENERIC_MESSAGE;
+  return err instanceof ApiError ? err.message : GENERIC_ERROR_MESSAGE;
 }

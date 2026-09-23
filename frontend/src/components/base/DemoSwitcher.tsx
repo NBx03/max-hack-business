@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Button, Typography } from '@maxhub/max-ui';
+import { Button, CellList, CellSimple } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { demoEntryUser } from '../../app/demo';
+import { BottomSheet } from './BottomSheet';
 
-function describeParticipant(roles: { name: string }[], isAdmin: boolean): string {
+function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
   const labels = roles.map((role) => role.name);
   if (isAdmin) {
     labels.push('Администратор');
@@ -12,53 +13,81 @@ function describeParticipant(roles: { name: string }[], isAdmin: boolean): strin
 }
 
 /**
- * Демо-переключатель участника. Виден только пока фронтенд работает в личной
- * песочнице проверяющего (docs/SCREENS.md, "Общие правила"). Полноценный экран
- * приветствия с кнопкой "Открыть демо-компанию" - отдельная задача (#1);
- * здесь только механизм переключения, без финальной вёрстки.
+ * Демо-переключатель участника - плашка в углу (макет demo-banner-component) и
+ * панель со списком песочницы (макет demo-persona-switcher-sheet). Виден только
+ * пока фронтенд работает в личной песочнице проверяющего (docs/SCREENS.md,
+ * "Общие правила": "/me.actingAs не пустой").
  */
 export function DemoSwitcher() {
   const { me, sandboxUsers, actAs, startSandbox, refresh } = useSession();
-  const [expanded, setExpanded] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
   if (!me || !me.demoMode || !me.actingAs || sandboxUsers === null) {
     return null;
   }
 
-  const label = `Демо: действую как ${me.actingAs.user.fullName}`;
+  // Та же roleLabel, что и в строках списка ниже - иначе плашка и список могут
+  // разойтись (например, у админа с ролью в плашке была видна только роль,
+  // без "Администратор", а в списке - оба).
+  const activeRole = roleLabel(me.actingAs.roles, me.actingAs.isAdmin).toLowerCase();
+  const label = `Демо: действую как ${me.actingAs.user.fullName} (${activeRole})`;
 
   return (
-    <div
-      style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-        paddingTop: 'env(safe-area-inset-top)',
-        background: 'var(--background-primary)',
-        borderBottom: '1px solid var(--divider-primary)',
-      }}
-    >
-      <div
-        style={{ padding: '8px 16px', cursor: 'pointer' }}
-        onClick={() => setExpanded((prev) => !prev)}
+    <>
+      <button
+        type="button"
+        onClick={() => setSheetOpen(true)}
+        style={{
+          position: 'fixed',
+          top: 'calc(16px + env(safe-area-inset-top))',
+          right: 16,
+          zIndex: 100,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '8px 12px',
+          borderRadius: 20,
+          border: 'none',
+          background: 'var(--text-primary)',
+          color: 'var(--background-primary)',
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: 'pointer',
+          maxWidth: 'calc(100vw - 32px)',
+        }}
       >
-        <Typography.Text>{label}</Typography.Text>
-      </div>
-      {expanded && (
-        <div style={{ padding: '0 16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {sandboxUsers.map((participant) => (
-            <Button
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <span aria-hidden>⌄</span>
+      </button>
+
+      <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="Участники песочницы">
+        <CellList mode="full-width">
+          {sandboxUsers.map((participant, index) => (
+            <CellSimple
               key={participant.user.id}
+              as="button"
+              separator={index > 0}
               onClick={() => {
                 void actAs(participant.user.id);
-                setExpanded(false);
+                setSheetOpen(false);
               }}
-            >
-              {`${participant.user.fullName} — ${describeParticipant(participant.roles, participant.isAdmin)}`}
-            </Button>
+              title={participant.user.fullName}
+              subtitle={roleLabel(participant.roles, participant.isAdmin)}
+              after={
+                me.actingAs?.user.id === participant.user.id ? (
+                  <span style={{ color: 'var(--text-primary)', fontSize: 14 }} aria-label="Текущий участник">
+                    ●
+                  </span>
+                ) : undefined
+              }
+            />
           ))}
+        </CellList>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Button
+            variant="secondary"
             onClick={() => {
               // После пересоздания прежние id недействительны - сразу входим от имени автора.
               void startSandbox()
@@ -68,23 +97,24 @@ export function DemoSwitcher() {
                 })
                 // Не удалось пересоздать — свежий /me покажет текущее состояние.
                 .catch(() => refresh());
-              setExpanded(false);
+              setSheetOpen(false);
             }}
           >
             Начать заново
           </Button>
           {me.actingAs && (
             <Button
+              variant="secondary"
               onClick={() => {
                 void actAs(null);
-                setExpanded(false);
+                setSheetOpen(false);
               }}
             >
               Выйти из демо
             </Button>
           )}
         </div>
-      )}
-    </div>
+      </BottomSheet>
+    </>
   );
 }
