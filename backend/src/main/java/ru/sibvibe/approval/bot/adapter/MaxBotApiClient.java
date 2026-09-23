@@ -30,7 +30,7 @@ public class MaxBotApiClient {
     }
 
     /** Отправляет сообщение пользователю в личный диалог с ботом. */
-    public void sendMessage(long userId, String text, List<LinkButtonRequest> buttons) {
+    public void sendMessage(long userId, String text, List<OpenAppButtonRequest> buttons) {
         List<AttachmentRequest> attachments = buttons.isEmpty()
                 ? null
                 : List.of(new AttachmentRequest("inline_keyboard", new KeyboardPayload(List.of(buttons))));
@@ -93,13 +93,17 @@ public class MaxBotApiClient {
     record AttachmentRequest(String type, KeyboardPayload payload) {
     }
 
-    record KeyboardPayload(List<List<LinkButtonRequest>> buttons) {
+    record KeyboardPayload(List<List<OpenAppButtonRequest>> buttons) {
     }
 
-    /** Кнопка типа {@code link}: по нажатию пользователь переходит по ссылке (открывает мини-приложение). */
-    public record LinkButtonRequest(String type, String text, String url) {
-        public static LinkButtonRequest link(String label, String url) {
-            return new LinkButtonRequest("link", label, url);
+    /**
+     * Кнопка типа {@code open_app}: открывает мини-приложение сразу, без прыжка через страницу
+     * max.ru (задача #57, ревью #70; тип и поля сверены со схемой github.com/max-messenger/api-schema,
+     * компонент {@code OpenAppButton}). Заменила прежнюю кнопку {@code link} с тем же URL.
+     */
+    public record OpenAppButtonRequest(String type, String text, @JsonProperty("web_app") String webApp, String payload) {
+        public static OpenAppButtonRequest openApp(String label, String webApp, String payload) {
+            return new OpenAppButtonRequest("open_app", label, webApp, payload);
         }
     }
 
