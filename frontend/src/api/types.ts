@@ -61,6 +61,30 @@ export interface DemoSandboxResponse {
   users: DemoSandboxUser[];
 }
 
+// ---------- Подключение компании: создание, код, личная ссылка, заявка (#18) ----------
+
+export interface OrganizationCreated {
+  id: number;
+  name: string;
+}
+
+export interface InvitePreview {
+  orgName: string;
+}
+
+export interface JoinRequestCreated {
+  id: number;
+  orgName: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface PersonalInvitePreview {
+  orgName: string;
+  roles: RoleRef[];
+  expiresAt: string;
+}
+
 // ---------- Подключение компании: приглашение, заявки, участники (#54) ----------
 
 export interface InviteCodeInfo {

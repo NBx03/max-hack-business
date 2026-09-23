@@ -63,6 +63,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Проверка типов и сборка
         run: npm run build
+      - name: Тесты навигации и экранов
+        run: npm test
 
   testdata:
     runs-on: ubuntu-latest
