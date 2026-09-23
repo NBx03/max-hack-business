@@ -97,7 +97,9 @@ services:
       AI_ENABLED: ${AI_ENABLED:-true}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-30}
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      # Только 127.0.0.1: снаружи бэкенд доступен лишь через nginx фронтенда,
+      # а не по голому HTTP в обход HTTPS стенда.
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
 
   frontend:
     build:
@@ -108,7 +110,8 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${FRONTEND_PORT:-8081}:80"
+      # Тоже 127.0.0.1: на стенде HTTPS даёт Caddy на хосте и проксирует сюда.
+      - "127.0.0.1:${FRONTEND_PORT:-8081}:80"
 
 volumes:
   postgres-data:
