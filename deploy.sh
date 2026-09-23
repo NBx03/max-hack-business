@@ -21,7 +21,7 @@ fi
 REF="${1:-origin/main}"
 cd "${REPO_DIR:?}"
 
-HEALTH_URL="http://localhost:${BACKEND_PORT_FOR_HEALTH:-8080}/actuator/health"
+HEALTH_URL="http://127.0.0.1:${BACKEND_PORT_FOR_HEALTH:-8080}/actuator/health"
 HEALTH_TIMEOUT_SECONDS=180
 
 echo "== Стенд: $(hostname), каталог $(pwd)"
