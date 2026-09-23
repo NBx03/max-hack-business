@@ -145,9 +145,9 @@ export function NewDocumentVersionScreen() {
           <div style={{ ...sectionStyle, gap: 12 }}>
             <strong>Оставить приложения</strong>
             {attachments.map((file) => (
-              <label key={file.id} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="checkbox"
+              <label key={file.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                {/* Switch из max-ui, а не нативный checkbox — как у остальных переключателей (ревью #65). */}
+                <Switch
                   checked={keptAttachments.has(file.id)}
                   onChange={(event) => setKeptAttachments((current) => {
                     const next = new Set(current);
@@ -155,7 +155,7 @@ export function NewDocumentVersionScreen() {
                     return next;
                   })}
                 />
-                {file.fileName} · {formatFileSize(file.size)}
+                <span style={{ overflowWrap: 'anywhere' }}>{file.fileName} · {formatFileSize(file.size)}</span>
               </label>
             ))}
           </div>
