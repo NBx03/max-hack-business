@@ -1,10 +1,9 @@
 import { Button, Typography } from '@maxhub/max-ui';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getDocument, getDocumentTypes, updateDocumentFields } from '../../api/documents';
-import { ApiError } from '../../api/errors';
+import { errorMessage } from '../../api/errors';
 import type { CheckResult, DocumentCard, DocumentType, DocumentTypeField, RuleKind, Severity } from '../../api/types';
-import { BottomActionBar } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import {
@@ -13,11 +12,10 @@ import {
   LoadingState,
   Notice,
   SubmitButton,
+  linkStyle,
   sectionStyle,
   stackStyle,
 } from './DocumentFormParts';
-
-const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
 
 const SEVERITY_LABELS: Record<Severity, string> = {
   BLOCKER: 'Критично',
@@ -74,6 +72,20 @@ export function DocumentCheckScreen() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Кнопка «Исправить поля» внизу открывает форму, которая выше по экрану, — прокручиваем к ней.
+  const fieldsRef = useRef<HTMLElement>(null);
+  const [scrollToFields, setScrollToFields] = useState(false);
+  const startEditing = () => {
+    setEditing(true);
+    setScrollToFields(true);
+  };
+  // Прокрутка — после того, как форма отрисована: до этого высота раздела ещё прежняя.
+  useEffect(() => {
+    if (scrollToFields && editing) {
+      fieldsRef.current?.scrollIntoView({ block: 'start' });
+      setScrollToFields(false);
+    }
+  }, [scrollToFields, editing]);
 
   const load = useCallback(async () => {
     if (documentId === null) {
@@ -89,7 +101,7 @@ export function DocumentCheckScreen() {
       setType(types.find((item) => item.id === nextCard.type.id));
       setFields(fieldsToRecord(nextCard.check));
     } catch (loadError) {
-      setError(loadError instanceof ApiError ? loadError.message : FALLBACK_ERROR);
+      setError(errorMessage(loadError));
     } finally {
       setLoading(false);
     }
@@ -115,7 +127,7 @@ export function DocumentCheckScreen() {
       setFields(fieldsToRecord(refreshed.check));
       setEditing(false);
     } catch (saveFieldsError) {
-      setSaveError(saveFieldsError instanceof ApiError ? saveFieldsError.message : FALLBACK_ERROR);
+      setSaveError(errorMessage(saveFieldsError));
     } finally {
       setSaving(false);
     }
@@ -123,109 +135,151 @@ export function DocumentCheckScreen() {
 
   if (loading) return <LoadingState />;
   if (error || !card) {
-    return <DocumentScreen title="Результат проверки"><ErrorState message={error ?? FALLBACK_ERROR} onRetry={() => void load()} /></DocumentScreen>;
+    return <DocumentScreen title="Результат проверки"><ErrorState message={error ?? errorMessage(null)} onRetry={() => void load()} /></DocumentScreen>;
   }
 
   const check = card.check;
   const mustFix = check?.status === 'FAILED' || hasBlocker;
 
+  // Нижняя панель — только кнопки: пояснение, почему нельзя отправить, стоит наверху, рядом
+  // с замечаниями, а не перекрывает половину экрана. Пока открыта форма полей, у неё свои кнопки.
+  const footer = editing ? null : mustFix ? (
+    <div style={{ ...stackStyle, gap: 8 }}>
+      {card.permissions.canEditFields && (
+        <Button stretched variant="primary" size="large" onClick={startEditing}>Исправить поля</Button>
+      )}
+      {card.permissions.canUploadVersion && (
+        <Button stretched variant="secondary" size="large" onClick={() => navigate(documentNewVersionPath(card.id))}>
+          Загрузить исправленную версию
+        </Button>
+      )}
+    </div>
+  ) : card.status === 'RETURNED' && card.permissions.canUploadVersion ? (
+    <Button stretched variant="primary" size="large" onClick={() => navigate(documentNewVersionPath(card.id))}>
+      Загрузить исправленную версию
+    </Button>
+  ) : (
+    <div style={{ ...stackStyle, gap: 8 }}>
+      {card.permissions.canSubmit && (
+        <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id))}>К маршруту</Button>
+      )}
+      <Button stretched variant="secondary" size="large" onClick={() => navigate(documentCardPath(card.id))}>
+        Сохранить черновик
+      </Button>
+    </div>
+  );
+
   return (
-    <DocumentScreen title={card.title}>
-      <div style={{ ...stackStyle, marginTop: 16 }}>
-        {!check?.modelAvailable && !card.type.isGeneric && (
-          <Notice>Автоматический разбор недоступен. Проверьте поля и заполните недостающие вручную.</Notice>
-        )}
-        {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Сохраните поля ещё раз.</Notice>}
+    <DocumentScreen title={card.title} footer={footer}>
+      {!check?.modelAvailable && !card.type.isGeneric && (
+        <Notice>Автоматический разбор недоступен. Проверьте поля и заполните недостающие вручную.</Notice>
+      )}
+      {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Сохраните поля ещё раз.</Notice>}
+      {mustFix && check?.status !== 'FAILED' && (
+        <Notice tone="danger">Отправка недоступна: исправьте критические замечания и повторите проверку.</Notice>
+      )}
 
-        <section style={sectionStyle}>
-          <Typography.Headline variant="medium">Замечания</Typography.Headline>
-          {!check || check.issues.length === 0 ? (
-            <Notice tone="success">Замечаний нет</Notice>
-          ) : (
-            <div style={stackStyle}>
-              {check.issues.map((issue) => (
-                <article
-                  key={`${issue.ruleId}:${issue.fieldName}`}
-                  style={{ ...sectionStyle, borderLeft: `4px solid ${severityAccentColor(issue.severity)}` }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span
-                      style={{
-                        padding: '3px 8px',
-                        borderRadius: 999,
-                        background: severityColor(issue.severity),
-                        color: severityTextColor(issue.severity),
-                        fontSize: 12,
-                      }}
-                    >
-                      {SEVERITY_LABELS[issue.severity]}
-                    </span>
-                    <strong>{labels.get(issue.fieldName) ?? issue.fieldName}</strong>
-                  </div>
-                  <Typography.Text>{issue.message}</Typography.Text>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                    <span>{KIND_LABELS[issue.kind]}: </span>
-                    {issue.sourceUrl
-                      ? <a href={issue.sourceUrl} target="_blank" rel="noreferrer">{issue.sourceTitle}</a>
-                      : <span>{issue.sourceTitle}</span>}
-                    {issue.sourceRef && <span> · {issue.sourceRef}</span>}
-                  </div>
-                  {issue.quote && (
-                    <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '3px solid var(--divider-primary)', color: 'var(--text-secondary)' }}>
-                      «{issue.quote}»{issue.page !== null ? `, стр. ${issue.page}` : ''}
-                    </blockquote>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section style={sectionStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
-            {card.permissions.canEditFields && !editing && <Button onClick={() => setEditing(true)}>Изменить</Button>}
-          </div>
-          {editing ? (
-            <form style={stackStyle} onSubmit={(event) => void saveFields(event)}>
-              <FieldInputs definitions={definitions} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
-              {saveError && <Notice tone="danger">{saveError}</Notice>}
-              <SubmitButton busy={saving}>Сохранить и проверить</SubmitButton>
-              <Button type="button" onClick={() => { setFields(fieldsToRecord(check)); setEditing(false); }}>Отмена</Button>
-            </form>
-          ) : check?.fields.length ? (
-            <dl style={{ margin: 0 }}>
-              {check.fields.map((field) => (
-                <div key={field.name} style={{ padding: '10px 0', borderBottom: '1px solid var(--divider-primary)' }}>
-                  <dt style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{labels.get(field.name) ?? field.name}</dt>
-                  <dd style={{ margin: '3px 0 0', overflowWrap: 'anywhere' }}>{field.value || 'Не заполнено'}</dd>
+      <section style={sectionStyle}>
+        <Typography.Headline variant="medium">Замечания</Typography.Headline>
+        {!check || check.issues.length === 0 ? (
+          <Notice tone="success">Замечаний нет</Notice>
+        ) : (
+          <div style={{ ...stackStyle, gap: 12 }}>
+            {check.issues.map((issue) => (
+              <article
+                key={`${issue.ruleId}:${issue.fieldName}`}
+                style={{
+                  ...stackStyle,
+                  gap: 8,
+                  padding: 12,
+                  borderRadius: 8,
+                  background: 'var(--background-primary)',
+                  borderLeft: `3px solid ${severityAccentColor(issue.severity)}`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 999,
+                      background: severityColor(issue.severity),
+                      color: severityTextColor(issue.severity),
+                      fontSize: 12,
+                    }}
+                  >
+                    {SEVERITY_LABELS[issue.severity]}
+                  </span>
+                  <strong>{labels.get(issue.fieldName) ?? issue.fieldName}</strong>
                 </div>
-              ))}
-            </dl>
-          ) : (
-            <Typography.Text>Данных для отображения нет.</Typography.Text>
-          )}
-        </section>
-
-        <BottomActionBar>
-          <div style={stackStyle}>
-            {mustFix ? (
-              <>
-                <Notice tone="danger">Отправка недоступна: исправьте критические замечания и повторите проверку.</Notice>
-                {card.permissions.canEditFields && <Button stretched variant="primary" size="large" onClick={() => setEditing(true)}>Исправить поля</Button>}
-                {card.permissions.canUploadVersion && <Button stretched onClick={() => navigate(documentNewVersionPath(card.id))}>Загрузить исправленную версию</Button>}
-              </>
-            ) : card.status === 'RETURNED' && card.permissions.canUploadVersion ? (
-              <Button stretched variant="primary" size="large" onClick={() => navigate(documentNewVersionPath(card.id))}>Загрузить исправленную версию</Button>
-            ) : (
-              <>
-                {card.permissions.canSubmit && <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id))}>К маршруту</Button>}
-                <Button stretched onClick={() => navigate(documentCardPath(card.id))}>Сохранить черновик</Button>
-              </>
-            )}
+                <Typography.Text>{issue.message}</Typography.Text>
+                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                  <span>{KIND_LABELS[issue.kind]}: </span>
+                  {issue.sourceUrl ? (
+                    <a href={issue.sourceUrl} target="_blank" rel="noreferrer" style={linkStyle}>{issue.sourceTitle}</a>
+                  ) : (
+                    <span>{issue.sourceTitle}</span>
+                  )}
+                  {issue.sourceRef && <span> · {issue.sourceRef}</span>}
+                </div>
+                {issue.quote && (
+                  <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '3px solid var(--divider-primary)', color: 'var(--text-secondary)' }}>
+                    «{issue.quote}»{issue.page !== null ? `, стр. ${issue.page}` : ''}
+                  </blockquote>
+                )}
+              </article>
+            ))}
           </div>
-        </BottomActionBar>
-      </div>
+        )}
+      </section>
+
+      <section ref={fieldsRef} style={{ ...sectionStyle, scrollMarginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <Typography.Headline variant="medium">Данные документа</Typography.Headline>
+          {/* Второстепенное действие раздела — маленькая кнопка, а не вторая главная кнопка экрана. */}
+          {card.permissions.canEditFields && !editing && (
+            <Button size="small" variant="secondary" onClick={() => setEditing(true)}>Изменить</Button>
+          )}
+        </div>
+        {editing ? (
+          <form style={stackStyle} onSubmit={(event) => void saveFields(event)}>
+            <FieldInputs
+              definitions={definitions}
+              values={fields}
+              onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))}
+            />
+            {saveError && <Notice tone="danger">{saveError}</Notice>}
+            <div style={{ ...stackStyle, gap: 8 }}>
+              <SubmitButton busy={saving}>Сохранить и проверить</SubmitButton>
+              <Button
+                stretched
+                type="button"
+                variant="secondary"
+                size="large"
+                disabled={saving}
+                onClick={() => {
+                  setFields(fieldsToRecord(check));
+                  setEditing(false);
+                }}
+              >
+                Отмена
+              </Button>
+            </div>
+          </form>
+        ) : check?.fields.length ? (
+          <dl style={{ margin: 0 }}>
+            {check.fields.map((field, index) => (
+              <div key={field.name} style={{ padding: '10px 0', borderTop: index > 0 ? '1px solid var(--divider-primary)' : undefined }}>
+                <dt style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{labels.get(field.name) ?? field.name}</dt>
+                <dd style={{ margin: '3px 0 0', overflowWrap: 'anywhere', color: field.value ? undefined : 'var(--text-tertiary)' }}>
+                  {field.value || 'Не заполнено'}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <Typography.Text>Данных для отображения нет.</Typography.Text>
+        )}
+      </section>
     </DocumentScreen>
   );
 }
