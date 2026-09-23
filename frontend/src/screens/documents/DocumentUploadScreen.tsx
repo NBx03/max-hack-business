@@ -6,7 +6,7 @@ import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
 import { FilePicker } from '../../components/base/FilePicker';
 import { ErrorState } from '../../components/base/StateCard';
-import { documentCheckPath } from '../../routes/paths';
+import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
   DocumentScreen,
   FieldInputs,
@@ -21,6 +21,7 @@ import {
 } from './DocumentFormParts';
 
 const FORM_ID = 'document-upload-form';
+const UPLOAD_BACK = { to: ROUTE_PATTERNS.documents, label: 'Документы' };
 
 export function DocumentUploadScreen() {
   const navigate = useNavigate();
@@ -79,15 +80,16 @@ export function DocumentUploadScreen() {
 
   if (!types && !loadError) return <LoadingState />;
   if (loadError) {
-    return <DocumentScreen title="Новый документ"><ErrorState message={loadError} onRetry={() => void loadTypes()} /></DocumentScreen>;
+    return <DocumentScreen title="Новый документ" back={UPLOAD_BACK}><ErrorState message={loadError} onRetry={() => void loadTypes()} /></DocumentScreen>;
   }
   if (!types || types.length === 0) {
-    return <DocumentScreen title="Новый документ"><Notice>Типы документов пока не настроены. Обратитесь к администратору.</Notice></DocumentScreen>;
+    return <DocumentScreen title="Новый документ" back={UPLOAD_BACK}><Notice>Типы документов пока не настроены. Обратитесь к администратору.</Notice></DocumentScreen>;
   }
 
   return (
     <DocumentScreen
       title="Новый документ"
+      back={UPLOAD_BACK}
       footer={
         <SubmitButton form={FORM_ID} busy={submitting} disabled={!mainFile || !title.trim()}>
           Загрузить и проверить

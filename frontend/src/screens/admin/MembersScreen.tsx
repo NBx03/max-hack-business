@@ -2,13 +2,13 @@ import { Button, Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from '../../app/SessionContext';
 import { disableMember, getMembers, getRoles, setMemberAdmin, setMemberRoles } from '../../api/admin';
-import { ApiError } from '../../api/errors';
+import { errorMessage } from '../../api/errors';
 import type { MemberView, RoleRef } from '../../api/types';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { RolePicker } from '../../components/base/RolePicker';
 import { Toast } from '../../components/base/Toast';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
-import { AdminLoadError, AdminTabs, FALLBACK_ERROR, roleNames } from './AdminFormParts';
+import { ADMIN_BACK, AdminLoadError, AdminTabs, roleNames } from './AdminFormParts';
 
 function sameRoleIds(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
@@ -103,11 +103,17 @@ export function MembersScreen() {
         const fresh = await getMembers();
         setMembers(fresh);
         const stillThere = fresh.find((member) => member.memberId === editing.memberId);
-        if (stillThere) setEditing(stillThere);
+        if (stillThere) {
+          // Поля листа — тоже со свежих данных: иначе после ошибки лист показывал бы то, что
+          // пытались отправить, поверх того, что реально сохранено (ревью #72).
+          setEditing(stillThere);
+          setEditRoleIds(stillThere.roles.map((role) => role.id));
+          setEditIsAdmin(stillThere.isAdmin);
+        }
       } catch {
         // Не удалось обновить список - хотя бы покажем ошибку сохранения ниже.
       }
-      setEditError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setEditError(errorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -125,7 +131,7 @@ export function MembersScreen() {
       setToast('Участник отключён');
     } catch (error) {
       setConfirmDisable(false);
-      setEditError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setEditError(errorMessage(error));
     } finally {
       setDisabling(false);
     }
@@ -139,14 +145,14 @@ export function MembersScreen() {
   if (loading) return <LoadingState />;
   if (loadError !== null || !members) {
     return (
-      <AdminScreen title="Участники">
+      <AdminScreen title="Участники" back={ADMIN_BACK} nav>
         <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
 
   return (
-    <AdminScreen title="Участники">
+    <AdminScreen title="Участники" back={ADMIN_BACK} nav>
       <div style={{ marginTop: 12, marginBottom: 20 }}>
         <AdminTabs active="members" />
       </div>
@@ -220,8 +226,9 @@ export function MembersScreen() {
         onClose={() => setConfirmDisable(false)}
         title={`Отключить «${editing?.user.fullName ?? ''}»?`}
         description="Он потеряет доступ к документам компании. Вернуть доступ можно будет только новым приглашением."
-        confirmLabel={disabling ? 'Отключаем…' : 'Отключить'}
+        confirmLabel="Отключить"
         destructive
+        busy={disabling}
         onConfirm={() => void disable()}
       />
 

@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, CellList, CellSimple } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { demoEntryUser } from '../../app/demo';
 import { BottomSheet } from './BottomSheet';
+import { ROUTE_PATTERNS } from '../../routes/paths';
 
 function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
   const labels = roles.map((role) => role.name);
@@ -21,6 +23,7 @@ function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
 export function DemoSwitcher() {
   const { me, sandboxUsers, actAs, startSandbox, refresh } = useSession();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const navigate = useNavigate();
 
   // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
   if (!me || !me.demoMode || !me.actingAs || sandboxUsers === null) {
@@ -69,7 +72,9 @@ export function DemoSwitcher() {
               as="button"
               separator={index > 0}
               onClick={() => {
-                void actAs(participant.user.id);
+                // К списку документов: у нового участника может не быть доступа к экрану,
+                // на котором стоял прежний (чужой черновик, админка без прав).
+                void actAs(participant.user.id).then(() => navigate(ROUTE_PATTERNS.documents));
                 setSheetOpen(false);
               }}
               title={participant.user.fullName}

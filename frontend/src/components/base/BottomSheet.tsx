@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Button } from '@maxhub/max-ui';
 
 // Нижняя панель поверх экрана - макеты modal-return-decline-screen,
 // modal-reject-confirm-step2-screen: затемнение + панель, выезжающая снизу
-// со скруглёнными верхними углами. Закрывается по тапу на затемнение.
+// со скруглёнными верхними углами. Закрывается по тапу на затемнение и по Esc
+// (веб-версия MAX), фокус уходит в панель и возвращается туда, откуда её открыли.
 
 export function BottomSheet({
   open,
@@ -16,6 +17,28 @@ export function BottomSheet({
   title: string;
   children: ReactNode;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panelRef.current?.focus();
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+      }
+    }
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      opener?.focus();
+    };
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -27,7 +50,13 @@ export function BottomSheet({
         style={{ position: 'absolute', inset: 0, background: 'rgba(17, 24, 39, 0.45)' }}
       />
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         style={{
+          outline: 'none',
           position: 'relative',
           width: '100%',
           maxWidth: 560,

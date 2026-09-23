@@ -1,14 +1,13 @@
 import { useNavigate } from 'react-router-dom';
-import { ApiError } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import { Tabs } from '../../components/base/Tabs';
 import { AccessErrorState, ErrorState } from '../../components/base/StateCard';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 
-// Общая шапка для экранов 3/6/7 (docs/SCREENS.md, "Подключение компании"). Своего меню
-// администратора (со счётчиком заявок - экран 8) ещё нет: список документов - отдельная
-// задача (#7). Пока переход между тремя экранами администратора - только отсюда.
+// Общее для экранов 3/6/7 (docs/SCREENS.md, "Подключение компании"): вкладки между ними,
+// ссылка назад в раздел «Компания» нижнего меню, где собрано администрирование.
 
-export const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
+export const ADMIN_BACK = { to: ROUTE_PATTERNS.company, label: 'Компания' };
 
 /**
  * Ошибка первой загрузки экрана. 403 (не ADMIN) - не временный сбой, «Повторить» здесь
@@ -26,9 +25,7 @@ export function AdminLoadError({ error, onRetry }: { error: unknown; onRetry: ()
       />
     );
   }
-  return (
-    <ErrorState message={error instanceof ApiError ? error.message : FALLBACK_ERROR} onRetry={onRetry} />
-  );
+  return <ErrorState message={errorMessage(error)} onRetry={onRetry} />;
 }
 
 type AdminTabKey = 'invite' | 'requests' | 'members';

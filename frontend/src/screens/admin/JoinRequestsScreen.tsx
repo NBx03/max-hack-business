@@ -1,13 +1,13 @@
 import { Button, Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { approveJoinRequest, getJoinRequests, getRoles, rejectJoinRequest } from '../../api/admin';
-import { ApiError } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import type { JoinRequestView, RoleRef } from '../../api/types';
 import { RolePicker } from '../../components/base/RolePicker';
 import { EmptyState } from '../../components/base/StateCard';
 import { Toast } from '../../components/base/Toast';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
-import { AdminLoadError, AdminTabs, FALLBACK_ERROR, formatDateTime } from './AdminFormParts';
+import { ADMIN_BACK, AdminLoadError, AdminTabs, formatDateTime } from './AdminFormParts';
 
 interface RowChoice {
   roleIds: number[];
@@ -64,7 +64,7 @@ export function JoinRequestsScreen() {
     }
     setRowErrors((current) => ({
       ...current,
-      [request.id]: error instanceof ApiError ? error.message : FALLBACK_ERROR,
+      [request.id]: errorMessage(error),
     }));
   }
 
@@ -100,14 +100,14 @@ export function JoinRequestsScreen() {
   if (loading) return <LoadingState />;
   if (loadError !== null || !requests) {
     return (
-      <AdminScreen title="Заявки">
+      <AdminScreen title="Заявки" back={ADMIN_BACK} nav>
         <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
 
   return (
-    <AdminScreen title="Заявки">
+    <AdminScreen title="Заявки" back={ADMIN_BACK} nav>
       <div style={{ marginTop: 12, marginBottom: 20 }}>
         <AdminTabs active="requests" requestsCount={requests.length} />
       </div>

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, CellList, CellSimple, Input, Spinner, Typography } from '@maxhub/max-ui';
-import { useNavigate, type NavigateFunction } from 'react-router-dom';
-import { useSession } from '../../app/SessionContext';
+import { useNavigate } from 'react-router-dom';
 import { getDocuments, getDocumentTypes, type DocumentTab, type DocumentListFilters } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
-import { getOrganizationMetrics, getPendingJoinRequestsCount } from '../../api/organization';
+import { getOrganizationMetrics } from '../../api/organization';
 import type { DocumentListItem, DocumentStatus, DocumentType, OrganizationMetrics, UserRef } from '../../api/types';
 import { BottomSheet } from '../../components/base/BottomSheet';
+import { AppNav } from '../../components/base/AppNav';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { DocumentStatusBadge } from '../../components/base/StatusBadge';
-import { CountBadge, Tabs, type TabItem } from '../../components/base/Tabs';
+import { Tabs, type TabItem } from '../../components/base/Tabs';
 import { EmptyState, ErrorState } from '../../components/base/StateCard';
 import { documentStatusMeta } from '../../theme/status';
 import { useAsync } from '../../hooks/useAsync';
@@ -62,29 +62,25 @@ function documentsLabel(count: number): string {
   return `${count} документов`;
 }
 
-type ScreenTab = DocumentTab | 'ADMIN';
-
-/** 8. Список документов - главный экран, плюс вход в 6/7/3 через вкладку "Админ" (docs/SCREENS.md). */
+/**
+ * 8. Список документов - главный экран (docs/SCREENS.md). Администрирование переехало
+ * в раздел «Компания» нижнего меню (AppNav).
+ */
 export function DocumentListScreen() {
   const navigate = useNavigate();
-  const { me } = useSession();
-  const isAdmin = Boolean(me?.actingAs ? me.actingAs.isAdmin : me?.membership?.isAdmin);
-  const [tab, setTab] = useState<ScreenTab>('WAITING_ME');
+  const [tab, setTab] = useState<DocumentTab>('WAITING_ME');
   const [filters, setFilters] = useState<DocumentListFilters>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Известные авторы - накапливаются из уже загруженных документов, отдельного
   // эндпоинта "все авторы" для не-админа нет (GET /orgs/current/members - только ADMIN).
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
 
-  // "ADMIN" - не документная вкладка, а отдельный экран-меню; списку документов
-  // подсовываем валидную вкладку, чтобы не городить условный вызов хука.
-  const docTab: DocumentTab = tab === 'ADMIN' ? 'WAITING_ME' : tab;
+  const docTab = tab;
   const listQuery = useAsync(() => getDocuments(docTab, { ...filters, size: 50 }), [docTab, filters]);
   // "Ждут меня" со счётчиком - total отдельного запроса с size=1, независимо от фильтров текущей вкладки.
   const waitingCountQuery = useAsync(() => getDocuments('WAITING_ME', { size: 1 }), []);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
   const metricsQuery = useAsync(() => getOrganizationMetrics(), []);
-  const pendingRequestsQuery = useAsync(() => (isAdmin ? getPendingJoinRequestsCount() : Promise.resolve(0)), [isAdmin]);
 
   useEffect(() => {
     if (listQuery.status !== 'ready') {
@@ -97,24 +93,13 @@ export function DocumentListScreen() {
     });
   }, [listQuery]);
 
-  // Стоя на вкладке "Админ", можно перестать быть админом прямо на этом экране -
-  // например, переключившись в DemoSwitcher на участника без прав. Компонент при
-  // этом не размонтируется, а сама вкладка из tabs пропадает - без сброса tab
-  // экран продолжил бы показывать админ-меню тому, кому оно уже не положено.
-  useEffect(() => {
-    if (!isAdmin && tab === 'ADMIN') {
-      setTab('WAITING_ME');
-    }
-  }, [isAdmin, tab]);
-
-  const tabs = useMemo<TabItem<ScreenTab>[]>(
+  const tabs = useMemo<TabItem<DocumentTab>[]>(
     () => [
       { key: 'WAITING_ME', label: 'Ждут меня', count: waitingCountQuery.status === 'ready' ? waitingCountQuery.data.total : undefined },
       { key: 'MINE', label: 'Мои' },
       { key: 'AVAILABLE', label: 'Доступные мне' },
-      ...(isAdmin ? [{ key: 'ADMIN' as const, label: 'Админ' }] : []),
     ],
-    [waitingCountQuery, isAdmin],
+    [waitingCountQuery],
   );
 
   const activeFiltersCount = Object.values(filters).filter((value) => value !== undefined).length;
@@ -127,25 +112,15 @@ export function DocumentListScreen() {
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
         <Typography.Headline variant="large-strong">Документы</Typography.Headline>
 
-        {metricsQuery.status === 'loading' && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 12 }}>
-            <Spinner />
-          </div>
-        )}
-        {metricsQuery.status === 'error' && (
-          <ErrorState message={errorMessage(metricsQuery.error)} onRetry={metricsQuery.refresh} />
-        )}
+        {/* Показатели - второстепенный блок: пока грузятся, держим место (список не прыгает),
+            а при ошибке просто не показываем - главный экран не должен выглядеть сломанным
+            из-за вторичного запроса (ревью #81). */}
+        {metricsQuery.status === 'loading' && <MetricsPlaceholder />}
         {metricsQuery.status === 'ready' && <MetricsBlock metrics={metricsQuery.data} />}
 
         <Tabs tabs={tabs} activeKey={tab} onChange={setTab} />
 
-        {tab === 'ADMIN' ? (
-          <AdminSectionsList
-            pendingRequests={pendingRequestsQuery.status === 'ready' ? pendingRequestsQuery.data : undefined}
-            onNavigate={navigate}
-          />
-        ) : (
-          <>
+        <>
             {/* Родитель - flex-column без alignItems, поэтому по умолчанию (stretch) кнопка
                 растянулась бы на всю ширину колонки, хотя это второстепенное действие,
                 а не главная кнопка экрана - alignSelf возвращает ей размер по содержимому. */}
@@ -184,20 +159,14 @@ export function DocumentListScreen() {
                 ))}
               </CellList>
             )}
-          </>
-        )}
+        </>
       </CenteredColumn>
 
-      {/* "Новый документ" не показываем на вкладке "Админ" - создание документа не
-          относится к администрированию компании, в макете admin-management-screen
-          нижней кнопки тоже нет. */}
-      {tab !== 'ADMIN' && (
-        <BottomActionBar>
-          <Button stretched variant="primary" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
-            Новый документ
-          </Button>
-        </BottomActionBar>
-      )}
+      <BottomActionBar nav={<AppNav />}>
+        <Button stretched variant="primary" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
+          Новый документ
+        </Button>
+      </BottomActionBar>
 
       <BottomSheet open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Фильтры">
         <FiltersForm
@@ -214,6 +183,23 @@ export function DocumentListScreen() {
   );
 }
 
+const metricsSectionStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: 16,
+  borderRadius: 12,
+  background: 'var(--background-secondary)',
+  border: '1px solid var(--divider-primary)',
+  // Та же высота, что у готового блока: при загрузке список под ним не прыгает.
+  minHeight: 112,
+  boxSizing: 'border-box',
+} as const;
+
+function MetricsPlaceholder() {
+  return <section aria-busy style={metricsSectionStyle} />;
+}
+
 function MetricsBlock({ metrics }: { metrics: OrganizationMetrics }) {
   const itemStyle = {
     flex: 1,
@@ -224,18 +210,7 @@ function MetricsBlock({ metrics }: { metrics: OrganizationMetrics }) {
   } as const;
 
   return (
-    <section
-      aria-labelledby="effect-metrics-title"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        padding: 16,
-        borderRadius: 12,
-        background: 'var(--background-secondary)',
-        border: '1px solid var(--divider-primary)',
-      }}
-    >
+    <section aria-labelledby="effect-metrics-title" style={metricsSectionStyle}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
         <Typography.Title id="effect-metrics-title" variant="medium-strong">Эффект согласования</Typography.Title>
         <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
@@ -243,12 +218,14 @@ function MetricsBlock({ metrics }: { metrics: OrganizationMetrics }) {
         </span>
       </div>
       <div style={{ display: 'flex', gap: 16 }}>
+        {/* Headline, а не Title large-strong: тот 16 px, как обычный текст, и главные
+            числа блока не читались как показатели (ревью #81). */}
         <div style={itemStyle}>
-          <Typography.Title variant="large-strong">{formatHours(metrics.medianApprovalHours)}</Typography.Title>
+          <Typography.Headline variant="large-strong">{formatHours(metrics.medianApprovalHours)}</Typography.Headline>
           <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Медианный срок согласования</span>
         </div>
         <div style={itemStyle}>
-          <Typography.Title variant="large-strong">{formatRate(metrics.returnRate)}</Typography.Title>
+          <Typography.Headline variant="large-strong">{formatRate(metrics.returnRate)}</Typography.Headline>
           <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Доля возвратов</span>
         </div>
       </div>
@@ -278,41 +255,6 @@ function DocumentRow({
       subtitle={`${item.type.name} · ${item.author.fullName} · ${dateOrWaiting}`}
       after={<DocumentStatusBadge status={item.status} />}
     />
-  );
-}
-
-/** Вкладка "Админ" - вход в экраны 3/6/7 (макет admin-management-screen). */
-function AdminSectionsList({
-  pendingRequests,
-  onNavigate,
-}: {
-  pendingRequests: number | undefined;
-  onNavigate: NavigateFunction;
-}) {
-  return (
-    <CellList mode="full-width">
-      <CellSimple
-        as="button"
-        onClick={() => onNavigate(ROUTE_PATTERNS.adminInvite)}
-        title="Приглашение"
-        subtitle="Код подключения и ссылки"
-      />
-      <CellSimple
-        as="button"
-        separator
-        onClick={() => onNavigate(ROUTE_PATTERNS.adminRequests)}
-        title="Заявки"
-        subtitle="Заявки на вступление в компанию"
-        after={pendingRequests ? <CountBadge count={pendingRequests} /> : undefined}
-      />
-      <CellSimple
-        as="button"
-        separator
-        onClick={() => onNavigate(ROUTE_PATTERNS.adminMembers)}
-        title="Участники"
-        subtitle="Список сотрудников и управление доступом"
-      />
-    </CellList>
   );
 }
 

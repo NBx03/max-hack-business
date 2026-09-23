@@ -68,8 +68,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<ApiError | null>(null);
   const [sandboxUsers, setSandboxUsers] = useState<DemoSandboxUser[] | null>(null);
 
-  const refresh = useCallback(async () => {
-    setStatus('loading');
+  // silent - обновить /me, не показывая общий спиннер: при смене участника демо экран
+  // не должен исчезать вместе с плашкой «Демо» (ревью #44). Экраны при этом всё равно
+  // перезагружают свои данные: App пересоздаёт роутер по ключу участника.
+  const load = useCallback(async (silent: boolean) => {
+    if (!silent) {
+      setStatus('loading');
+    }
     setError(null);
     try {
       const response = await getMeWithDemoRecovery();
@@ -87,6 +92,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refresh = useCallback(() => load(false), [load]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -94,9 +101,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const actAs = useCallback(
     async (userId: number | null) => {
       setActingAsId(userId);
-      await refresh();
+      await load(true);
     },
-    [refresh],
+    [load],
   );
 
   // Ошибку создания бросает вызывающему: экран приветствия показывает её у своей кнопки.

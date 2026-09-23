@@ -8,6 +8,7 @@ import { ErrorState, ErrorText } from '../../components/base/StateCard';
 import { useAsync } from '../../hooks/useAsync';
 import { errorMessage } from '../../api/errors';
 import { documentCardPath } from '../../routes/paths';
+import { BackLink } from '../../components/base/BackLink';
 
 function selectionKey(stageOrder: number, roleId: number): string {
   return `${stageOrder}:${roleId}`;
@@ -88,7 +89,11 @@ export function RoutePreviewScreen() {
   return (
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+        <BackLink to={documentCardPath(documentId)} label="К документу" />
         <Typography.Headline variant="large-strong">Предпросмотр маршрута</Typography.Headline>
+        <Typography.Text style={{ color: 'var(--text-secondary)' }}>
+          Кто и в каком порядке согласует документ. Этапы идут по очереди, участники одного этапа — параллельно.
+        </Typography.Text>
 
         {data.problems.map((problem) => (
           <div

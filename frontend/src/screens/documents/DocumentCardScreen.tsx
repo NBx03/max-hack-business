@@ -3,7 +3,7 @@ import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@ma
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { decideStep, getDocument, type StepDecisionAction } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
-import type { DocumentCard, RouteStage, RouteView, StepView } from '../../api/types';
+import type { DocumentCard, FileRef, RouteStage, RouteView, StepView } from '../../api/types';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
@@ -12,7 +12,8 @@ import { Toast } from '../../components/base/Toast';
 import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
-import { documentCheckPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+import { BackLink } from '../../components/base/BackLink';
+import { ROUTE_PATTERNS, documentCheckPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -55,6 +56,25 @@ export function DocumentCardScreen() {
   const [comment, setComment] = useState('');
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+
+  /**
+   * Ссылка на скачивание живёт 15 минут (downloadExpiresAt). Если карточка открыта дольше,
+   * перед скачиванием берём свежую ссылку, иначе человек получил бы ошибку вместо файла (ревью #71).
+   */
+  async function download(file: FileRef) {
+    const expiresSoon = new Date(file.downloadExpiresAt).getTime() - Date.now() < 30_000;
+    if (!expiresSoon) {
+      downloadFile(file.downloadUrl, file.fileName);
+      return;
+    }
+    try {
+      const fresh = await getDocument(documentId);
+      const freshFile = fresh.versions.flatMap((version) => version.files).find((item) => item.id === file.id);
+      downloadFile((freshFile ?? file).downloadUrl, file.fileName);
+    } catch (err) {
+      setDecisionError(errorMessage(err));
+    }
+  }
 
   function dismissToast() {
     setToast(null);
@@ -111,7 +131,11 @@ export function DocumentCardScreen() {
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       return (
         <CenteredColumn style={{ padding: 16 }}>
-          <AccessErrorState text="Документ недоступен или удалён" />
+          <AccessErrorState
+            text="Документ недоступен или удалён"
+            actionLabel="К документам"
+            onAction={() => navigate(ROUTE_PATTERNS.documents, { replace: true })}
+          />
         </CenteredColumn>
       );
     }
@@ -130,6 +154,7 @@ export function DocumentCardScreen() {
   return (
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+        <BackLink to={ROUTE_PATTERNS.documents} label="Документы" />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <Typography.Headline variant="large-strong">{doc.title}</Typography.Headline>
@@ -176,7 +201,7 @@ export function DocumentCardScreen() {
               <CellSimple
                 key={file.id}
                 as="button"
-                onClick={() => downloadFile(file.downloadUrl, file.fileName)}
+                onClick={() => void download(file)}
                 // .CellSimple_separator - border-top, не border-bottom (см. DocumentListScreen).
                 separator={index > 0}
                 title={file.fileName}
