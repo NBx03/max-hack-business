@@ -1,5 +1,14 @@
 import { apiRequest } from './client';
-import type { CheckResult, DocumentCard, DocumentType, Visibility } from './types';
+import type {
+  CheckResult,
+  DocumentCard,
+  DocumentListItem,
+  DocumentStatus,
+  DocumentType,
+  Page,
+  RoutePreview,
+  Visibility,
+} from './types';
 
 export interface CreateDocumentInput {
   documentTypeId: number;
@@ -27,8 +36,36 @@ function appendFiles(form: FormData, field: string, files: File[] | undefined): 
   files?.forEach((file) => form.append(field, file));
 }
 
+export type DocumentTab = 'WAITING_ME' | 'MINE' | 'AVAILABLE';
+
+export interface DocumentListFilters {
+  status?: DocumentStatus;
+  typeId?: number;
+  authorId?: number;
+  /** Даты создания, ISO-8601. */
+  from?: string;
+  to?: string;
+  page?: number;
+  size?: number;
+}
+
+function buildQuery(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') {
+      search.set(key, String(value));
+    }
+  }
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
 export function getDocumentTypes(): Promise<DocumentType[]> {
   return apiRequest<DocumentType[]>('/document-types');
+}
+
+export function getDocuments(tab: DocumentTab, filters: DocumentListFilters = {}): Promise<Page<DocumentListItem>> {
+  return apiRequest<Page<DocumentListItem>>(`/documents${buildQuery({ tab, ...filters })}`);
 }
 
 export function getDocument(documentId: number): Promise<DocumentCard> {
@@ -82,5 +119,35 @@ export function updateDocumentFields(
     method: 'PUT',
     body: { fields },
     timeoutMs: 120_000,
+  });
+}
+
+export function getRoutePreview(documentId: number): Promise<RoutePreview> {
+  return apiRequest<RoutePreview>(`/documents/${documentId}/route-preview`);
+}
+
+export interface RouteSelection {
+  stageOrder: number;
+  roleId: number;
+  userId: number;
+}
+
+export interface SubmitDocumentInput {
+  /** Только для участников с несколькими кандидатами (resolution = SELECT). */
+  selections?: RouteSelection[];
+  extraApprovers?: RouteSelection[];
+}
+
+export function submitDocument(documentId: number, input: SubmitDocumentInput): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>(`/documents/${documentId}/submit`, { method: 'POST', body: input });
+}
+
+export type StepDecisionAction = 'APPROVE' | 'RETURN' | 'REJECT';
+
+/** Решение адресуется шагу, а не документу - docs/API_CONTRACTS.md. */
+export function decideStep(stepId: number, decision: StepDecisionAction, comment?: string): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>(`/approval-steps/${stepId}/decision`, {
+    method: 'POST',
+    body: { decision, comment },
   });
 }

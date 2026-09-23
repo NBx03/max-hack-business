@@ -1,5 +1,5 @@
 import { getAuthHeader } from './auth';
-import { ApiError, type ApiErrorBody } from './errors';
+import { ApiError, GENERIC_ERROR_MESSAGE, type ApiErrorBody } from './errors';
 
 const BASE_PATH = '/api/v1';
 const DEFAULT_TIMEOUT_MS = 18_000;
@@ -9,7 +9,6 @@ const DEFAULT_TIMEOUT_MS = 18_000;
 // уже создался бы - повторное нажатие "Загрузить" тогда создаёт дубликат.
 const UPLOAD_TIMEOUT_MS = 120_000;
 
-const GENERIC_ERROR_MESSAGE = 'Сервис временно недоступен, попробуйте ещё раз';
 const FILE_TOO_LARGE_MESSAGE = 'Файл слишком большой: до 10 МБ на файл и 30 МБ на все файлы';
 const AUTH_FAILED_MESSAGE = 'Не удалось подтвердить вход через MAX';
 const AUTH_EXPIRED_MESSAGE = 'Откройте приложение заново';
