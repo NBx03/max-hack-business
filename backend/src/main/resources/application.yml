@@ -37,8 +37,8 @@ spring:
       auth:
         bearer:
           # GIGACHAT_CREDENTIALS — Authorization key (Base64 client_id:client_secret)
-          # из личного кабинета. Старое имя оставлено как локальный fallback.
-          api-key: ${GIGACHAT_CREDENTIALS:${GIGACHAT_API_KEY:}}
+          # из личного кабинета. Имя одно на весь проект: .env.example, compose.yaml, README.
+          api-key: ${GIGACHAT_CREDENTIALS:}
           client-id: ${GIGACHAT_CLIENT_ID:}
         scope: ${GIGACHAT_SCOPE:GIGACHAT_API_PERS}
       chat:
