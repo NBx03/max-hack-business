@@ -1,10 +1,35 @@
 import { useNavigate } from 'react-router-dom';
+import { ApiError } from '../../api/errors';
 import { Tabs } from '../../components/base/Tabs';
+import { AccessErrorState, ErrorState } from '../../components/base/StateCard';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 
 // Общая шапка для экранов 3/6/7 (docs/SCREENS.md, "Подключение компании"). Своего меню
 // администратора (со счётчиком заявок - экран 8) ещё нет: список документов - отдельная
 // задача (#7). Пока переход между тремя экранами администратора - только отсюда.
+
+export const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
+
+/**
+ * Ошибка первой загрузки экрана. 403 (не ADMIN) - не временный сбой, «Повторить» здесь
+ * никогда не поможет: показываем AccessErrorState со ссылкой на документы (PR #72, ревью
+ * №5). Раздел открыт по прямому адресу и без вкладки «Админ» (#71, только для ADMIN).
+ */
+export function AdminLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const navigate = useNavigate();
+  if (error instanceof ApiError && error.status === 403) {
+    return (
+      <AccessErrorState
+        text="Раздел доступен администраторам компании"
+        actionLabel="К документам"
+        onAction={() => navigate(ROUTE_PATTERNS.documents)}
+      />
+    );
+  }
+  return (
+    <ErrorState message={error instanceof ApiError ? error.message : FALLBACK_ERROR} onRetry={onRetry} />
+  );
+}
 
 type AdminTabKey = 'invite' | 'requests' | 'members';
 

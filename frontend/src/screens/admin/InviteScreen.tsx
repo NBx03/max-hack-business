@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   createPersonalInvite,
   getInviteCode,
+  getMembers,
   getPersonalInvites,
   getRoles,
   regenerateInviteCode,
@@ -12,20 +13,20 @@ import { ApiError } from '../../api/errors';
 import type { InviteCodeInfo, PersonalInviteView, RoleRef } from '../../api/types';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { RolePicker } from '../../components/base/RolePicker';
-import { ErrorState } from '../../components/base/StateCard';
 import { Toast } from '../../components/base/Toast';
 import { copyToClipboard, shareOrCopy } from '../../lib/share';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
-import { AdminTabs, formatTimeLeft, roleNames } from './AdminFormParts';
-
-const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
+import { AdminLoadError, AdminTabs, FALLBACK_ERROR, formatTimeLeft, roleNames } from './AdminFormParts';
 
 export function InviteScreen() {
   const [code, setCode] = useState<InviteCodeInfo | null>(null);
   const [roles, setRoles] = useState<RoleRef[]>([]);
   const [personalInvites, setPersonalInvites] = useState<PersonalInviteView[] | null>(null);
+  // Экран 2 (SCREENS.md): подсказка «Пригласите сотрудников…», пока администратор один -
+  // #64 ведёт создателя компании прямо сюда, а не на отдельный экран (PR #72, ревью №4).
+  const [soloAdmin, setSoloAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
 
   const [regenerating, setRegenerating] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
@@ -34,6 +35,9 @@ export function InviteScreen() {
   const [newRoleIds, setNewRoleIds] = useState<number[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  // Заполнен после успешного создания - лист остаётся открытым с готовой ссылкой и
+  // «Поделиться», а не закрывается сразу (SCREENS.md: «→ ссылка и «Поделиться»»; PR #72, №7).
+  const [createdInvite, setCreatedInvite] = useState<PersonalInviteView | null>(null);
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -42,10 +46,11 @@ export function InviteScreen() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [codeInfo, roleList] = await Promise.all([getInviteCode(), getRoles()]);
+      const [codeInfo, roleList, memberList] = await Promise.all([getInviteCode(), getRoles(), getMembers()]);
       setCode(codeInfo);
       setRoles(roleList);
-      // Личные ссылки - SHOULD: если недоступны (не ADMIN, эндпоинта нет в этой сборке),
+      setSoloAdmin(memberList.length === 1);
+      // Личные ссылки - SHOULD: если недоступны (эндпоинта нет в этой сборке),
       // основной блок «Код компании» всё равно должен показаться.
       try {
         setPersonalInvites(await getPersonalInvites());
@@ -53,7 +58,7 @@ export function InviteScreen() {
         setPersonalInvites(null);
       }
     } catch (error) {
-      setLoadError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setLoadError(error);
     } finally {
       setLoading(false);
     }
@@ -101,14 +106,19 @@ export function InviteScreen() {
     try {
       const created = await createPersonalInvite(newRoleIds);
       setPersonalInvites((current) => [created, ...(current ?? [])]);
-      setCreateOpen(false);
+      setCreatedInvite(created);
       setNewRoleIds([]);
-      setToast('Ссылка создана');
     } catch (error) {
       setCreateError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
     } finally {
       setCreating(false);
     }
+  }
+
+  function closeCreateSheet() {
+    setCreateOpen(false);
+    setCreatedInvite(null);
+    setCreateError(null);
   }
 
   async function revoke(invite: PersonalInviteView) {
@@ -123,10 +133,10 @@ export function InviteScreen() {
   }
 
   if (loading) return <LoadingState />;
-  if (loadError || !code) {
+  if (loadError !== null || !code) {
     return (
       <AdminScreen title="Приглашение">
-        <ErrorState message={loadError ?? FALLBACK_ERROR} onRetry={() => void load()} />
+        <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
@@ -137,6 +147,13 @@ export function InviteScreen() {
         <AdminTabs active="invite" />
       </div>
       <div style={{ ...stackStyle, marginTop: 4 }}>
+        {soloAdmin && (
+          <Notice>
+            Пригласите сотрудников. Пока их нет, документы, где согласует директор, будут
+            согласованы вами автоматически — это видно в истории.
+          </Notice>
+        )}
+
         <section style={sectionStyle}>
           <Typography.Headline variant="medium">Код компании</Typography.Headline>
           <Typography.Display style={{ letterSpacing: 2 }}>{code.code}</Typography.Display>
@@ -174,7 +191,7 @@ export function InviteScreen() {
                     style={{
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: 6,
+                      gap: 8,
                       padding: '10px 0',
                       borderBottom: '1px solid var(--divider-primary)',
                     }}
@@ -185,23 +202,13 @@ export function InviteScreen() {
                         {formatTimeLeft(invite.expiresAt)}
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void share(invite.link, 'Личное приглашение в компанию')}
-                      style={{
-                        textAlign: 'left',
-                        border: 'none',
-                        background: 'transparent',
-                        padding: 0,
-                        color: 'var(--text-tertiary)',
-                        fontSize: 12,
-                        overflowWrap: 'anywhere',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {invite.link} · Поделиться
-                    </button>
-                    <div>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', overflowWrap: 'anywhere' }}>
+                      {invite.link}
+                    </span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Button size="small" variant="secondary" onClick={() => void share(invite.link, 'Личное приглашение в компанию')}>
+                        Поделиться
+                      </Button>
                       <Button size="small" variant="secondary" onClick={() => void revoke(invite)}>Отозвать</Button>
                     </div>
                   </div>
@@ -221,21 +228,34 @@ export function InviteScreen() {
         onConfirm={() => void regenerate()}
       />
 
-      <BottomSheet open={createOpen} onClose={() => setCreateOpen(false)} title="Личная ссылка">
-        <div style={stackStyle}>
-          <RolePicker roles={roles} selectedRoleIds={newRoleIds} onChange={setNewRoleIds} disabled={creating} />
-          <Notice>Вступит тот, кто откроет первым. Отправляйте только в личные сообщения.</Notice>
-          {createError && <Notice tone="danger">{createError}</Notice>}
-          <Button
-            stretched
-            variant="primary"
-            loading={creating}
-            disabled={creating || newRoleIds.length === 0}
-            onClick={() => void createLink()}
-          >
-            Создать
-          </Button>
-        </div>
+      <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка">
+        {createdInvite ? (
+          <div style={stackStyle}>
+            <Notice tone="success">Ссылка создана: {roleNames(createdInvite.roles)}</Notice>
+            <Typography.Text style={{ overflowWrap: 'anywhere', color: 'var(--text-tertiary)' }}>
+              {createdInvite.link}
+            </Typography.Text>
+            <Button stretched onClick={() => void share(createdInvite.link, 'Личное приглашение в компанию')}>
+              Поделиться
+            </Button>
+            <Button stretched variant="secondary" onClick={closeCreateSheet}>Готово</Button>
+          </div>
+        ) : (
+          <div style={stackStyle}>
+            <RolePicker roles={roles} selectedRoleIds={newRoleIds} onChange={setNewRoleIds} disabled={creating} />
+            <Notice>Вступит тот, кто откроет первым. Отправляйте только в личные сообщения.</Notice>
+            {createError && <Notice tone="danger">{createError}</Notice>}
+            <Button
+              stretched
+              variant="primary"
+              loading={creating}
+              disabled={creating || newRoleIds.length === 0}
+              onClick={() => void createLink()}
+            >
+              Создать
+            </Button>
+          </div>
+        )}
       </BottomSheet>
 
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}

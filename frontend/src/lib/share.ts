@@ -1,9 +1,9 @@
 // «Поделиться» и «Скопировать» — экран 3 (SCREENS.md): «Поделиться» (системный шаринг MAX),
-// «Скопировать код». В window.WebApp (max/webApp.ts) нет проверенного метода шаринга — в
-// проекте фиксируются только реально сверенные с dev.max.ru поля моста, а sharing там не
-// подтверждён. Поэтому используем стандартный Web Share API браузера (его поддерживают
-// современные мобильные WebView, в том числе внутри мессенджеров) с проверкой доступности
-// и запасным вариантом — копированием в буфer обмена, если поделиться не получилось.
+// «Скопировать код». Порядок (PR #72, ревью): внутри MAX - shareMaxContent моста (экран
+// шеринга внутри MAX, например переслать в рабочий чат); иначе - стандартный Web Share API
+// браузера (iOS/Android WebView вне MAX); иначе - копирование в буфер обмена.
+
+import { getWebApp, isInsideMax } from '../max/webApp';
 
 export async function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
@@ -33,10 +33,21 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * @returns 'shared' - открылось системное меню «Поделиться»; 'copied' - меню недоступно,
- *   ссылка скопирована в буфер; 'failed' - не удалось ни то, ни другое (текст покажет вызывающий код).
+ * @returns 'shared' - открылось системное меню «Поделиться» (или экран шеринга MAX);
+ *   'copied' - меню недоступно, ссылка скопирована в буфер; 'failed' - не удалось ни то,
+ *   ни другое (текст покажет вызывающий код).
  */
 export async function shareOrCopy(url: string, title: string): Promise<'shared' | 'copied' | 'failed'> {
+  const webApp = getWebApp();
+  if (isInsideMax() && typeof webApp?.shareMaxContent === 'function') {
+    try {
+      webApp.shareMaxContent({ text: title, link: url });
+      return 'shared';
+    } catch {
+      // Мост есть, но вызов не удался - пробуем следующий вариант, а не показываем ошибку.
+    }
+  }
+
   if (navigator.share) {
     try {
       await navigator.share({ title, url });

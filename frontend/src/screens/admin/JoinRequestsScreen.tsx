@@ -4,12 +4,10 @@ import { approveJoinRequest, getJoinRequests, getRoles, rejectJoinRequest } from
 import { ApiError } from '../../api/errors';
 import type { JoinRequestView, RoleRef } from '../../api/types';
 import { RolePicker } from '../../components/base/RolePicker';
-import { EmptyState, ErrorState } from '../../components/base/StateCard';
+import { EmptyState } from '../../components/base/StateCard';
 import { Toast } from '../../components/base/Toast';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
-import { AdminTabs, formatDateTime } from './AdminFormParts';
-
-const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
+import { AdminLoadError, AdminTabs, FALLBACK_ERROR, formatDateTime } from './AdminFormParts';
 
 interface RowChoice {
   roleIds: number[];
@@ -20,7 +18,7 @@ export function JoinRequestsScreen() {
   const [requests, setRequests] = useState<JoinRequestView[] | null>(null);
   const [roles, setRoles] = useState<RoleRef[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [choices, setChoices] = useState<Record<number, RowChoice>>({});
   const [busyId, setBusyId] = useState<number | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<number, string>>({});
@@ -35,7 +33,7 @@ export function JoinRequestsScreen() {
       setRoles(roleList);
       setChoices(Object.fromEntries(requestList.map((request) => [request.id, { roleIds: [], isAdmin: false }])));
     } catch (error) {
-      setLoadError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setLoadError(error);
     } finally {
       setLoading(false);
     }
@@ -53,6 +51,23 @@ export function JoinRequestsScreen() {
     setRequests((current) => (current ?? []).filter((request) => request.id !== requestId));
   }
 
+  /**
+   * Заявку уже решил другой администратор (409 INVALID_STATE) - строка в списке устарела,
+   * а не временно недоступна. Убираем её и показываем тостом текст бэкенда, а не оставляем
+   * висеть с ошибкой (PR #72, ревью №6). Остальные ошибки (сеть, 403) - в строке как раньше.
+   */
+  function handleRowError(request: JoinRequestView, error: unknown) {
+    if (error instanceof ApiError && error.status === 409) {
+      removeRequest(request.id);
+      setToast(error.message);
+      return;
+    }
+    setRowErrors((current) => ({
+      ...current,
+      [request.id]: error instanceof ApiError ? error.message : FALLBACK_ERROR,
+    }));
+  }
+
   async function approve(request: JoinRequestView) {
     const choice = choices[request.id] ?? { roleIds: [], isAdmin: false };
     setBusyId(request.id);
@@ -62,10 +77,7 @@ export function JoinRequestsScreen() {
       removeRequest(request.id);
       setToast(`Заявка «${request.user.fullName}» принята`);
     } catch (error) {
-      setRowErrors((current) => ({
-        ...current,
-        [request.id]: error instanceof ApiError ? error.message : FALLBACK_ERROR,
-      }));
+      handleRowError(request, error);
     } finally {
       setBusyId(null);
     }
@@ -79,20 +91,17 @@ export function JoinRequestsScreen() {
       removeRequest(request.id);
       setToast(`Заявка «${request.user.fullName}» отклонена`);
     } catch (error) {
-      setRowErrors((current) => ({
-        ...current,
-        [request.id]: error instanceof ApiError ? error.message : FALLBACK_ERROR,
-      }));
+      handleRowError(request, error);
     } finally {
       setBusyId(null);
     }
   }
 
   if (loading) return <LoadingState />;
-  if (loadError || !requests) {
+  if (loadError !== null || !requests) {
     return (
       <AdminScreen title="Заявки">
-        <ErrorState message={loadError ?? FALLBACK_ERROR} onRetry={() => void load()} />
+        <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
