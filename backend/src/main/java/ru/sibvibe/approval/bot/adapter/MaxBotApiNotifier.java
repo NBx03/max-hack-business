@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.sibvibe.approval.bot.Notifier;
 
+import java.net.URI;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -14,6 +16,7 @@ import java.util.List;
 public class MaxBotApiNotifier implements Notifier {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MaxBotApiNotifier.class);
+    private static final String START_PARAM = "startapp";
 
     private final MaxBotApiClient client;
 
@@ -23,14 +26,31 @@ public class MaxBotApiNotifier implements Notifier {
 
     @Override
     public void send(long maxUserId, String text, String buttonLabel, String buttonUrl) {
-        List<MaxBotApiClient.LinkButtonRequest> buttons = buttonUrl == null || buttonUrl.isBlank()
+        List<MaxBotApiClient.OpenAppButtonRequest> buttons = buttonUrl == null || buttonUrl.isBlank()
                 ? List.of()
-                : List.of(MaxBotApiClient.LinkButtonRequest.link(buttonLabel, buttonUrl));
+                : List.of(openAppButton(buttonLabel, buttonUrl));
         try {
             client.sendMessage(maxUserId, text, buttons);
         } catch (RuntimeException exception) {
             LOGGER.warn("Не удалось отправить уведомление MAX пользователю {}: {}",
                     maxUserId, exception.getMessage());
         }
+    }
+
+    /**
+     * {@link ru.sibvibe.approval.organization.service.InviteLinks} всегда отдаёт готовую ссылку вида
+     * {@code https://max.ru/<бот>[?startapp=<payload>]} - той же самой, что уходит человеку при шаринге.
+     * Кнопка {@code open_app} ссылку не принимает, только ник бота и сам payload по отдельности,
+     * поэтому здесь их разбираем обратно, а не заводим для бота отдельную копию константы с ником.
+     */
+    private static MaxBotApiClient.OpenAppButtonRequest openAppButton(String label, String url) {
+        URI uri = URI.create(url);
+        String webApp = uri.getPath().startsWith("/") ? uri.getPath().substring(1) : uri.getPath();
+        String payload = uri.getQuery() == null ? null : Arrays.stream(uri.getQuery().split("&"))
+                .filter(param -> param.startsWith(START_PARAM + "="))
+                .map(param -> param.substring(START_PARAM.length() + 1))
+                .findFirst()
+                .orElse(null);
+        return MaxBotApiClient.OpenAppButtonRequest.openApp(label, webApp, payload);
     }
 }

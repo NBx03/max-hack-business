@@ -89,6 +89,7 @@ class DocumentIntegrationTest {
     private long foreignId;
     private long colleagueId;
     private long authorOrgId;
+    private long foreignOrgId;
     private long typeId;
 
     @Autowired
@@ -105,10 +106,10 @@ class DocumentIntegrationTest {
         foreignId = user(920000002L, "Чужой пользователь");
         colleagueId = user(920000003L, "Коллега");
         authorOrgId = organization("Компания автора", authorId);
-        long foreignOrg = organization("Другая компания", foreignId);
+        foreignOrgId = organization("Другая компания", foreignId);
         member(authorOrgId, authorId);
         member(authorOrgId, colleagueId);
-        member(foreignOrg, foreignId);
+        member(foreignOrgId, foreignId);
         typeId = jdbc.queryForObject("""
                 insert into document_type(name, code, is_generic)
                 values ('Приказ', 'ISSUE16_ORDER', false) returning id
@@ -383,6 +384,64 @@ class DocumentIntegrationTest {
                 Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
     }
 
+    @Test
+    void metricsUseFirstSubmissionHistoryDateRangeAndCurrentOrganization() throws Exception {
+        long ownRole = role(authorOrgId, "METRICS_REVIEWER");
+        long foreignRole = role(foreignOrgId, "FOREIGN_METRICS_REVIEWER");
+
+        metricDocument(authorOrgId, authorId, ownRole, "APPROVED",
+                "2026-09-01T08:00:00Z", "2026-09-01T10:00:00Z", false);
+        metricDocument(authorOrgId, authorId, ownRole, "APPROVED",
+                "2026-09-02T08:00:00Z", "2026-09-02T14:00:00Z", true);
+        metricDocument(authorOrgId, authorId, ownRole, "REJECTED",
+                "2026-09-03T08:00:00Z", "2026-09-03T09:00:00Z", false);
+        metricDocument(authorOrgId, authorId, ownRole, "RETURNED",
+                "2026-09-04T08:00:00Z", "2026-09-04T09:00:00Z", true);
+
+        // Не должны влиять: черновик своей компании, документ другой компании и
+        // отправленный вне выбранного периода документ.
+        insertDocument(authorOrgId, authorId, "DRAFT", Instant.parse("2026-09-05T08:00:00Z"),
+                Instant.parse("2026-09-05T08:00:00Z"));
+        metricDocument(foreignOrgId, foreignId, foreignRole, "RETURNED",
+                "2026-09-03T08:00:00Z", "2026-09-03T09:00:00Z", true);
+        metricDocument(authorOrgId, authorId, ownRole, "APPROVED",
+                "2026-08-31T08:00:00Z", "2026-08-31T18:00:00Z", false);
+
+        JsonNode allSeptember = json(mvc.perform(get("/api/v1/orgs/current/metrics")
+                        .param("from", "2026-09-01")
+                        .param("to", "2026-09-30")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        assertThat(allSeptember.path("documentsCount").asLong()).isEqualTo(4);
+        assertThat(allSeptember.path("medianApprovalHours").asDouble()).isEqualTo(4.0);
+        assertThat(allSeptember.path("returnRate").asDouble()).isEqualTo(0.5);
+
+        JsonNode oneDay = json(mvc.perform(get("/api/v1/orgs/current/metrics")
+                        .param("from", "2026-09-02")
+                        .param("to", "2026-09-02")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        assertThat(oneDay.path("documentsCount").asLong()).isEqualTo(1);
+        assertThat(oneDay.path("medianApprovalHours").asDouble()).isEqualTo(6.0);
+        assertThat(oneDay.path("returnRate").asDouble()).isEqualTo(1.0);
+
+        mvc.perform(get("/api/v1/orgs/current/metrics")
+                        .param("from", "2026-10-01")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documentsCount").value(0))
+                .andExpect(jsonPath("$.medianApprovalHours").isEmpty())
+                .andExpect(jsonPath("$.returnRate").isEmpty());
+        mvc.perform(get("/api/v1/orgs/current/metrics")
+                        .param("from", "2026-09-02")
+                        .param("to", "2026-09-01")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
     private JsonNode createPrivateDocument(byte[] pdf) throws Exception {
         return json(mvc.perform(multipart("/api/v1/documents")
                         .file(textJsonPart("meta", Map.of(
@@ -426,6 +485,70 @@ class DocumentIntegrationTest {
                 insert into organization(name, created_by, created_at, is_demo)
                 values (?, ?, current_timestamp, false) returning id
                 """, Long.class, name, creatorId);
+    }
+
+    private long role(long orgId, String code) {
+        return jdbc.queryForObject("""
+                insert into role(org_id, code, name) values (?, ?, ?) returning id
+                """, Long.class, orgId, code, code);
+    }
+
+    private long insertDocument(long orgId, long author, String status, Instant createdAt, Instant updatedAt) {
+        return jdbc.queryForObject("""
+                insert into document(document_type_id, author_id, org_id, title, status,
+                    current_version_no, visibility, created_at, updated_at)
+                values (?, ?, ?, 'Метрика', ?, 1, 'ORG', ?, ?) returning id
+                """, Long.class, typeId, author, orgId, status,
+                Timestamp.from(createdAt), Timestamp.from(updatedAt));
+    }
+
+    private void metricDocument(
+            long orgId,
+            long author,
+            long roleId,
+            String status,
+            String submittedAt,
+            String updatedAt,
+            boolean returned
+    ) {
+        Instant submitted = Instant.parse(submittedAt);
+        Instant updated = Instant.parse(updatedAt);
+        long documentId = insertDocument(orgId, author, status, submitted.minusSeconds(3600), updated);
+        jdbc.update("""
+                insert into document_version(document_id, version_no, contains_sensitive, created_by, created_at)
+                values (?, 1, false, ?, ?)
+                """, documentId, author, Timestamp.from(submitted.minusSeconds(3600)));
+        if (returned) {
+            jdbc.update("""
+                    insert into approval_step(document_id, version_no, approver_id, role_id, stage_order,
+                        origin, decision, created_at, activated_at, decided_at)
+                    values (?, 1, ?, ?, 1, 'TEMPLATE', 'RETURNED', ?, ?, ?)
+                    """, documentId, author, roleId, Timestamp.from(submitted), Timestamp.from(submitted),
+                    Timestamp.from(submitted.plusSeconds(900)));
+        }
+        if ("APPROVED".equals(status)) {
+            Instant approvedSubmission = returned ? submitted.plusSeconds(3600) : submitted;
+            if (returned) {
+                jdbc.update("""
+                        insert into document_version(document_id, version_no, contains_sensitive, created_by, created_at)
+                        values (?, 2, false, ?, ?)
+                        """, documentId, author, Timestamp.from(approvedSubmission.minusSeconds(60)));
+                jdbc.update("update document set current_version_no = 2 where id = ?", documentId);
+            }
+            jdbc.update("""
+                    insert into approval_step(document_id, version_no, approver_id, role_id, stage_order,
+                        origin, decision, created_at, activated_at, decided_at)
+                    values (?, ?, ?, ?, 1, 'TEMPLATE', 'APPROVED', ?, ?, ?)
+                    """, documentId, returned ? 2 : 1, author, roleId,
+                    Timestamp.from(approvedSubmission), Timestamp.from(approvedSubmission), Timestamp.from(updated));
+        } else if (!returned) {
+            jdbc.update("""
+                    insert into approval_step(document_id, version_no, approver_id, role_id, stage_order,
+                        origin, decision, created_at, activated_at, decided_at)
+                    values (?, 1, ?, ?, 1, 'TEMPLATE', 'REJECTED', ?, ?, ?)
+                    """, documentId, author, roleId,
+                    Timestamp.from(submitted), Timestamp.from(submitted), Timestamp.from(updated));
+        }
     }
 
     private void member(long orgId, long userId) {

@@ -61,6 +61,30 @@ export interface DemoSandboxResponse {
   users: DemoSandboxUser[];
 }
 
+// ---------- Подключение компании: создание, код, личная ссылка, заявка (#18) ----------
+
+export interface OrganizationCreated {
+  id: number;
+  name: string;
+}
+
+export interface InvitePreview {
+  orgName: string;
+}
+
+export interface JoinRequestCreated {
+  id: number;
+  orgName: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface PersonalInvitePreview {
+  orgName: string;
+  roles: RoleRef[];
+  expiresAt: string;
+}
+
 // ---------- Подключение компании: приглашение, заявки, участники (#54) ----------
 
 export interface InviteCodeInfo {
@@ -97,6 +121,15 @@ export interface MemberView {
   roles: RoleRef[];
   isAdmin: boolean;
   joinedAt: string;
+}
+
+// ---------- Показатели эффекта (#58) ----------
+
+export interface OrganizationMetrics {
+  medianApprovalHours: number | null;
+  /** Доля документов с хотя бы одним возвратом, от 0 до 1. */
+  returnRate: number | null;
+  documentsCount: number;
 }
 
 // ---------- Документы (#7, #55) - docs/API_CONTRACTS.md, "Документы" и "Маршрут и решения" ----------

@@ -24,8 +24,9 @@ export function hasCompany(me: MeResponse): boolean {
  *  4. Есть компания - обычный список документов.
  *  5. Иначе - приветствие.
  */
-export function resolveEntryRoute(me: MeResponse): string {
-  const startParam = me.startParam;
+export function resolveEntryRoute(me: MeResponse, withStartParam = true): string {
+  // withStartParam = false - ссылка уже отработала в этом запуске (см. AppRoutes).
+  const startParam = withStartParam ? me.startParam : null;
 
   if (startParam?.startsWith('d_')) {
     const documentId = startParam.slice('d_'.length);

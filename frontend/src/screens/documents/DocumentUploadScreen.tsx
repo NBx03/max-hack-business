@@ -2,10 +2,9 @@ import { Input, Radio, Switch, Typography } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
-import { ApiError } from '../../api/errors';
+import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
 import { FilePicker } from '../../components/base/FilePicker';
-import { BottomActionBar } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { documentCheckPath } from '../../routes/paths';
 import {
@@ -16,11 +15,12 @@ import {
   SubmitButton,
   fieldStyle,
   inputStyle,
+  labelStyle,
   sectionStyle,
   stackStyle,
 } from './DocumentFormParts';
 
-const FALLBACK_ERROR = 'Сервис временно недоступен, попробуйте ещё раз';
+const FORM_ID = 'document-upload-form';
 
 export function DocumentUploadScreen() {
   const navigate = useNavigate();
@@ -42,7 +42,7 @@ export function DocumentUploadScreen() {
       setTypes(response);
       setSelectedTypeId((current) => current ?? response[0]?.id ?? null);
     } catch (error) {
-      setLoadError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setLoadError(errorMessage(error));
     }
   }
 
@@ -71,7 +71,7 @@ export function DocumentUploadScreen() {
       });
       navigate(documentCheckPath(card.id), { state: { card } });
     } catch (error) {
-      setSubmitError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setSubmitError(errorMessage(error));
     } finally {
       setSubmitting(false);
     }
@@ -86,10 +86,17 @@ export function DocumentUploadScreen() {
   }
 
   return (
-    <DocumentScreen title="Новый документ">
-      <form style={{ ...stackStyle, marginTop: 20 }} onSubmit={(event) => void submit(event)}>
+    <DocumentScreen
+      title="Новый документ"
+      footer={
+        <SubmitButton form={FORM_ID} busy={submitting} disabled={!mainFile || !title.trim()}>
+          Загрузить и проверить
+        </SubmitButton>
+      }
+    >
+      <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
         <label style={fieldStyle}>
-          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>Тип документа</span>
+          <span style={labelStyle}>Тип документа</span>
           <select
             style={inputStyle}
             value={selectedTypeId ?? ''}
@@ -106,7 +113,7 @@ export function DocumentUploadScreen() {
         </label>
 
         <label style={fieldStyle}>
-          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>Название</span>
+          <span style={labelStyle}>Название</span>
           <Input size="large" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={255} required />
         </label>
 
@@ -118,8 +125,9 @@ export function DocumentUploadScreen() {
           onSelect={setMainFile}
         />
 
-        <fieldset style={sectionStyle}>
-          <legend style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Видимость</legend>
+        {/* Не fieldset: его рамка и legend у браузера рисуются поверх нашей карточки. */}
+        <div role="radiogroup" aria-label="Видимость" style={{ ...sectionStyle, gap: 12 }}>
+          <strong>Видимость</strong>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Radio name="visibility" checked={visibility === 'PRIVATE'} onChange={() => setVisibility('PRIVATE')} />
             Только участники согласования
@@ -128,7 +136,7 @@ export function DocumentUploadScreen() {
             <Radio name="visibility" checked={visibility === 'ORG'} onChange={() => setVisibility('ORG')} />
             Вся компания
           </label>
-        </fieldset>
+        </div>
 
         <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center' }}>
           <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
@@ -147,9 +155,6 @@ export function DocumentUploadScreen() {
 
         {submitError && <Notice tone="danger">{submitError}</Notice>}
         {submitting && <Typography.Text>Проверяем документ</Typography.Text>}
-        <BottomActionBar>
-          <SubmitButton busy={submitting} disabled={!mainFile || !title.trim()}>Загрузить и проверить</SubmitButton>
-        </BottomActionBar>
       </form>
     </DocumentScreen>
   );
