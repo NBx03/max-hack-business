@@ -153,8 +153,31 @@ public class DocumentRuleService {
         }
         PreparedCheck merged = new PreparedCheck(
                 prepared.type(), prepared.schema(), Collections.unmodifiableMap(manual), prepared.rules());
-        return execute(merged, new DocumentExtractor.ExtractionResult(
+        CheckData result = execute(merged, new DocumentExtractor.ExtractionResult(
                 Map.copyOf(extracted), previous != null && previous.modelAvailable(), "stored"));
+        if (result == null) {
+            return null;
+        }
+        // Ручная правка без изменения файла видна согласующему: рядом со значением — что в файле (#86).
+        List<DocumentCardResponse.FieldValue> fields = result.fields().stream()
+                .map(field -> withFileValue(field, previousByName.get(field.name())))
+                .toList();
+        return new CheckData(result.modelAvailable(), fields, result.issues());
+    }
+
+    private static DocumentCardResponse.FieldValue withFileValue(
+            DocumentCardResponse.FieldValue field,
+            DocumentCardResponse.FieldValue old
+    ) {
+        if (!"MANUAL".equals(field.source()) || old == null) {
+            return field;
+        }
+        String inFile = old.fileValue() != null ? old.fileValue() : "MODEL".equals(old.source()) ? old.value() : null;
+        if (inFile == null || Objects.equals(inFile, field.value())) {
+            return field;
+        }
+        return new DocumentCardResponse.FieldValue(
+                field.name(), field.value(), field.source(), field.quote(), field.page(), inFile);
     }
 
     public CheckData pending(PreparedCheck prepared) {

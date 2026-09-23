@@ -44,6 +44,10 @@ public class Document {
     @Column(name = "visibility", nullable = false, length = 32)
     private Visibility visibility;
 
+    /** Тип выбрала модель по тексту документа, а не автор — показывается на экране проверки. */
+    @Column(name = "type_auto_detected", nullable = false)
+    private boolean typeAutoDetected;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

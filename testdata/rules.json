@@ -1,5 +1,5 @@
 {
-  "comment": "Единый источник полей и правил проверки для трёх поддержанных типов. Из него #11 делает миграцию справочника, generate.py — docs/RULES.md. Поля правила совпадают с RequirementRule и таблицей requirement_rule. Коды правил (M1, V1, S1) — только для документации и тестов, в базу не пишутся. Вид LEGAL — только если закон сам определяет проверяемое требование, а не если он лишь объясняет, зачем оно нужно.",
+  "comment": "Единый источник полей и правил проверки: три типа с подробной проверкой и GENERIC — общие реквизиты любого другого документа, только предупреждения. Из него #11 делает миграцию справочника, generate.py — docs/RULES.md. Поля правила совпадают с RequirementRule и таблицей requirement_rule. Коды правил (M1, V1, S1) — только для документации и тестов, в базу не пишутся. Вид LEGAL — только если закон сам определяет проверяемое требование, а не если он лишь объясняет, зачем оно нужно.",
   "sourceCheckedAt": "2026-09-21",
   "sources": {
     "GOST": {
@@ -42,10 +42,10 @@
           "description": "Укажите адресата — кому адресована записка: должность и ФИО." },
         { "code": "M2", "field": "doc_date", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "GOST", "sourceRef": "п. 5.10",
           "description": "Укажите дату записки." },
-        { "code": "M3", "field": "doc_date", "check": "DATE_FORMAT", "expected": "dd.MM.uuuu", "kind": "INTERNAL_POLICY", "severity": "WARNING", "source": "MEMO_POLICY", "sourceRef": "п. 2.4: из двух способов записи даты по ГОСТ Р 7.0.97-2016, п. 5.10, в компании принят цифровой",
-          "description": "Дату записывают цифрами через точку: ДД.ММ.ГГГГ. ГОСТ допускает и словесно-цифровой способ, но в компании принят цифровой." },
-        { "code": "M4", "field": "doc_date", "check": "DATE_NOT_FUTURE", "expected": "dd.MM.uuuu", "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "GOST", "sourceRef": "п. 5.10",
-          "description": "Дата записки — это дата подписания, она не может быть позже сегодняшнего дня. Дату не в формате ДД.ММ.ГГГГ проверить не получится." },
+        { "code": "M3", "field": "doc_date", "check": "DATE_FORMAT", "expected": "RU_DATE", "kind": "INTERNAL_POLICY", "severity": "WARNING", "source": "GOST", "sourceRef": "п. 5.10",
+          "description": "Запишите дату полностью — число, месяц и год: цифрами (23.09.2026) или словесно-цифровым способом («23» сентября 2026 г.). Оба способа допускает ГОСТ." },
+        { "code": "M4", "field": "doc_date", "check": "DATE_NOT_FUTURE", "expected": "RU_DATE", "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "GOST", "sourceRef": "п. 5.10",
+          "description": "Дата записки — это дата подписания, она не может быть позже сегодняшнего дня." },
         { "code": "M5", "field": "reg_number", "check": "MATCHES_PATTERN", "expected": "СЗ-\\d{1,5}", "kind": "INTERNAL_POLICY", "severity": "WARNING", "source": "MEMO_POLICY", "sourceRef": "п. 2.5: индекс «СЗ» для служебных записок; ГОСТ Р 7.0.97-2016, п. 5.11, оставляет индексы на усмотрение организации",
           "description": "Номер служебной записки — в формате СЗ-<порядковый номер>, например СЗ-117. Если номера ещё нет, его присвоят при регистрации." },
         { "code": "M6", "field": "subject", "check": "MATCHES_PATTERN", "expected": "(О|Об)\\s.+", "kind": "INTERNAL_POLICY", "severity": "WARNING", "source": "GOST", "sourceRef": "п. 5.17",
@@ -57,7 +57,7 @@
         { "code": "M9", "field": "signer_position", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "WARNING", "source": "MEMO_POLICY", "sourceRef": "п. 2.7: служебные записки оформляются не на бланке должностного лица, поэтому должность в подписи указывается",
           "description": "Укажите в подписи должность подписывающего: служебная записка оформляется не на бланке должностного лица." },
         { "code": "M10", "field": "signer_name", "check": "MATCHES_PATTERN", "expected": "[А-ЯЁ]\\.\\s?[А-ЯЁ]\\.\\s?[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?", "kind": "INTERNAL_POLICY", "severity": "WARNING", "source": "GOST", "sourceRef": "п. 5.22",
-          "description": "Расшифровка подписи — инициалы и фамилия: И.О. Фамилия." }
+          "description": "По ГОСТ в расшифровке подписи сначала инициалы, потом фамилия: «А.С. Петрова», а не «Петрова А.С.» и не полное имя." }
       ]
     },
     {
@@ -77,8 +77,8 @@
           "description": "Этим заявлением оформляют ежегодный оплачиваемый отпуск или отпуск без сохранения заработной платы. Учебный и другие виды отпуска — отдельным заявлением с подтверждающими документами." },
         { "code": "V3", "field": "start_date", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "VACATION_POLICY", "sourceRef": "п. 3.3",
           "description": "Укажите дату начала отпуска." },
-        { "code": "V4", "field": "start_date", "check": "DATE_FORMAT", "expected": "dd.MM.uuuu", "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "VACATION_POLICY", "sourceRef": "п. 3.3",
-          "description": "Дату начала отпуска пишут полностью в формате ДД.ММ.ГГГГ, например 01.10.2026: без года кадровик не поймёт, о каком годе речь." },
+        { "code": "V4", "field": "start_date", "check": "DATE_FORMAT", "expected": "RU_DATE", "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "VACATION_POLICY", "sourceRef": "п. 3.3",
+          "description": "Дату начала отпуска пишут полностью, с годом: 01.10.2026 или 1 октября 2026 г. — без года кадровик не поймёт, о каком годе речь." },
         { "code": "V5", "field": "days_count", "check": "MATCHES_PATTERN", "expected": "[1-9][0-9]*", "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
           "description": "Количество календарных дней — целым положительным числом, цифрами, например 14: число прописью проверить нельзя." }
       ]
@@ -105,6 +105,30 @@
           "description": "Укажите категорию субъекта МСП: от неё зависит, на какую поддержку заявитель может претендовать." },
         { "code": "S6", "field": "smb_category", "check": "ONE_OF", "expected": "[\"микропредприятие\",\"малое предприятие\",\"среднее предприятие\"]", "kind": "LEGAL", "severity": "BLOCKER", "source": "LAW_209_ART_4_1", "sourceRef": "ст. 4.1, ч. 3, п. 5",
           "description": "По закону категорий субъектов МСП три: микропредприятие, малое предприятие, среднее предприятие. «Индивидуальный предприниматель» — это форма, а не категория." }
+      ]
+    },
+    {
+      "code": "GENERIC",
+      "name": "Другой документ",
+      "fields": [
+        { "name": "doc_kind", "type": "STRING", "label": "Вид документа", "hint": "Вид документа, как он назван в самом документе: «Приказ», «Договор», «Акт», «Письмо». Пусто, если вид не указан." },
+        { "name": "doc_date", "type": "DATE", "label": "Дата", "hint": "Дата документа (подписания или составления) точно в том виде, как она написана, без приведения к другому формату." },
+        { "name": "reg_number", "type": "STRING", "label": "Номер", "hint": "Регистрационный номер документа после знака «№», без самого знака. Пусто, если номера нет." },
+        { "name": "subject", "type": "STRING", "label": "Заголовок", "hint": "Заголовок к тексту или название документа — о чём он, как в документе. Пусто, если заголовка нет." },
+        { "name": "signer_position", "type": "STRING", "label": "Должность подписавшего", "hint": "Должность в подписи. Пусто, если в подписи нет должности." },
+        { "name": "signer_name", "type": "PERSON", "label": "Расшифровка подписи", "hint": "Инициалы и фамилия в подписи точно как в документе. Пусто, если подписи нет." }
+      ],
+      "rules": [
+        { "code": "G1", "field": "doc_date", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "WARNING", "source": "PRODUCT", "sourceRef": null,
+          "description": "Не нашли дату документа. Без даты непонятно, какая редакция документа согласована." },
+        { "code": "G2", "field": "doc_date", "check": "DATE_FORMAT", "expected": "RU_DATE", "kind": "PRODUCT_RULE", "severity": "WARNING", "source": "PRODUCT", "sourceRef": null,
+          "description": "Дату не удалось прочитать: запишите её полностью — например, 23.09.2026 или «23» сентября 2026 г." },
+        { "code": "G3", "field": "subject", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "INFO", "source": "PRODUCT", "sourceRef": null,
+          "description": "Не нашли заголовок: по нему согласующие сразу понимают, о чём документ." },
+        { "code": "G4", "field": "signer_name", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "WARNING", "source": "PRODUCT", "sourceRef": null,
+          "description": "Не нашли подпись с расшифровкой: из документа должно быть понятно, кто его подписывает." },
+        { "code": "G5", "field": "reg_number", "check": "REQUIRED", "expected": null, "kind": "PRODUCT_RULE", "severity": "INFO", "source": "PRODUCT", "sourceRef": null,
+          "description": "Не нашли регистрационный номер. Если документы в компании регистрируют, номер присвоят при регистрации." }
       ]
     }
   ]

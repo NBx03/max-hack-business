@@ -177,12 +177,16 @@ public class DocumentViewService {
         // Правило «нельзя отправить» общее с самой отправкой (DocumentCheckRules): кнопка и сервер не расходятся.
         boolean submissionBlocked = DocumentCheckRules.blockReason(
                 type.isGeneric(), current.getCheckStatus(), current.getValidationIssues()).isPresent();
+        boolean editable = draft || document.getStatus() == Document.Status.RETURNED;
+        boolean mainIsDocx = files.getOrDefault(current.getId(), List.of()).stream()
+                .anyMatch(file -> file.getKind() == DocumentFile.Kind.MAIN && DocxCorrector.DOCX.equals(file.getMimeType()));
         DocumentCardResponse.Permissions permissions = new DocumentCardResponse.Permissions(
                 author && draft && !type.isGeneric(),
-                author && (draft || document.getStatus() == Document.Status.RETURNED),
+                author && editable,
                 author && draft && !submissionBlocked,
                 // добавить согласующего можно до отправки: он выбирается в предпросмотре маршрута
-                author && draft);
+                author && draft,
+                author && editable && !type.isGeneric() && mainIsDocx);
         List<Long> activeStepIds = steps.stream()
                 .filter(step -> step.versionNo() == document.getCurrentVersionNo())
                 .filter(step -> step.approverId() == currentUser.userId())
@@ -197,7 +201,8 @@ public class DocumentViewService {
         return new DocumentCardResponse(
                 document.getId(),
                 document.getTitle(),
-                new DocumentCardResponse.TypeRef(type.getId(), type.getName(), type.isGeneric()),
+                new DocumentCardResponse.TypeRef(
+                        type.getId(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
                 document.getStatus(),
                 document.getVisibility(),
                 user(users, document.getAuthorId()),

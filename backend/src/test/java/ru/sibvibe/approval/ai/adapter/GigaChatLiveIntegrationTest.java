@@ -9,6 +9,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.model.chat.client.autoconfigure.ChatClientAutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import ru.sibvibe.approval.ai.DocumentClassifier;
 import ru.sibvibe.approval.ai.DocumentExtractor;
 import ru.sibvibe.approval.ai.service.DocumentExtractionService;
 import ru.sibvibe.approval.ai.service.SensitiveDataMasker;
@@ -61,12 +62,16 @@ class GigaChatLiveIntegrationTest {
             GigaChatDocumentExtractor model = new GigaChatDocumentExtractor(
                     application.getBeanProvider(ChatClient.Builder.class), mapper,
                     true, "gigachat", credentials, 120);
+            GigaChatDocumentClassifier classifier = new GigaChatDocumentClassifier(
+                    application.getBeanProvider(ChatClient.Builder.class), mapper,
+                    true, "gigachat", credentials, 120);
             try {
                 DocumentExtractionService service = new DocumentExtractionService(
-                        new PdfDocxTextExtractor(), model, new TextMinimizer(), new SensitiveDataMasker());
+                        new PdfDocxTextExtractor(), model, classifier, new TextMinimizer(), new SensitiveDataMasker());
                 verifyDocuments(service);
             } finally {
                 model.closeExecutor();
+                classifier.closeExecutor();
             }
         });
     }
@@ -91,8 +96,11 @@ class GigaChatLiveIntegrationTest {
                     ? "application/pdf"
                     : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
             DocumentExtractor.ExtractionResult result;
-            try (InputStream content = Files.newInputStream(file)) {
+            DocumentClassifier.Classification classification;
+            try (InputStream content = Files.newInputStream(file);
+                 InputStream again = Files.newInputStream(file)) {
                 result = service.extract(content, mime, typeCode, schema);
+                classification = service.classify(again, mime, typeOptions(rules));
             } catch (IOException exception) {
                 throw new IllegalStateException("Не удалось прочитать " + file, exception);
             }
@@ -101,6 +109,11 @@ class GigaChatLiveIntegrationTest {
                 issueMismatch = true;
                 continue;
             }
+            // Автоопределение вида (#86): «Другой документ» — это «ни один вид не подходит», null.
+            String detected = classification.typeCode() == null ? "GENERIC" : classification.typeCode();
+            boolean typeMatches = detected.equals(typeCode);
+            issueMismatch |= !typeMatches;
+            String typeReport = typeMatches ? "вид верный" : "вид: " + typeCode + " → " + detected;
             Set<String> normalized = new HashSet<>();
             document.path("normalized").forEach(value -> normalized.add(value.asText()));
             Map<String, String> values = new LinkedHashMap<>();
@@ -127,7 +140,8 @@ class GigaChatLiveIntegrationTest {
             reports.add(new DocumentReport(
                     file.getFileName().toString(),
                     String.join(" ", expectedIssues) + " → " + String.join(" ", actualIssues),
-                    matches ? "совпали" : "расхождение",
+                    (matches ? "совпали" : "расхождение") + "; " + typeReport
+                            + "; название: " + display(classification.title()),
                     fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences)));
         }
         String report = report(reports);
@@ -186,6 +200,19 @@ class GigaChatLiveIntegrationTest {
             return new TypeData(List.copyOf(schema), List.copyOf(rules), Map.copyOf(codeById));
         }
         throw new IllegalArgumentException("Неизвестный тип " + typeCode);
+    }
+
+    /** Те же варианты, что предлагает загрузка (DocumentTypeGuessService): все типы, кроме GENERIC. */
+    private List<DocumentClassifier.TypeOption> typeOptions(JsonNode root) {
+        List<DocumentClassifier.TypeOption> options = new ArrayList<>();
+        for (JsonNode type : root.path("types")) {
+            String code = type.path("code").asText();
+            if (!"GENERIC".equals(code)) {
+                options.add(new DocumentClassifier.TypeOption(code, type.path("name").asText(),
+                        ru.sibvibe.approval.document.service.DocumentTypeGuessService.describe(code)));
+            }
+        }
+        return options;
     }
 
     private String text(JsonNode node, String name) {

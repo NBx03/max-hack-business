@@ -19,11 +19,13 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import ru.sibvibe.approval.common.security.CurrentUser;
+import ru.sibvibe.approval.document.dto.ChangeTypeRequest;
 import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
 import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.DocumentListResponse;
 import ru.sibvibe.approval.document.dto.DocumentTypeResponse;
+import ru.sibvibe.approval.document.dto.FileCorrectionResponse;
 import ru.sibvibe.approval.document.dto.UpdateFieldsRequest;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.service.DocumentListTab;
@@ -120,6 +122,28 @@ public class DocumentController {
             @Valid @org.springframework.web.bind.annotation.RequestBody UpdateFieldsRequest request
     ) {
         return commandService.updateFields(id, versionNo, currentUser, request);
+    }
+
+    /** Сменить тип черновика и перепроверить текущую версию по его правилам (#86). */
+    @PutMapping("/documents/{id}/versions/{versionNo}/type")
+    public DocumentCardResponse changeType(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable long id,
+            @PathVariable int versionNo,
+            @Valid @org.springframework.web.bind.annotation.RequestBody ChangeTypeRequest request
+    ) {
+        return commandService.changeType(id, versionNo, currentUser, request.documentTypeId());
+    }
+
+    /** «Исправить в файле»: вписать исправленные значения полей в DOCX новой версией (#86). */
+    @PostMapping("/documents/{id}/versions/{versionNo}/corrections")
+    public FileCorrectionResponse correctFile(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable long id,
+            @PathVariable int versionNo,
+            @Valid @org.springframework.web.bind.annotation.RequestBody UpdateFieldsRequest request
+    ) {
+        return commandService.correctFile(id, versionNo, currentUser, request);
     }
 
     private void rejectAttachments(List<MultipartFile> attachments) {

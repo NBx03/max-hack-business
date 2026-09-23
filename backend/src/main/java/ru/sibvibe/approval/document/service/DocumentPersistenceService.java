@@ -55,12 +55,14 @@ public class DocumentPersistenceService {
             String title,
             Document.Visibility visibility,
             boolean containsSensitive,
+            boolean typeAutoDetected,
             DocumentRuleService.PreparedCheck prepared,
             NewFile main
     ) {
         Instant now = clock.instant();
         Document document = new Document();
         document.setDocumentTypeId(prepared.type().getId());
+        document.setTypeAutoDetected(typeAutoDetected);
         document.setAuthorId(authorId);
         document.setOrgId(orgId);
         document.setTitle(title.trim());
@@ -172,6 +174,64 @@ public class DocumentPersistenceService {
         writePending(version, prepared, checkToken);
         document.setUpdatedAt(clock.instant());
         return new FieldsUpdateAttempt(new CheckAttempt(version.getId(), checkToken), previous);
+    }
+
+    /**
+     * Смена типа черновика (#86): модель могла определить вид неверно. Текущая версия
+     * перепроверяется по схеме нового типа — новая попытка проверки со своим токеном.
+     */
+    @Transactional
+    public RetypeAttempt beginRetype(
+            long documentId,
+            int versionNo,
+            long orgId,
+            long authorId,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        Document document = documentRepository.findByIdForUpdate(documentId)
+                .orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getStatus() != Document.Status.DRAFT || document.getCurrentVersionNo() != versionNo) {
+            throw DocumentApiException.invalidState("Тип можно сменить только у текущего черновика");
+        }
+        DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
+                .orElseThrow(NotFoundException::new);
+        document.setDocumentTypeId(prepared.type().getId());
+        document.setTypeAutoDetected(false);
+        document.setUpdatedAt(clock.instant());
+        String checkToken = UUID.randomUUID().toString();
+        writePending(version, prepared, checkToken);
+        return new RetypeAttempt(new CheckAttempt(version.getId(), checkToken), version.isContainsSensitive());
+    }
+
+    /**
+     * Что нужно, чтобы вписать исправления в файл текущей версии: основной файл, приложения
+     * (переходят в новую версию как есть) и значения полей, найденные в файле.
+     */
+    @Transactional(readOnly = true)
+    public CorrectionSource correctionSource(long documentId, int versionNo, long orgId, long authorId) {
+        Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getCurrentVersionNo() != versionNo) {
+            throw DocumentApiException.invalidState("Документ уже был изменён — обновите экран");
+        }
+        if (document.getStatus() != Document.Status.DRAFT && document.getStatus() != Document.Status.RETURNED) {
+            throw DocumentApiException.invalidState("Исправлять можно черновик или возвращённый документ");
+        }
+        DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
+                .orElseThrow(NotFoundException::new);
+        List<DocumentFile> files = fileRepository.findByVersionIdOrderByPosition(version.getId());
+        DocumentFile main = files.stream()
+                .filter(file -> file.getKind() == DocumentFile.Kind.MAIN)
+                .findFirst()
+                .orElseThrow(() -> DocumentApiException.validation("У документа нет основного файла"));
+        List<Long> attachments = files.stream()
+                .filter(file -> file.getKind() == DocumentFile.Kind.ATTACHMENT)
+                .map(DocumentFile::getId)
+                .toList();
+        return new CorrectionSource(
+                document.getDocumentTypeId(), version.isContainsSensitive(), main, attachments,
+                readCheckData(version).fields());
     }
 
     @Transactional
@@ -337,6 +397,16 @@ public class DocumentPersistenceService {
     public record CheckAttempt(long versionId, String checkToken) {}
 
     public record FieldsUpdateAttempt(CheckAttempt checkAttempt, DocumentRuleService.CheckData previous) {}
+
+    public record RetypeAttempt(CheckAttempt checkAttempt, boolean containsSensitive) {}
+
+    public record CorrectionSource(
+            long documentTypeId,
+            boolean containsSensitive,
+            DocumentFile main,
+            List<Long> attachmentIds,
+            List<DocumentCardResponse.FieldValue> fields
+    ) {}
 
     public record StoredFields(
             boolean modelAvailable,

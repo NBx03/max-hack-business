@@ -52,7 +52,7 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(7);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(8);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
                     .isEqualTo(18);
             assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(16);
@@ -81,8 +81,8 @@ class DatabaseSchemaTest {
                 left join requirement_rule rule on rule.document_type_id = type.id
                 """))
                 .containsEntry("types", 4L)
-                .containsEntry("fields", 17L)
-                .containsEntry("rules", 21L);
+                .containsEntry("fields", 23L)
+                .containsEntry("rules", 26L);
         assertThat(jdbc.queryForList("""
                 select type.code, count(distinct field.id) as fields, count(distinct rule.id) as rules
                 from document_type type
@@ -92,7 +92,7 @@ class DatabaseSchemaTest {
                 order by type.code
                 """))
                 .containsExactly(
-                        Map.of("code", "GENERIC", "fields", 0L, "rules", 0L),
+                        Map.of("code", "GENERIC", "fields", 6L, "rules", 5L),
                         Map.of("code", "OFFICIAL_MEMO", "fields", 8L, "rules", 10L),
                         Map.of("code", "SUPPORT_MEASURE_REQUEST", "fields", 4L, "rules", 6L),
                         Map.of("code", "VACATION_REQUEST", "fields", 5L, "rules", 5L));

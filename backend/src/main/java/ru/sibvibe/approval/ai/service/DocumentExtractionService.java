@@ -1,6 +1,7 @@
 package ru.sibvibe.approval.ai.service;
 
 import org.springframework.stereotype.Service;
+import ru.sibvibe.approval.ai.DocumentClassifier;
 import ru.sibvibe.approval.ai.DocumentExtractor;
 import ru.sibvibe.approval.ai.TextExtractor;
 
@@ -13,19 +14,25 @@ import java.util.Optional;
 @Service
 public class DocumentExtractionService {
 
+    /** Вид документа понятен по началу: заголовок, адресат, первые абзацы. Минимизация — и здесь. */
+    private static final int CLASSIFICATION_TEXT_LIMIT = 4_000;
+
     private final TextExtractor textExtractor;
     private final DocumentExtractor documentExtractor;
+    private final DocumentClassifier classifier;
     private final TextMinimizer minimizer;
     private final SensitiveDataMasker masker;
 
     public DocumentExtractionService(
             TextExtractor textExtractor,
             DocumentExtractor documentExtractor,
+            DocumentClassifier classifier,
             TextMinimizer minimizer,
             SensitiveDataMasker masker
     ) {
         this.textExtractor = textExtractor;
         this.documentExtractor = documentExtractor;
+        this.classifier = classifier;
         this.minimizer = minimizer;
         this.masker = masker;
     }
@@ -80,6 +87,27 @@ public class DocumentExtractionService {
             }
         }
         return new VerifiedQuote(false, null);
+    }
+
+    /**
+     * Вид документа и короткое название по началу текста (порт {@link DocumentClassifier}).
+     * В модель уходит только начало документа и только маскированным — как и при извлечении полей.
+     */
+    public DocumentClassifier.Classification classify(
+            InputStream content,
+            String mimeType,
+            List<DocumentClassifier.TypeOption> options
+    ) {
+        Optional<TextExtractor.ExtractedText> extracted = textExtractor.extract(content, mimeType);
+        if (extracted.isEmpty() || extracted.get().fullText().isBlank()) {
+            return new DocumentClassifier.Classification(null, null, false);
+        }
+        String text = extracted.get().fullText();
+        String head = text.length() > CLASSIFICATION_TEXT_LIMIT ? text.substring(0, CLASSIFICATION_TEXT_LIMIT) : text;
+        SensitiveDataMasker.MaskedText masked = masker.mask(head);
+        DocumentClassifier.Classification result = classifier.classify(
+                new DocumentClassifier.ClassificationRequest(masked.text(), options));
+        return new DocumentClassifier.Classification(result.typeCode(), masked.restore(result.title()), result.available());
     }
 
     private DocumentExtractor.ExtractionResult unavailable() {

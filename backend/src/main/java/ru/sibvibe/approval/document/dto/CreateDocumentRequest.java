@@ -8,9 +8,13 @@ import ru.sibvibe.approval.document.entity.Document;
 
 import java.util.Map;
 
+/**
+ * documentTypeId null — «определить автоматически» (модель по тексту), title пустой — название
+ * по содержанию документа или имени файла (#86).
+ */
 public record CreateDocumentRequest(
-        @NotNull @Positive Long documentTypeId,
-        @NotBlank @Size(max = 255) String title,
+        @Positive Long documentTypeId,
+        @Size(max = 255) String title,
         @NotNull Document.Visibility visibility,
         boolean containsSensitive,
         @Size(max = 100) Map<@NotBlank String, @Size(max = 10_000) String> fields

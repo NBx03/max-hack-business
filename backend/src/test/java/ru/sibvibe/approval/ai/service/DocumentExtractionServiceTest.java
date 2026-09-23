@@ -66,6 +66,8 @@ class DocumentExtractionServiceTest {
     }
 
     private DocumentExtractionService service(TextExtractor text, DocumentExtractor model) {
-        return new DocumentExtractionService(text, model, new TextMinimizer(), new SensitiveDataMasker());
+        return new DocumentExtractionService(text, model,
+                request -> new ru.sibvibe.approval.ai.DocumentClassifier.Classification(null, null, false),
+                new TextMinimizer(), new SensitiveDataMasker());
     }
 }

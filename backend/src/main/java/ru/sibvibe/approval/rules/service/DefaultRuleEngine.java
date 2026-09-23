@@ -19,7 +19,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -72,16 +74,15 @@ public class DefaultRuleEngine implements RuleEngine {
         // Исчерпывающий switch: новый CheckType требует явной реализации при компиляции.
         return switch (rule.check()) {
             case REQUIRED -> value -> !blank(value);
-            case DATE_FORMAT, DATE_NOT_FUTURE -> {
-                DateTimeFormatter formatter = dateFormatter(rule);
-                yield value -> {
-                    try {
-                        LocalDate date = LocalDate.parse(value, formatter);
-                        return rule.check() == CheckType.DATE_FORMAT || !date.isAfter(referenceDate);
-                    } catch (DateTimeException exception) {
-                        return false;
-                    }
-                };
+            case DATE_FORMAT -> {
+                Function<String, Optional<LocalDate>> parser = dateParser(rule);
+                yield value -> parser.apply(value).isPresent();
+            }
+            case DATE_NOT_FUTURE -> {
+                // Неразборчивую дату это правило не судит: о формате сообщает DATE_FORMAT, а второе
+                // замечание на ту же дату («не в будущем») только путало (#75, обсуждение #21).
+                Function<String, Optional<LocalDate>> parser = dateParser(rule);
+                yield value -> parser.apply(value).map(date -> !date.isAfter(referenceDate)).orElse(true);
             }
             case MATCHES_PATTERN -> {
                 if (blank(rule.expected())) {
@@ -109,6 +110,24 @@ public class DefaultRuleEngine implements RuleEngine {
             case ONE_OF -> {
                 Set<String> allowed = allowedValues(rule);
                 yield allowed::contains;
+            }
+        };
+    }
+
+    /**
+     * RU_DATE — полная дата в любом принятом виде (RussianDates); иначе — строгий шаблон
+     * DateTimeFormatter, как раньше.
+     */
+    private static Function<String, Optional<LocalDate>> dateParser(RequirementRule rule) {
+        if (RussianDates.RU_DATE.equals(rule.expected())) {
+            return RussianDates::parse;
+        }
+        DateTimeFormatter formatter = dateFormatter(rule);
+        return value -> {
+            try {
+                return Optional.of(LocalDate.parse(value, formatter));
+            } catch (DateTimeException exception) {
+                return Optional.empty();
             }
         };
     }

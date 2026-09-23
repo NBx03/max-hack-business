@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.document.dto;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.document.entity.Document;
@@ -23,7 +24,8 @@ public record DocumentCardResponse(
         Permissions permissions,
         List<Long> myActiveStepIds
 ) {
-    public record TypeRef(long id, String name, boolean isGeneric) {}
+    /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
+    public record TypeRef(long id, String name, boolean isGeneric, boolean autoDetected) {}
 
     public record VersionView(
             int versionNo,
@@ -51,13 +53,29 @@ public record DocumentCardResponse(
             List<ValidationIssueView> issues
     ) {}
 
+    /**
+     * source MODEL — значение нашла модель в тексте файла (quote — откуда), MANUAL — ввёл автор.
+     * fileValue — что было в файле, если автор заменил найденное значение вручную, не меняя файл:
+     * согласующий видит и то и другое, ручная правка не прячется (#86).
+     */
     public record FieldValue(
             String name,
             String value,
             String source,
             String quote,
-            Integer page
-    ) {}
+            Integer page,
+            String fileValue
+    ) {
+        // Сохранённые поля читаются из JSON версии: создатель для Jackson — канонический,
+        // конструктор ниже — для кода, где ручной правки не было.
+        @JsonCreator
+        public FieldValue {
+        }
+
+        public FieldValue(String name, String value, String source, String quote, Integer page) {
+            this(name, value, source, quote, page, null);
+        }
+    }
 
     public record ValidationIssueView(
             long ruleId,
@@ -94,10 +112,15 @@ public record DocumentCardResponse(
             String autoReason
     ) {}
 
+    /**
+     * canCorrectFile — исправленные поля можно вписать прямо в основной файл (DOCX) новой версией:
+     * автор, черновик или возвращённый документ, основной файл — DOCX (#86).
+     */
     public record Permissions(
             boolean canEditFields,
             boolean canUploadVersion,
             boolean canSubmit,
-            boolean canAddApprover
+            boolean canAddApprover,
+            boolean canCorrectFile
     ) {}
 }
