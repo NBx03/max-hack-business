@@ -483,7 +483,12 @@ export function DocumentCheckScreen() {
         )}
       </section>
 
-      <BottomSheet open={typeSheetOpen} onClose={() => setTypeSheetOpen(false)} title="Тип документа">
+      <BottomSheet
+        open={typeSheetOpen}
+        onClose={() => setTypeSheetOpen(false)}
+        title="Тип документа"
+        dismissible={busy !== 'type'}
+      >
         <Typography.Text style={{ color: 'var(--text-secondary)' }}>
           От типа зависят поля, правила проверки и маршрут согласования. Документ будет проверен заново.
         </Typography.Text>
