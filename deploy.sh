@@ -21,7 +21,6 @@ fi
 REF="${1:-origin/main}"
 cd "${REPO_DIR:?}"
 
-HEALTH_URL="http://127.0.0.1:${BACKEND_PORT_FOR_HEALTH:-8080}/actuator/health"
 HEALTH_TIMEOUT_SECONDS=180
 
 echo "== Стенд: $(hostname), каталог $(pwd)"
@@ -40,6 +39,10 @@ echo "== Выкладываем: $(git log --oneline -1)"
 
 echo "== Пересобираем и перезапускаем (может занять несколько минут)"
 docker compose up -d --build
+
+# Адрес берём у самого Compose, а не собираем заново: так учитываются BACKEND_PORT
+# из .env и любые override-файлы, и проверка не расходится с публикацией порта.
+HEALTH_URL="http://$(docker compose port backend 8080)/actuator/health"
 
 echo "== Ждём, пока бэкенд ответит (до ${HEALTH_TIMEOUT_SECONDS} с)"
 deadline=$(( SECONDS + HEALTH_TIMEOUT_SECONDS ))
