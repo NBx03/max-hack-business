@@ -192,6 +192,38 @@ public class DocumentReadRepository {
         return Boolean.TRUE.equals(result);
     }
 
+    /**
+     * До {@code limit} документов компании, видимых пользователю (то же правило {@code READABLE}, что и у
+     * списков и карточки), название которых содержит фрагмент без учёта регистра - для статуса по текстовому
+     * запросу в боте (issue #74, порт {@code document.DocumentLookup}). Свежие документы - первыми: так же,
+     * как в {@link #findDocuments}, это самое вероятное совпадение при неточном названии.
+     */
+    public List<TitleMatch> findByTitleFragment(long orgId, long userId, String fragment, int limit) {
+        return jdbc.sql("""
+                        select d.id, d.title, d.status, d.current_stage
+                        from document d
+                        where %s
+                          and d.title ilike :fragment escape '\\'
+                        order by d.updated_at desc, d.id desc
+                        limit :limit
+                        """.formatted(READABLE))
+                .param("orgId", orgId)
+                .param("userId", userId)
+                .param("fragment", "%" + escapeLike(fragment) + "%")
+                .param("limit", limit)
+                .query((rs, rowNum) -> new TitleMatch(
+                        rs.getLong("id"),
+                        rs.getString("title"),
+                        Document.Status.valueOf(rs.getString("status")),
+                        rs.getObject("current_stage", Integer.class)))
+                .list();
+    }
+
+    /** {@code %}, {@code _} и {@code \} в пользовательском тексте - буквально, не как символы шаблона LIKE. */
+    private static String escapeLike(String fragment) {
+        return fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
     public List<StepRow> findSteps(long documentId) {
         return jdbc.sql("""
                         select step.id, step.version_no, step.stage_order, step.origin, step.decision,
@@ -258,6 +290,8 @@ public class DocumentReadRepository {
     }
 
     public record PageRows(List<ListRow> items, long total) {}
+
+    public record TitleMatch(long id, String title, Document.Status status, Integer currentStage) {}
 
     public record ListRow(
             long id,

@@ -6,13 +6,18 @@ import java.util.Set;
  * Этап стал активным: перечисленные согласующие получают уведомление «документ ждёт вашего решения».
  * Публикуется внутри транзакции: слушатель — только {@code @TransactionalEventListener(phase = AFTER_COMMIT)},
  * иначе уведомление уйдёт по операции, которая затем откатится.
+ *
+ * {@code documentTitle} — название на момент отправки, кладётся в событие самим {@code approval}
+ * (issue #74, ревью #70): слушатель в {@code bot} не должен ходить в {@code document} за именем,
+ * это отдельный вызов ради одной строки текста.
  */
 public record ApprovalRequestedEvent(
         long documentId,
         int versionNo,
         int stageOrder,
         Set<Long> approverUserIds,
-        long authorUserId
+        long authorUserId,
+        String documentTitle
 ) {
     public ApprovalRequestedEvent {
         approverUserIds = Set.copyOf(approverUserIds);

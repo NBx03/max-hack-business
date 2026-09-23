@@ -30,7 +30,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -91,6 +93,9 @@ class DocumentIntegrationTest {
 
     @Autowired
     private DownloadTokenService tokenService;
+
+    @Autowired
+    private DocumentLookup documentLookup;
 
     @BeforeEach
     void setUp() {
@@ -342,6 +347,40 @@ class DocumentIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "select count(*) from document_version where check_status = 'CHECKED'", Integer.class))
                 .isEqualTo(2);
+    }
+
+    @Test
+    void documentLookupFindsOnlyVisibleDocumentsOfTheCallersOwnCompany() {
+        long visible = insertTitledDocument(authorOrgId, authorId, "Закупка ноутбуков для отдела", "ORG");
+        insertTitledDocument(authorOrgId, colleagueId, "Закупка мониторов", "PRIVATE");
+        long otherCompany = organization("Ещё одна компания", foreignId);
+        insertTitledDocument(otherCompany, foreignId, "Закупка ноутбуков в другой компании", "ORG");
+
+        List<DocumentLookup.Match> matches = documentLookup.findByTitleFragment(authorOrgId, authorId, "закупка", 5);
+
+        assertThat(matches).extracting(DocumentLookup.Match::id).containsExactly(visible);
+    }
+
+    @Test
+    void documentLookupIsCaseInsensitiveAndTreatsPercentAndUnderscoreLiterally() {
+        long exact = insertTitledDocument(authorOrgId, authorId, "Скидка 20%_особая", "ORG");
+        // Не проэкранированные "%" и "_" в LIKE значили бы "20, что угодно, один любой символ, особая" -
+        // и это тоже совпало бы, хотя по смыслу название совсем другое.
+        insertTitledDocument(authorOrgId, authorId, "Скидка 20XYособая", "ORG");
+
+        List<DocumentLookup.Match> matches = documentLookup.findByTitleFragment(
+                authorOrgId, authorId, "СКИДКА 20%_особая", 5);
+
+        assertThat(matches).extracting(DocumentLookup.Match::id).containsExactly(exact);
+    }
+
+    private long insertTitledDocument(long orgId, long author, String title, String visibility) {
+        return jdbc.queryForObject("""
+                insert into document(document_type_id, author_id, org_id, title, status,
+                    current_version_no, visibility, created_at, updated_at)
+                values (?, ?, ?, ?, 'DRAFT', 1, ?, ?, ?) returning id
+                """, Long.class, typeId, author, orgId, title, visibility,
+                Timestamp.from(Instant.now()), Timestamp.from(Instant.now()));
     }
 
     private JsonNode createPrivateDocument(byte[] pdf) throws Exception {

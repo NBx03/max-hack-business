@@ -56,10 +56,27 @@ public class NotificationDirectoryService {
         return List.copyOf(find(adminUserIds).values());
     }
 
+    /**
+     * Реальная компания отправителя входящего сообщения боту, по {@code max_user_id} (issue #74, статус
+     * документа текстовым запросом). Только настоящая компания: у бота нет заголовка {@code X-Demo-Act-As}
+     * и понятия «действовать как», поэтому личная песочница здесь принципиально не рассматривается.
+     * Пусто - человек не писал в мини-приложение ни разу ({@code AppUser} не создан) или не состоит
+     * в компании; тогда бот отвечает обычным приветствием, а не пытается искать документы.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Membership> findRealMembershipByMaxUserId(long maxUserId) {
+        return users.findByMaxUserId(maxUserId).flatMap(user ->
+                members.findFirstByUserIdAndStatusAndDemoFalse(user.getId(), OrganizationMember.Status.ACTIVE)
+                        .map(member -> new Membership(user.getId(), member.getOrgId())));
+    }
+
     private static Recipient recipient(AppUser user) {
         return new Recipient(user.getMaxUserId(), user.getFullName());
     }
 
     public record Recipient(long maxUserId, String displayName) {
+    }
+
+    public record Membership(long userId, long orgId) {
     }
 }

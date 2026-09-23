@@ -102,14 +102,14 @@ public class SubmissionService {
                             && step.getStageOrder() == firstStage.getAsInt())
                     .map(ApprovalStep::getApproverId)
                     .collect(Collectors.toSet());
-            events.publishEvent(new ApprovalRequestedEvent(
-                    documentId, document.currentVersionNo(), firstStage.getAsInt(), approvers, document.authorId()));
+            events.publishEvent(new ApprovalRequestedEvent(documentId, document.currentVersionNo(),
+                    firstStage.getAsInt(), approvers, document.authorId(), document.title()));
         } else {
             // Решать некому: обязательные роли только у автора, необязательные пропущены. Согласуется сразу.
             documents.moveToApproval(documentId, null);
             documents.approve(documentId);
             events.publishEvent(new DocumentDecidedEvent(documentId, document.currentVersionNo(), document.authorId(),
-                    DocumentDecidedEvent.Outcome.APPROVED, null));
+                    DocumentDecidedEvent.Outcome.APPROVED, null, document.title()));
         }
     }
 

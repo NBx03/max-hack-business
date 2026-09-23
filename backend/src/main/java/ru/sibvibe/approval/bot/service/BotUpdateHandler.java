@@ -5,16 +5,25 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import ru.sibvibe.approval.bot.Notifier;
+import ru.sibvibe.approval.document.DocumentLookup;
 import ru.sibvibe.approval.organization.service.InviteLinks;
+import ru.sibvibe.approval.organization.service.NotificationDirectoryService;
+import ru.sibvibe.approval.organization.service.NotificationDirectoryService.Membership;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Обрабатывает одно входящее обновление MAX Bot API - общая логика для long polling
- * ({@link BotUpdatePoller}) и webhook ({@code BotWebhookController}), чтобы поведение бота
- * не зависело от режима приёма событий.
+ * ({@link BotUpdatePoller}) и webhook ({@code BotWebhookController}), чтобы поведение бота не зависело
+ * от режима приёма событий.
  *
- * MVP: {@code /start} и любое сообщение пользователя боту - кнопка открытия мини-приложения
- * (issue #19). Остальные типы обновлений (реакции на кнопки, системные события чата и т. д.)
- * игнорируются - в чеклисте задачи их нет, а бот работает только в личном диалоге.
+ * {@code /start} - кнопка открытия мини-приложения (issue #19). Любое другое сообщение (issue #74)
+ * сначала пробуется как поиск документа по названию среди видимых отправителю в его реальной компании
+ * (не в демо-песочнице - у входящего сообщения нет и не может быть {@code X-Demo-Act-As}); не нашли
+ * совпадений или отправитель не участник компании - тот же ответ, что и раньше.
  */
 @Component
 public class BotUpdateHandler {
@@ -22,13 +31,34 @@ public class BotUpdateHandler {
     private static final Logger LOGGER = LoggerFactory.getLogger(BotUpdateHandler.class);
     private static final String GREETING = "Здравствуйте! Здесь готовятся и согласуются документы компании.";
     private static final String OPEN_BUTTON = "Открыть мини-приложение";
+    private static final String OPEN_DOCUMENT = "Открыть документ";
+    private static final String NOT_FOUND = "Не нашёл документ с таким названием.";
+
+    /** Больше - неудобно читать одним сообщением в мессенджере, меньше - можно не найти нужный. */
+    private static final int SEARCH_LIMIT = 5;
+
+    private static final Map<String, String> STATUS_LABELS = Map.of(
+            "DRAFT", "черновик",
+            "IN_APPROVAL", "на согласовании",
+            "APPROVED", "согласован",
+            "RETURNED", "возвращён",
+            "REJECTED", "отклонён");
 
     private final Notifier notifier;
     private final InviteLinks links;
+    private final NotificationDirectoryService directory;
+    private final DocumentLookup documents;
 
-    public BotUpdateHandler(Notifier notifier, InviteLinks links) {
+    public BotUpdateHandler(
+            Notifier notifier,
+            InviteLinks links,
+            NotificationDirectoryService directory,
+            DocumentLookup documents
+    ) {
         this.notifier = notifier;
         this.links = links;
+        this.directory = directory;
+        this.documents = documents;
     }
 
     public void handle(JsonNode update) {
@@ -36,25 +66,74 @@ public class BotUpdateHandler {
             return;
         }
         String type = update.path("update_type").asText("");
-        Long userId = switch (type) {
-            case "bot_started" -> userId(update.path("user"));
-            case "message_created" -> messageSenderId(update.path("message"));
-            default -> null;
-        };
+        switch (type) {
+            case "bot_started" -> greet(userId(update.path("user")));
+            case "message_created" -> handleMessage(update.path("message"));
+            default -> {
+                // Реакции на кнопки, системные события чата и т. д. - вне чек-листа задачи, игнорируем.
+            }
+        }
+    }
+
+    private void handleMessage(JsonNode message) {
+        JsonNode sender = message.path("sender");
+        if (sender.path("is_bot").asBoolean(false)) {
+            return; // не отвечаем самому себе / другим ботам - иначе зацикливание
+        }
+        Long userId = userId(sender);
         if (userId == null) {
             return;
         }
-        LOGGER.debug("Обновление MAX Bot API «{}» от пользователя {}", type, userId);
+        LOGGER.debug("Сообщение боту от пользователя {}", userId);
+        String text = message.path("body").path("text").asText("").strip();
+        if (text.isEmpty() || !replyWithDocumentStatus(userId, text)) {
+            greet(userId);
+        }
+    }
+
+    private void greet(Long userId) {
+        if (userId == null) {
+            return;
+        }
         notifier.send(userId, GREETING, OPEN_BUTTON, links.appLink());
     }
 
-    /** {@code message_created} на сообщения от ботов (включая наш собственный) не отвечаем - иначе зацикливание. */
-    private Long messageSenderId(JsonNode message) {
-        JsonNode sender = message.path("sender");
-        if (sender.path("is_bot").asBoolean(false)) {
-            return null;
+    /** @return true, если текст уже обработан как поиск документа (даже без единого совпадения) */
+    private boolean replyWithDocumentStatus(long maxUserId, String text) {
+        Optional<Membership> membership = directory.findRealMembershipByMaxUserId(maxUserId);
+        if (membership.isEmpty()) {
+            return false; // не участник компании - обычное приветствие понятнее, чем «не нашёл»
         }
-        return userId(sender);
+        List<DocumentLookup.Match> matches = documents.findByTitleFragment(
+                membership.get().orgId(), membership.get().userId(), text, SEARCH_LIMIT);
+        if (matches.isEmpty()) {
+            notifier.send(maxUserId, NOT_FOUND, OPEN_BUTTON, links.appLink());
+        } else if (matches.size() == 1) {
+            DocumentLookup.Match match = matches.get(0);
+            notifier.send(maxUserId, statusText(match), OPEN_DOCUMENT, links.documentLink(match.id()));
+        } else {
+            // Несколько совпадений - список без кнопок (Notifier поддерживает только одну на сообщение),
+            // с просьбой уточнить. Кнопка на каждый документ была бы удобнее, но это уже другой контракт
+            // Notifier - за рамками SHOULD-задачи (issue #74 просит кнопку только для точного совпадения).
+            String listing = matches.stream()
+                    .map(match -> "«" + match.title() + "» — " + statusLabel(match))
+                    .collect(Collectors.joining("\n"));
+            notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing + "\nУточните название.",
+                    OPEN_BUTTON, links.appLink());
+        }
+        return true;
+    }
+
+    private String statusText(DocumentLookup.Match match) {
+        return "«" + match.title() + "»: " + statusLabel(match) + ".";
+    }
+
+    private String statusLabel(DocumentLookup.Match match) {
+        String label = STATUS_LABELS.getOrDefault(match.status(), match.status());
+        if ("IN_APPROVAL".equals(match.status()) && match.currentStage() != null) {
+            return label + ", этап " + match.currentStage();
+        }
+        return label;
     }
 
     private Long userId(JsonNode user) {

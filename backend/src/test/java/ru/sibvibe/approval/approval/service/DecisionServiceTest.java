@@ -42,6 +42,7 @@ class DecisionServiceTest {
     private static final long ORG = 10;
     private static final long AUTHOR = 100;
     private static final long ME = 7;
+    private static final String TITLE = "Заявление на отпуск";
 
     private final DocumentStateService documents = mock(DocumentStateService.class);
     private final ApprovalStepRepository steps = mock(ApprovalStepRepository.class);
@@ -61,7 +62,10 @@ class DecisionServiceTest {
         assertThat(mine.getDecision()).isEqualTo(Decision.APPROVED);
         assertThat(mine.getDecidedAt()).isEqualTo(NOW);
         verify(documents).approve(DOC);
-        assertThat(event(DocumentDecidedEvent.class).outcome()).isEqualTo(DocumentDecidedEvent.Outcome.APPROVED);
+        DocumentDecidedEvent event = event(DocumentDecidedEvent.class);
+        assertThat(event.outcome()).isEqualTo(DocumentDecidedEvent.Outcome.APPROVED);
+        assertThat(event.deciderUserId()).isEqualTo(ME);
+        assertThat(event.documentTitle()).isEqualTo(TITLE);
     }
 
     @Test
@@ -91,6 +95,7 @@ class DecisionServiceTest {
         ApprovalRequestedEvent event = event(ApprovalRequestedEvent.class);
         assertThat(event.stageOrder()).isEqualTo(2);
         assertThat(event.approverUserIds()).containsExactly(8L);
+        assertThat(event.documentTitle()).isEqualTo(TITLE);
     }
 
     @Test
@@ -128,7 +133,10 @@ class DecisionServiceTest {
         assertThat(sibling.getDecision()).isEqualTo(Decision.SKIPPED);
         assertThat(later.getDecision()).isEqualTo(Decision.SKIPPED);
         verify(documents).returnForRevision(DOC);
-        assertThat(event(DocumentDecidedEvent.class).outcome()).isEqualTo(DocumentDecidedEvent.Outcome.RETURNED);
+        DocumentDecidedEvent event = event(DocumentDecidedEvent.class);
+        assertThat(event.outcome()).isEqualTo(DocumentDecidedEvent.Outcome.RETURNED);
+        assertThat(event.deciderUserId()).isEqualTo(ME);
+        assertThat(event.documentTitle()).isEqualTo(TITLE);
     }
 
     @Test
@@ -272,7 +280,7 @@ class DecisionServiceTest {
         ApprovalStep target = all[0];
         when(steps.findDocumentIdOfStep(1L, ME)).thenReturn(Optional.of(DOC));
         when(documents.lockInOrg(DOC, ORG)).thenReturn(
-                new DocumentSnapshot(DOC, ORG, AUTHOR, 5, status, versionNo, currentStage));
+                new DocumentSnapshot(DOC, ORG, AUTHOR, 5, status, versionNo, currentStage, TITLE));
         when(steps.findById(1L)).thenReturn(Optional.of(target));
         when(steps.findByDocumentIdAndVersionNoOrderByStageOrderAscIdAsc(DOC, versionNo)).thenReturn(version);
     }

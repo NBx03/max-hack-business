@@ -171,10 +171,14 @@ public class DocumentStateService {
     private static DocumentSnapshot snapshot(Document document) {
         return new DocumentSnapshot(document.getId(), document.getOrgId(), document.getAuthorId(),
                 document.getDocumentTypeId(), DocumentState.of(document.getStatus()), document.getCurrentVersionNo(),
-                document.getCurrentStage());
+                document.getCurrentStage(), document.getTitle());
     }
 
-    /** Состояние документа на момент блокировки; сущность наружу не отдаётся. */
+    /**
+     * Состояние документа на момент блокировки; сущность наружу не отдаётся. {@code title} нужен
+     * {@code approval} только для названия документа в событиях уведомлений (issue #74) - не для
+     * бизнес-логики маршрута.
+     */
     public record DocumentSnapshot(
             long id,
             long orgId,
@@ -182,7 +186,8 @@ public class DocumentStateService {
             long documentTypeId,
             DocumentState status,
             int currentVersionNo,
-            Integer currentStage
+            Integer currentStage,
+            String title
     ) {
     }
 }
