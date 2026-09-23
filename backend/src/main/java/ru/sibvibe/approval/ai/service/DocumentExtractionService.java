@@ -16,6 +16,11 @@ public class DocumentExtractionService {
 
     /** Вид документа понятен по началу: заголовок, адресат, первые абзацы. Минимизация — и здесь. */
     private static final int CLASSIFICATION_TEXT_LIMIT = 4_000;
+    /**
+     * Меньше букв — считаем, что текста нет: у скана PDF текстового слоя нет вовсе или в нём только
+     * номера страниц и мусор распознавания.
+     */
+    private static final int MIN_TEXT_LETTERS = 10;
 
     private final TextExtractor textExtractor;
     private final DocumentExtractor documentExtractor;
@@ -46,6 +51,9 @@ public class DocumentExtractionService {
         Optional<TextExtractor.ExtractedText> extracted = textExtractor.extract(content, mimeType);
         if (extracted.isEmpty()) {
             return unavailable();
+        }
+        if (!hasText(extracted.get())) {
+            return new DocumentExtractor.ExtractionResult(Map.of(), false, DocumentExtractor.NO_TEXT);
         }
         TextExtractor.ExtractedText original = extracted.get();
         String minimized = minimizer.minimize(original.fullText(), schema);
@@ -99,7 +107,7 @@ public class DocumentExtractionService {
             List<DocumentClassifier.TypeOption> options
     ) {
         Optional<TextExtractor.ExtractedText> extracted = textExtractor.extract(content, mimeType);
-        if (extracted.isEmpty() || extracted.get().fullText().isBlank()) {
+        if (extracted.isEmpty() || !hasText(extracted.get())) {
             return new DocumentClassifier.Classification(null, null, false);
         }
         String text = extracted.get().fullText();
@@ -108,6 +116,11 @@ public class DocumentExtractionService {
         DocumentClassifier.Classification result = classifier.classify(
                 new DocumentClassifier.ClassificationRequest(masked.text(), options));
         return new DocumentClassifier.Classification(result.typeCode(), masked.restore(result.title()), result.available());
+    }
+
+    private static boolean hasText(TextExtractor.ExtractedText text) {
+        return text.fullText().codePoints().filter(Character::isLetter).limit(MIN_TEXT_LETTERS).count()
+                >= MIN_TEXT_LETTERS;
     }
 
     private DocumentExtractor.ExtractionResult unavailable() {

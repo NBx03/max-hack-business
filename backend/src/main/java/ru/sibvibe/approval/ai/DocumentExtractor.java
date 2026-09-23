@@ -45,13 +45,23 @@ public interface DocumentExtractor {
      *                  восстановление происходит выше по стеку
      * @param available false - модель была недоступна. Не ошибка, а штатный режим:
      *                  проверка правил выполнится по полям, введённым вручную
-     * @param providerId какой провайдер отработал, для журнала
+     * @param providerId какой провайдер отработал, для журнала; {@link #NO_TEXT} — в файле нет текста
      */
     record ExtractionResult(
             Map<String, ExtractedField> fields,
             boolean available,
             String providerId
-    ) {}
+    ) {
+        public boolean textMissing() {
+            return NO_TEXT.equals(providerId);
+        }
+    }
+
+    /**
+     * В файле нет текстового слоя — обычно это скан. Модель не вызывается: пустой текст дал бы
+     * «не найдено» по каждому полю, как будто документ пустой.
+     */
+    String NO_TEXT = "no-text";
 
     /**
      * Цитата нужна, чтобы показать пользователю, откуда взято значение, и перейти

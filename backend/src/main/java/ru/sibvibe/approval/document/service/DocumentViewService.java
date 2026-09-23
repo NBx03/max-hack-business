@@ -243,12 +243,14 @@ public class DocumentViewService {
                 ? List.of()
                 : objectMapper.convertValue(version.getValidationIssues(), ISSUE_LIST);
         boolean modelAvailable = stored != null && stored.path("modelAvailable").asBoolean(false);
+        boolean textMissing = stored != null && stored.path("textMissing").asBoolean(false);
         return new DocumentCardResponse.CheckResult(
                 version.getVersionNo(),
                 version.getCheckStatus(),
                 modelAvailable,
                 fields,
-                issues);
+                issues,
+                textMissing);
     }
 
     private DocumentCardResponse.RouteView route(

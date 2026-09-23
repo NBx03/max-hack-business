@@ -45,12 +45,14 @@ public record DocumentCardResponse(
             Instant downloadExpiresAt
     ) {}
 
+    /** textMissing — в основном файле нет текста (скан): ИИ его не читал, поля вводятся вручную. */
     public record CheckResult(
             int versionNo,
             String status,
             boolean modelAvailable,
             List<FieldValue> fields,
-            List<ValidationIssueView> issues
+            List<ValidationIssueView> issues,
+            boolean textMissing
     ) {}
 
     /**

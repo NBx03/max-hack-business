@@ -311,7 +311,8 @@ public class DocumentPersistenceService {
     }
 
     private JsonNode fieldsJson(DocumentRuleService.CheckData data, String checkToken) {
-        return objectMapper.valueToTree(new StoredFields(data.modelAvailable(), data.fields(), checkToken));
+        return objectMapper.valueToTree(
+                new StoredFields(data.modelAvailable(), data.fields(), checkToken, data.textMissing()));
     }
 
     private DocumentRuleService.CheckData readCheckData(DocumentVersion version) {
@@ -322,7 +323,8 @@ public class DocumentPersistenceService {
         return new DocumentRuleService.CheckData(
                 stored.modelAvailable(),
                 stored.fields() == null ? List.of() : List.copyOf(stored.fields()),
-                List.of());
+                List.of(),
+                stored.textMissing());
     }
 
     private DocumentVersion currentAttempt(long documentId, CheckAttempt attempt) {
@@ -408,9 +410,15 @@ public class DocumentPersistenceService {
             List<DocumentCardResponse.FieldValue> fields
     ) {}
 
+    /** textMissing отсутствует в версиях, сохранённых до #86, — тогда false. */
     public record StoredFields(
             boolean modelAvailable,
             List<DocumentCardResponse.FieldValue> fields,
-            String checkToken
-    ) {}
+            String checkToken,
+            boolean textMissing
+    ) {
+        public StoredFields(boolean modelAvailable, List<DocumentCardResponse.FieldValue> fields, String checkToken) {
+            this(modelAvailable, fields, checkToken, false);
+        }
+    }
 }

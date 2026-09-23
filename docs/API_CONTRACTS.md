@@ -362,6 +362,7 @@ type CheckResult = {
   status: "CHECKED" | "FAILED";  // FAILED — проверка не выполнилась: «Проверка не выполнена»,
                                  // повтор — сохранить поля ещё раз; отправка недоступна
   modelAvailable: boolean;       // false — показать «Разбор моделью недоступен, заполните поля вручную»
+  textMissing: boolean;          // true — в файле нет текста (скан): модель не вызывалась, поля вручную (#86)
   fields: { name: string; value: string | null; source: "MODEL" | "MANUAL"; quote: string | null; page: number | null;
             fileValue?: string | null }[];   // что в файле, если автор изменил поле вручную без правки файла
   issues: ValidationIssue[];     // пустой список — «замечаний нет»

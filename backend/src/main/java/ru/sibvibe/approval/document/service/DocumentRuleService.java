@@ -125,7 +125,7 @@ public class DocumentRuleService {
                         issue.quote(),
                         issue.page()))
                 .toList();
-        return new CheckData(extraction.available(), fields, issues);
+        return new CheckData(extraction.available(), fields, issues, extraction.textMissing());
     }
 
     public CheckData executeManualUpdate(PreparedCheck prepared, CheckData previous) {
@@ -162,7 +162,8 @@ public class DocumentRuleService {
         List<DocumentCardResponse.FieldValue> fields = result.fields().stream()
                 .map(field -> withFileValue(field, previousByName.get(field.name())))
                 .toList();
-        return new CheckData(result.modelAvailable(), fields, result.issues());
+        return new CheckData(result.modelAvailable(), fields, result.issues(),
+                previous != null && previous.textMissing());
     }
 
     private static DocumentCardResponse.FieldValue withFileValue(
@@ -232,9 +233,19 @@ public class DocumentRuleService {
             List<RuleEngine.RequirementRule> rules
     ) {}
 
+    /** textMissing — в файле не нашлось текста (скан): поля только вручную, и экран говорит почему. */
     public record CheckData(
             boolean modelAvailable,
             List<DocumentCardResponse.FieldValue> fields,
-            List<DocumentCardResponse.ValidationIssueView> issues
-    ) {}
+            List<DocumentCardResponse.ValidationIssueView> issues,
+            boolean textMissing
+    ) {
+        public CheckData(
+                boolean modelAvailable,
+                List<DocumentCardResponse.FieldValue> fields,
+                List<DocumentCardResponse.ValidationIssueView> issues
+        ) {
+            this(modelAvailable, fields, issues, false);
+        }
+    }
 }

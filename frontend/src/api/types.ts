@@ -217,6 +217,8 @@ export interface CheckResult {
   versionNo: number;
   status: 'CHECKED' | 'FAILED';
   modelAvailable: boolean;
+  /** В файле нет текста (скан): ИИ его не читал, поля вводятся вручную. */
+  textMissing?: boolean;
   fields: CheckField[];
   issues: ValidationIssue[];
 }

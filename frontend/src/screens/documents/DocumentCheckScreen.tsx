@@ -332,7 +332,7 @@ export function DocumentCheckScreen() {
         </Notice>
       )}
 
-      <HowChecked modelAvailable={modelAvailable} sensitive={sensitive} />
+      <HowChecked modelAvailable={modelAvailable} sensitive={sensitive} textMissing={Boolean(check?.textMissing)} />
 
       {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Исправьте поля или загрузите файл ещё раз.</Notice>}
       {mustFix && check?.status !== 'FAILED' && (
@@ -508,8 +508,10 @@ export function DocumentCheckScreen() {
 }
 
 /** Коротко: что сделал ИИ, что правила и кто решает (тест 23.09: «непонятно, как тут участвует GigaChat»). */
-function HowChecked({ modelAvailable, sensitive }: { modelAvailable: boolean; sensitive: boolean }) {
-  const text = modelAvailable
+function HowChecked({ modelAvailable, sensitive, textMissing }: { modelAvailable: boolean; sensitive: boolean; textMissing: boolean }) {
+  const text = textMissing
+    ? 'В файле нет текста — похоже, это скан или фотография. ИИ читает только текст, поэтому поля не заполнились сами. Заполните их кнопкой «Изменить» или загрузите DOCX или PDF с текстом — правила проверят так же.'
+    : modelAvailable
     ? 'ИИ (GigaChat) прочитал текст документа и нашёл в нём поля — у каждого видно, откуда оно взято. Затем правила компании и закона проверили эти поля: у каждого замечания есть источник. ИИ ничего не решает — решение принимают согласующие.'
     : sensitive
       ? 'Документ с чувствительными данными: текст не отправлялся в ИИ. Поля заполнены вручную, правила проверили их так же.'
