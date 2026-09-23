@@ -1,78 +1,93 @@
-import type { ReactElement } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, type ReactElement } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
+import {
+  CreateCompanyRoute,
+  JoinRoute,
+  PendingRoute,
+  PersonalInviteRoute,
+  WelcomeRoute,
+} from '../screens/onboarding/OnboardingRoutes';
 import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
 import { DocumentListScreen } from '../screens/documents/DocumentListScreen';
 import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
-import { hasCompany, resolveEntryRoute } from './resolveEntryRoute';
-import { ScreenStub } from './ScreenStub';
-import { WelcomeStub } from './WelcomeStub';
+import { guardTarget, type GuardKind } from './guards';
+import { resolveEntryRoute } from './resolveEntryRoute';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
+import { InviteScreen } from '../screens/admin/InviteScreen';
+import { JoinRequestsScreen } from '../screens/admin/JoinRequestsScreen';
+import { MembersScreen } from '../screens/admin/MembersScreen';
 import { useMaxBackButton } from './useMaxBackButton';
+
+/** Параметр запуска уже отработал в этом запуске приложения (см. AppRoutes). */
+let startParamUsed = false;
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
- * Сами экраны - заглушки с названиями, вёрстка каждого - отдельные задачи (#18, #54, #7, #55).
+ * Экраны подключения - #18, администрирования - #54, документов - #7 и #55.
  */
 export function AppRoutes({ me }: { me: MeResponse }) {
-  const entryRoute = resolveEntryRoute(me);
-  const companyReady = hasCompany(me);
+  // startParam действует один раз за запуск: он приходит в каждом /me, и без этой отметки
+  // любой переход на "/" (кнопка "К списку", выход из демо, отмена заявки) снова открывал
+  // бы документ или приглашение из ссылки. Первый уход с "/" - это и есть переход по ссылке.
+  // Отметка живёт на уровне модуля, а не в состоянии компонента: refresh() в SessionContext
+  // показывает общий спиннер и пересоздаёт роутер, и состояние сбросилось бы - после отмены
+  // заявки или выхода из демо человека снова отбросило бы на экран из ссылки.
+  const location = useLocation();
+  useEffect(() => {
+    if (location.pathname !== '/') {
+      startParamUsed = true;
+    }
+  }, [location.pathname]);
+
+  const entryRoute = resolveEntryRoute(me, !startParamUsed);
 
   // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
   // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.
   useMaxBackButton(entryRoute);
 
-  // Экраны 1-5 (приветствие, создание, код, личная ссылка, ожидание) - только пока
-  // компании нет. Свежий /me проверяется на каждом рендере, а не только при входе на
-  // "/": как только компания появляется (создали, вступили, открыли демо), человека
-  // уводит со экрана онбординга без ручного navigate() в каждом обработчике.
-  function onboardingScreen(element: ReactElement): ReactElement {
-    return companyReady ? <Navigate to={ROUTE_PATTERNS.documents} replace /> : element;
-  }
-
-  // Документы и админка - только при компании. Карточка документа (documentCard) -
-  // исключение и здесь не участвует: на неё ведёт d_<id> из уведомления бота
-  // независимо от companyReady, а доступ проверяет сам экран через GET /documents/{id}
-  // (см. resolveEntryRoute). Если бы карточка тоже требовала companyReady, человека
-  // без компании после d_<id> зациклило бы: entryRoute снова укажет на неё же.
-  function companyScreen(element: ReactElement): ReactElement {
-    return companyReady ? element : <Navigate to={entryRoute} replace />;
-  }
+  const guarded = (kind: GuardKind) => (element: ReactElement): ReactElement => {
+    const target = guardTarget(kind, me, entryRoute);
+    return target === null ? element : <Navigate to={target} replace />;
+  };
+  const onboardingScreen = guarded('onboarding');
+  const pendingScreen = guarded('pending');
+  const companyScreen = guarded('company');
 
   return (
     <Routes>
       <Route path="/" element={<Navigate to={entryRoute} replace />} />
-      <Route path={ROUTE_PATTERNS.welcome} element={onboardingScreen(<WelcomeStub />)} />
+      <Route path={ROUTE_PATTERNS.welcome} element={onboardingScreen(<WelcomeRoute />)} />
       <Route
         path={ROUTE_PATTERNS.createCompany}
-        element={onboardingScreen(<ScreenStub title="2. Создание компании" issue="#18" />)}
+        element={guarded('createCompany')(<CreateCompanyRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminInvite}
-        element={companyScreen(<ScreenStub title="3. Приглашение" issue="#54" />)}
+        element={companyScreen(<InviteScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.join}
-        element={onboardingScreen(<ScreenStub title="4. Присоединение по коду" issue="#18" />)}
+        element={onboardingScreen(<JoinRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.joinPersonal}
-        element={onboardingScreen(<ScreenStub title="4б. Вступление по личной ссылке" issue="#18" />)}
+        element={onboardingScreen(<PersonalInviteRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.pending}
-        element={onboardingScreen(<ScreenStub title="5. Ожидание решения" issue="#18" />)}
+        element={pendingScreen(<PendingRoute />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminRequests}
-        element={companyScreen(<ScreenStub title="6. Заявки" issue="#54" />)}
+        element={companyScreen(<JoinRequestsScreen />)}
       />
       <Route
         path={ROUTE_PATTERNS.adminMembers}
-        element={companyScreen(<ScreenStub title="7. Участники" issue="#54" />)}
+        element={companyScreen(<MembersScreen />)}
       />
       <Route path={ROUTE_PATTERNS.documents} element={companyScreen(<DocumentListScreen />)} />
       <Route

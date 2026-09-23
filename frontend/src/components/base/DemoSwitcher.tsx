@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, CellList, CellSimple } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
+import { demoEntryUser } from '../../app/demo';
 import { BottomSheet } from './BottomSheet';
 
 function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
@@ -18,20 +19,19 @@ function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
  * "Общие правила": "/me.actingAs не пустой").
  */
 export function DemoSwitcher() {
-  const { me, sandboxUsers, actAs, startSandbox } = useSession();
+  const { me, sandboxUsers, actAs, startSandbox, refresh } = useSession();
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  if (!me || !me.demoMode || sandboxUsers === null) {
+  // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
+  if (!me || !me.demoMode || !me.actingAs || sandboxUsers === null) {
     return null;
   }
 
   // Та же roleLabel, что и в строках списка ниже - иначе плашка и список могут
   // разойтись (например, у админа с ролью в плашке была видна только роль,
   // без "Администратор", а в списке - оба).
-  const activeRole = me.actingAs ? roleLabel(me.actingAs.roles, me.actingAs.isAdmin).toLowerCase() : null;
-  const label = me.actingAs
-    ? `Демо: действую как ${me.actingAs.user.fullName}${activeRole ? ` (${activeRole})` : ''}`
-    : 'Демо: выберите участника';
+  const activeRole = roleLabel(me.actingAs.roles, me.actingAs.isAdmin).toLowerCase();
+  const label = `Демо: действую как ${me.actingAs.user.fullName} (${activeRole})`;
 
   return (
     <>
@@ -89,7 +89,14 @@ export function DemoSwitcher() {
           <Button
             variant="secondary"
             onClick={() => {
-              void startSandbox();
+              // После пересоздания прежние id недействительны - сразу входим от имени автора.
+              void startSandbox()
+                .then((users) => {
+                  const entry = demoEntryUser(users);
+                  return entry === null ? undefined : actAs(entry);
+                })
+                // Не удалось пересоздать — свежий /me покажет текущее состояние.
+                .catch(() => refresh());
               setSheetOpen(false);
             }}
           >

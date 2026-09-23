@@ -22,6 +22,14 @@ export interface MaxWebApp {
   };
   /** Нативное скачивание: работает только внутри MAX, требует нажатия пользователя. */
   downloadFile(url: string, fileName: string): void;
+  /**
+   * Открывает экран шеринга внутри MAX - переслать в чат MAX (PR #72, ревью).
+   * Сверено с dev.max.ru/docs/webapps/bridge: то, что нужно для «Поделиться» кодом
+   * компании или личной ссылкой в рабочий чат.
+   */
+  shareMaxContent?(payload: { text?: string; link?: string }): void;
+  /** Нативный экран шеринга ОС - iOS и Android; в веб-версии MAX не поддерживается. */
+  shareContent?(payload: { text?: string; link?: string }): void;
   BackButton: MaxBackButton;
 }
 

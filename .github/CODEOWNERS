@@ -1,20 +1,25 @@
 # Кто обязан одобрить PR, если затронуты эти файлы.
 # Побеждает последнее совпавшее правило, поэтому общие правила — выше, частные — ниже.
 # Для одобрения достаточно одного владельца из списка; автор себя одобрить не может.
+# Поэтому у каждого пути больше одного владельца: иначе PR единственного владельца
+# нельзя одобрить никому, кроме него самого.
 
-*                               @NBx03
+*                               @NBx03 @IliaBurlakov @Shezaroff @Mat10t
 
 /backend/                       @IliaBurlakov @Shezaroff @NBx03
-/frontend/                      @NBx03 @Shezaroff
+/frontend/                      @Mat10t @NBx03
 
-# То, что может уронить сборку, запуск у проверяющих или общие решения, —
-# только через тимлида.
-/backend/pom.xml                @NBx03
-/frontend/package.json          @NBx03
-/frontend/package-lock.json     @NBx03
-**/Dockerfile                   @NBx03
-/compose.yaml                   @NBx03
-/.env.example                   @NBx03
+# То, что может уронить сборку или запуск у проверяющих, — тимлид или тот,
+# кто отвечает за стенд и сборку.
+/backend/pom.xml                @NBx03 @IliaBurlakov
+/frontend/package.json          @NBx03 @Mat10t
+/frontend/package-lock.json     @NBx03 @Mat10t
+**/Dockerfile                   @NBx03 @IliaBurlakov
+/compose.yaml                   @NBx03 @IliaBurlakov
+/deploy.sh                      @NBx03 @IliaBurlakov
+/.env.example                   @NBx03 @IliaBurlakov
+
+# Общие решения и процесс — только через тимлида.
 /.github/                       @NBx03
 /CLAUDE.md                      @NBx03
 /CONTRIBUTING.md                @NBx03

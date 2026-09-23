@@ -23,8 +23,11 @@ interface SessionValue {
   refresh: () => Promise<void>;
   /** id участника своей песочницы, или null, чтобы выйти из демо. */
   actAs: (userId: number | null) => Promise<void>;
-  /** Создаёт песочницу или пересоздаёт её ("Начать заново"). */
-  startSandbox: () => Promise<void>;
+  /**
+   * Создаёт песочницу или пересоздаёт её ("Начать заново"). Возвращает её участников,
+   * чтобы сразу войти от имени одного из них; null - не получилось, ошибка уже в `error`.
+   */
+  startSandbox: () => Promise<DemoSandboxUser[]>;
 }
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -70,18 +73,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await getMeWithDemoRecovery();
+      // Участники существующей песочницы загружаются до перехода в ready: иначе экран
+      // приветствия успел бы увидеть sandboxUsers = null, решить, что песочницы нет,
+      // и кнопка «Открыть демо» пересоздала бы её, стерев прогресс проверяющего.
+      // Сбой этой загрузки — общая ошибка с «Повторить», а не «песочницы нет».
+      const users = response.sandbox ? (await getDemoSandbox()).users : null;
       setMe(response);
+      setSandboxUsers(users);
       setStatus('ready');
-      if (response.sandbox) {
-        try {
-          const sandbox = await getDemoSandbox();
-          setSandboxUsers(sandbox.users);
-        } catch {
-          setSandboxUsers(null);
-        }
-      } else {
-        setSandboxUsers(null);
-      }
     } catch (err) {
       setError(toApiError(err));
       setStatus('error');
@@ -100,19 +99,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  // Ошибку создания бросает вызывающему: экран приветствия показывает её у своей кнопки.
   const startSandbox = useCallback(async () => {
     // Прежние id участников после пересоздания недействительны (403) - сбрасываем сразу.
     setActingAsId(null);
-    try {
-      const sandbox = await createDemoSandbox();
-      setSandboxUsers(sandbox.users);
-      await refresh();
-    } catch (err) {
-      // Вызывается как void startSandbox() из кнопок - без этого ошибка
-      // терялась бы unhandled rejection'ом, а пользователь не видел бы ничего.
-      setError(toApiError(err));
-      setStatus('error');
-    }
+    const sandbox = await createDemoSandbox();
+    await refresh();
+    return sandbox.users;
   }, [refresh]);
 
   const value = useMemo<SessionValue>(
