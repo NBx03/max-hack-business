@@ -38,31 +38,44 @@ export function DemoSwitcher() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setSheetOpen(true)}
+      {/* Полоса в потоке страницы, а не плавающая плашка поверх: поверх она закрывала
+          заголовок экрана и ссылку «‹ назад» (тест 23.09). sticky - остаётся видна при прокрутке. */}
+      <div
         style={{
-          position: 'fixed',
-          top: 'calc(16px + env(safe-area-inset-top))',
-          right: 16,
+          position: 'sticky',
+          top: 0,
           zIndex: 100,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '8px 12px',
-          borderRadius: 20,
-          border: 'none',
-          background: 'var(--text-primary)',
-          color: 'var(--background-primary)',
-          fontSize: 12,
-          fontWeight: 600,
-          cursor: 'pointer',
-          maxWidth: 'calc(100vw - 32px)',
+          padding: 'calc(8px + env(safe-area-inset-top)) 16px 8px',
+          background: 'var(--background-primary)',
+          borderBottom: '1px solid var(--divider-primary)',
         }}
       >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-        <span aria-hidden>⌄</span>
-      </button>
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            maxWidth: 528,
+            width: '100%',
+            margin: '0 auto',
+            padding: '8px 12px',
+            borderRadius: 20,
+            border: 'none',
+            background: 'var(--text-primary)',
+            color: 'var(--background-primary)',
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          <span style={{ flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
+          <span aria-hidden>⌄</span>
+        </button>
+      </div>
 
       <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="Участники песочницы">
         <CellList mode="full-width">
