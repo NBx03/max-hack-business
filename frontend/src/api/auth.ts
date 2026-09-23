@@ -8,6 +8,24 @@ import { ApiError } from './errors';
  * не попадает в бандл (dead code elimination), заглушки в собранной версии нет.
  */
 const DEV_FALLBACK_USER_ID = '1';
+const DEV_USER_KEY = 'approval.devUser';
+
+/**
+ * Локально второго человека не открыть в MAX: `?devUser=2` в адресе запоминает, за кого
+ * войти в этой вкладке (автор и согласующий — в двух вкладках). Только для разработки.
+ */
+function devUserId(): string {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('devUser');
+    if (fromUrl && /^\d+$/.test(fromUrl)) {
+      sessionStorage.setItem(DEV_USER_KEY, fromUrl);
+      return fromUrl;
+    }
+    return sessionStorage.getItem(DEV_USER_KEY) ?? DEV_FALLBACK_USER_ID;
+  } catch {
+    return DEV_FALLBACK_USER_ID;
+  }
+}
 
 export function getAuthHeader(): string {
   const initData = getWebApp()?.initData;
@@ -15,7 +33,7 @@ export function getAuthHeader(): string {
     return `MaxInitData ${initData}`;
   }
   if (import.meta.env.DEV) {
-    return `Dev ${DEV_FALLBACK_USER_ID}`;
+    return `Dev ${devUserId()}`;
   }
   throw new ApiError(401, {
     code: 'INIT_DATA_INVALID',

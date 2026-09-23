@@ -6,7 +6,7 @@ import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
 import { FilePicker, formatFileSize } from '../../components/base/FilePicker';
 import { ErrorState } from '../../components/base/StateCard';
-import { documentCheckPath } from '../../routes/paths';
+import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import {
   DocumentScreen,
   FieldInputs,
@@ -94,14 +94,14 @@ export function NewDocumentVersionScreen() {
   if (loading) return <LoadingState />;
   if (error || !card || !currentVersion || !currentMain) {
     return (
-      <DocumentScreen title="Исправленная версия">
+      <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }} title="Исправленная версия">
         <ErrorState message={error ?? 'В текущей версии нет основного файла'} onRetry={() => void load()} />
       </DocumentScreen>
     );
   }
 
   return (
-    <DocumentScreen
+    <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }}
       title="Исправленная версия"
       footer={
         <div style={{ ...stackStyle, gap: 8 }}>

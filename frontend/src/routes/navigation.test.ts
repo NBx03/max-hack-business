@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
+import { launchDataFromHash } from '../app/launch';
+import { parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
 
@@ -84,5 +86,35 @@ describe('guardTarget', () => {
     expect(guardTarget('company', member, '/documents')).toBeNull();
     expect(guardTarget('company', inSandbox, '/documents')).toBeNull();
     expect(guardTarget('company', base, '/welcome')).toBe('/welcome');
+  });
+});
+
+describe('parentRoute — куда ведут «назад» и ссылки «‹ …»', () => {
+  it('экраны документа - к карточке, карточка и загрузка - к списку', () => {
+    expect(parentRoute('/documents/5/check', '/documents')).toBe('/documents/5');
+    expect(parentRoute('/documents/5/route', '/documents')).toBe('/documents/5');
+    expect(parentRoute('/documents/5/new-version', '/documents')).toBe('/documents/5');
+    expect(parentRoute('/documents/5', '/documents')).toBe('/documents');
+    expect(parentRoute('/documents/new', '/documents')).toBe('/documents');
+  });
+
+  it('администрирование - к разделу «Компания», подключение - к приветствию', () => {
+    expect(parentRoute('/admin/invite', '/documents')).toBe('/company');
+    expect(parentRoute('/admin/members', '/documents')).toBe('/company');
+    expect(parentRoute('/company/create', '/welcome')).toBe('/welcome');
+    expect(parentRoute('/join', '/welcome')).toBe('/welcome');
+    expect(parentRoute('/join/personal/abc', '/welcome')).toBe('/welcome');
+  });
+
+  it('у корневых экранов родителя нет - туда, куда ведёт /me', () => {
+    expect(parentRoute('/company', '/documents')).toBe('/documents');
+  });
+});
+
+describe('launchDataFromHash — данные повторного запуска из хэша адреса', () => {
+  it('достаёт WebAppData и не падает на пустом или чужом хэше', () => {
+    expect(launchDataFromHash('#WebAppData=query_id%3D1&WebAppPlatform=web')).toBe('query_id=1');
+    expect(launchDataFromHash('')).toBeNull();
+    expect(launchDataFromHash('#section')).toBeNull();
   });
 });

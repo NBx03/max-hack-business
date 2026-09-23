@@ -6,6 +6,10 @@ import './theme/tokens.css';
 
 import { App } from './App';
 import { SessionProvider } from './app/SessionContext';
+import { watchRelaunch } from './app/launch';
+
+// Повторное открытие из бота при уже открытом мини-приложении (app/launch.ts).
+watchRelaunch();
 
 const container = document.getElementById('root');
 if (!container) {

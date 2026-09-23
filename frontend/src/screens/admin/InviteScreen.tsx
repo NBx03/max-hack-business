@@ -9,14 +9,14 @@ import {
   regenerateInviteCode,
   revokePersonalInvite,
 } from '../../api/admin';
-import { ApiError } from '../../api/errors';
+import { errorMessage } from '../../api/errors';
 import type { InviteCodeInfo, PersonalInviteView, RoleRef } from '../../api/types';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { RolePicker } from '../../components/base/RolePicker';
 import { Toast } from '../../components/base/Toast';
 import { copyToClipboard, shareOrCopy } from '../../lib/share';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
-import { AdminLoadError, AdminTabs, FALLBACK_ERROR, formatTimeLeft, roleNames } from './AdminFormParts';
+import { ADMIN_BACK, AdminLoadError, AdminTabs, formatTimeLeft, roleNames } from './AdminFormParts';
 
 export function InviteScreen() {
   const [code, setCode] = useState<InviteCodeInfo | null>(null);
@@ -93,7 +93,7 @@ export function InviteScreen() {
       setConfirmRegenerate(false);
       setToast('Код перевыпущен');
     } catch (error) {
-      setActionError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setActionError(errorMessage(error));
     } finally {
       setRegenerating(false);
     }
@@ -109,7 +109,7 @@ export function InviteScreen() {
       setCreatedInvite(created);
       setNewRoleIds([]);
     } catch (error) {
-      setCreateError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setCreateError(errorMessage(error));
     } finally {
       setCreating(false);
     }
@@ -128,29 +128,30 @@ export function InviteScreen() {
       setPersonalInvites((current) => (current ?? []).filter((item) => item.id !== invite.id));
       setToast('Ссылка отозвана');
     } catch (error) {
-      setActionError(error instanceof ApiError ? error.message : FALLBACK_ERROR);
+      setActionError(errorMessage(error));
     }
   }
 
   if (loading) return <LoadingState />;
   if (loadError !== null || !code) {
     return (
-      <AdminScreen title="Приглашение">
+      <AdminScreen title="Приглашение" back={ADMIN_BACK} nav>
         <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
 
   return (
-    <AdminScreen title="Приглашение">
+    <AdminScreen title="Приглашение" back={ADMIN_BACK} nav>
       <div style={{ marginTop: 12, marginBottom: 20 }}>
         <AdminTabs active="invite" />
       </div>
       <div style={{ ...stackStyle, marginTop: 4 }}>
         {soloAdmin && (
           <Notice>
-            Пригласите сотрудников. Пока их нет, документы, где согласует директор, будут
-            согласованы вами автоматически — это видно в истории.
+            Пригласите сотрудников: перешлите им ссылку или код. Пока их нет, документы, где
+            согласует директор, будут согласованы вами автоматически — это видно в истории.
+            Загружать документы можно уже сейчас — раздел «Документы» внизу экрана.
           </Notice>
         )}
 
@@ -175,10 +176,17 @@ export function InviteScreen() {
 
         {personalInvites !== null && (
           <section style={sectionStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            {/* Заголовок и кнопка в одну строку на телефоне не помещались: кнопка обрезалась
+                до «Создать сс…» (тест 23.09). Столбиком, с пояснением, что это за ссылка. */}
+            <div style={{ ...stackStyle, gap: 6 }}>
               <Typography.Headline variant="medium">Личные приглашения</Typography.Headline>
-              <Button onClick={() => setCreateOpen(true)} disabled={roles.length === 0}>Создать ссылку</Button>
+              <Typography.Text style={{ color: 'var(--text-secondary)' }}>
+                Одноразовая ссылка на 72 часа с заранее выбранными ролями — человек вступит без заявки.
+              </Typography.Text>
             </div>
+            <Button variant="secondary" onClick={() => setCreateOpen(true)} disabled={roles.length === 0}>
+              Создать личную ссылку
+            </Button>
             {personalInvites.length === 0 ? (
               <Typography.Text style={{ color: 'var(--text-tertiary)' }}>
                 Активных личных ссылок нет.
@@ -224,11 +232,12 @@ export function InviteScreen() {
         onClose={() => setConfirmRegenerate(false)}
         title="Перевыпустить код?"
         description="Старый код перестанет работать. Уже поданные заявки останутся."
-        confirmLabel={regenerating ? 'Перевыпускаем…' : 'Перевыпустить'}
+        confirmLabel="Перевыпустить"
+        busy={regenerating}
         onConfirm={() => void regenerate()}
       />
 
-      <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка">
+      <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка" dismissible={!creating}>
         {createdInvite ? (
           <div style={stackStyle}>
             <Notice tone="success">Ссылка создана: {roleNames(createdInvite.roles)}</Notice>

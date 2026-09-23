@@ -135,7 +135,7 @@ export function DocumentCheckScreen() {
 
   if (loading) return <LoadingState />;
   if (error || !card) {
-    return <DocumentScreen title="Результат проверки"><ErrorState message={error ?? errorMessage(null)} onRetry={() => void load()} /></DocumentScreen>;
+    return <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }} title="Результат проверки"><ErrorState message={error ?? errorMessage(null)} onRetry={() => void load()} /></DocumentScreen>;
   }
 
   const check = card.check;
@@ -170,7 +170,7 @@ export function DocumentCheckScreen() {
   );
 
   return (
-    <DocumentScreen title={card.title} footer={footer}>
+    <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }} title={card.title} footer={footer}>
       {!check?.modelAvailable && !card.type.isGeneric && (
         <Notice>Автоматический разбор недоступен. Проверьте поля и заполните недостающие вручную.</Notice>
       )}

@@ -34,10 +34,14 @@ export function App() {
     );
   }
 
+  // Ключ - от чьего имени идёт работа: при смене участника демо (тихое обновление /me, без
+  // общего спиннера) экраны пересоздаются и заново загружают свои данные уже для него.
+  const actorKey = me.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me.user.id}`;
+
   return (
     <BrowserRouter>
       <DemoSwitcher />
-      <AppRoutes me={me} />
+      <AppRoutes key={actorKey} me={me} />
     </BrowserRouter>
   );
 }

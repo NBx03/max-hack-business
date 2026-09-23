@@ -1,6 +1,7 @@
-import { useEffect, type ReactElement } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useEffect, useState, type ReactElement } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
+import { isLaunchHandled, markLaunchHandled } from '../app/launch';
 import {
   CreateCompanyRoute,
   JoinRoute,
@@ -8,12 +9,14 @@ import {
   PersonalInviteRoute,
   WelcomeRoute,
 } from '../screens/onboarding/OnboardingRoutes';
+import { CompanyScreen } from '../screens/company/CompanyScreen';
 import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
 import { DocumentListScreen } from '../screens/documents/DocumentListScreen';
 import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
 import { guardTarget, type GuardKind } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
+import { useTrackVisited } from './backNavigation';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
@@ -22,28 +25,37 @@ import { JoinRequestsScreen } from '../screens/admin/JoinRequestsScreen';
 import { MembersScreen } from '../screens/admin/MembersScreen';
 import { useMaxBackButton } from './useMaxBackButton';
 
-/** Параметр запуска уже отработал в этом запуске приложения (см. AppRoutes). */
-let startParamUsed = false;
-
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
  * Экраны подключения - #18, администрирования - #54, документов - #7 и #55.
  */
 export function AppRoutes({ me }: { me: MeResponse }) {
-  // startParam действует один раз за запуск: он приходит в каждом /me, и без этой отметки
-  // любой переход на "/" (кнопка "К списку", выход из демо, отмена заявки) снова открывал
-  // бы документ или приглашение из ссылки. Первый уход с "/" - это и есть переход по ссылке.
-  // Отметка живёт на уровне модуля, а не в состоянии компонента: refresh() в SessionContext
-  // показывает общий спиннер и пересоздаёт роутер, и состояние сбросилось бы - после отмены
-  // заявки или выхода из демо человека снова отбросило бы на экран из ссылки.
   const location = useLocation();
-  useEffect(() => {
-    if (location.pathname !== '/') {
-      startParamUsed = true;
-    }
-  }, [location.pathname]);
+  const navigate = useNavigate();
+  useTrackVisited();
 
-  const entryRoute = resolveEntryRoute(me, !startParamUsed);
+  // startParam действует один раз за запуск (app/launch.ts): он приходит в каждом /me, и без
+  // этой отметки любой переход на "/" (выход из демо, отмена заявки) снова открывал бы документ
+  // или приглашение из ссылки. Запуск узнаём по его данным, а не по пути: при повторном открытии
+  // из бота MAX может перезагрузить страницу на прежнем экране, а не на "/".
+  const [startParamPending, setStartParamPending] = useState(() => !isLaunchHandled() && Boolean(me.startParam));
+  const entryRoute = resolveEntryRoute(me, startParamPending);
+
+  useEffect(() => {
+    if (!startParamPending) {
+      return;
+    }
+    markLaunchHandled();
+    // На "/" переход сделает <Navigate> ниже. На любом другом пути (страница перезагружена
+    // повторным открытием из бота) ведём по ссылке сами.
+    if (location.pathname !== '/' && location.pathname !== entryRoute) {
+      navigate(entryRoute, { replace: true });
+    }
+    // Дальше entryRoute - уже без ссылки: охранники и «назад» ведут в обычные места.
+    setStartParamPending(false);
+    // Только при первом монтировании: дальше startParam уже отработал.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
   // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.
@@ -65,6 +77,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
         path={ROUTE_PATTERNS.createCompany}
         element={guarded('createCompany')(<CreateCompanyRoute />)}
       />
+      <Route path={ROUTE_PATTERNS.company} element={companyScreen(<CompanyScreen />)} />
       <Route
         path={ROUTE_PATTERNS.adminInvite}
         element={companyScreen(<InviteScreen />)}

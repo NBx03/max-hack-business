@@ -1,6 +1,4 @@
-// Пути экранов - нумерация и названия из docs/SCREENS.md. Значения-заглушки:
-// путь и сама вёрстка экрана - отдельные задачи (#1, #7, #18), здесь только
-// то, что нужно, чтобы навигация по /me и startParam уже работала.
+// Пути экранов - нумерация и названия из docs/SCREENS.md.
 
 export const ROUTE_PATTERNS = {
   welcome: '/welcome',
@@ -12,6 +10,8 @@ export const ROUTE_PATTERNS = {
   adminRequests: '/admin/requests',
   adminMembers: '/admin/members',
   documents: '/documents',
+  /** Раздел «Компания» нижнего меню: сведения о компании, администрирование, демо. */
+  company: '/company',
   documentUpload: '/documents/new',
   documentCheck: '/documents/:id/check',
   /** Загрузка исправленного файла после RETURNED - docs/SCREENS.md, "Правки документов". */
@@ -26,6 +26,7 @@ export const ROUTE_PATTERNS = {
 // добавить в паттерны и забыть про этот список, ничто не укажет на связь.
 export const ROOT_ROUTE_PATTERNS: ReadonlySet<string> = new Set([
   ROUTE_PATTERNS.documents,
+  ROUTE_PATTERNS.company,
   ROUTE_PATTERNS.welcome,
   ROUTE_PATTERNS.pending,
 ]);

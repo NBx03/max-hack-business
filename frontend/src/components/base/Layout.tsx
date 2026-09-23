@@ -59,18 +59,24 @@ export function FullscreenCenter({ children }: { children: ReactNode }) {
  * паддинг/stretch применятся дважды (см. screens/documents/DocumentListScreen.tsx
  * как пример правильной раскладки).
  */
-export function BottomActionBar({ children }: { children: ReactNode }) {
+export function BottomActionBar({ children, nav }: { children?: ReactNode; nav?: ReactNode }) {
+  // Нижнее меню (AppNav) живёт в той же закреплённой панели, что и главная кнопка: два
+  // отдельных sticky-блока с bottom:0 легли бы друг на друга.
   return (
     <div
       style={{
         position: 'sticky',
         bottom: 0,
-        paddingTop: 12,
-        paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+        zIndex: 10,
         background: 'var(--background-primary)',
       }}
     >
-      <CenteredColumn style={{ padding: '0 16px' }}>{children}</CenteredColumn>
+      {children && (
+        <div style={{ paddingTop: 12, paddingBottom: nav ? 12 : 'calc(12px + env(safe-area-inset-bottom))' }}>
+          <CenteredColumn style={{ padding: '0 16px' }}>{children}</CenteredColumn>
+        </div>
+      )}
+      {nav}
     </div>
   );
 }

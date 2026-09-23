@@ -1,6 +1,8 @@
 import { Button, Input, Spinner, Typography } from '@maxhub/max-ui';
 import type { CSSProperties, ReactNode } from 'react';
 import type { DocumentTypeField } from '../../api/types';
+import { AppNav } from '../../components/base/AppNav';
+import { BackLink } from '../../components/base/BackLink';
 import { BottomActionBar, CenteredColumn, FullscreenCenter, ScreenShell } from '../../components/base/Layout';
 
 export const stackStyle: CSSProperties = {
@@ -45,17 +47,32 @@ export const linkStyle: CSSProperties = { color: 'var(--text-themed)' };
  * Экран документа: заголовок и содержимое в колонке, главное действие — в нижней панели.
  * Панель стоит рядом с колонкой, а не внутри неё: у BottomActionBar своя колонка, и внутри
  * чужой отступы удваивались — кнопка съезжала вправо (components/base/Layout.tsx).
+ *
+ * back — ссылка «‹ …» над заголовком (куда вернуться), nav — нижнее меню разделов.
  */
-export function DocumentScreen({ title, children, footer }: { title: string; children: ReactNode; footer?: ReactNode }) {
+export function DocumentScreen({
+  title,
+  children,
+  footer,
+  back,
+  nav,
+}: {
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  back?: { to: string; label: string };
+  nav?: boolean;
+}) {
   return (
     <ScreenShell>
       <CenteredColumn
         style={{ ...stackStyle, flex: 1, padding: '20px 16px 16px', color: 'var(--text-primary)' }}
       >
+        {back && <BackLink to={back.to} label={back.label} />}
         <Typography.Headline variant="large-strong">{title}</Typography.Headline>
         {children}
       </CenteredColumn>
-      {footer && <BottomActionBar>{footer}</BottomActionBar>}
+      {(footer || nav) && <BottomActionBar nav={nav ? <AppNav /> : undefined}>{footer}</BottomActionBar>}
     </ScreenShell>
   );
 }
