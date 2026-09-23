@@ -66,12 +66,13 @@ WITH seed(field_name, description, check_type, expected, severity) AS (VALUES
     ('signer_name', 'Не нашли подпись с расшифровкой: из документа должно быть понятно, кто его подписывает.', 'REQUIRED', NULL, 'WARNING'),
     ('reg_number', 'Не нашли регистрационный номер. Если документы в компании регистрируют, номер присвоят при регистрации.', 'REQUIRED', NULL, 'INFO')
 )
+-- Дата проверки источника — та же, что sourceCheckedAt в testdata/rules.json (по нему собран RULES.md).
 INSERT INTO requirement_rule(
     document_type_id, field_name, description, check_type, expected, kind, severity,
     source_title, source_url, source_ref, source_checked_at
 )
 SELECT type.id, seed.field_name, seed.description, seed.check_type, seed.expected,
-       'PRODUCT_RULE', seed.severity, 'Правило продукта', NULL, NULL, '2026-09-23'::date::timestamptz
+       'PRODUCT_RULE', seed.severity, 'Правило продукта', NULL, NULL, '2026-09-21'::date::timestamptz
 FROM seed
 JOIN document_type type ON type.code = 'GENERIC';
 
