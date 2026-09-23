@@ -49,6 +49,7 @@ class SubmissionServiceTest {
     private static final long ORG = 10;
     private static final long AUTHOR = 100;
     private static final long TYPE = 5;
+    private static final String TITLE = "Служебная записка о закупке ноутбуков";
 
     private static final UserRef AUTHOR_REF = new UserRef(AUTHOR, "Автор");
     private static final UserRef BOB = new UserRef(2, "Боб");
@@ -161,6 +162,7 @@ class SubmissionServiceTest {
         assertThat(event.stageOrder()).isEqualTo(1);
         assertThat(event.approverUserIds()).containsExactly(BOB.id());
         assertThat(event.authorUserId()).isEqualTo(AUTHOR);
+        assertThat(event.documentTitle()).isEqualTo(TITLE);
     }
 
     @Test
@@ -197,6 +199,7 @@ class SubmissionServiceTest {
         DocumentDecidedEvent event = event(DocumentDecidedEvent.class);
         assertThat(event.outcome()).isEqualTo(DocumentDecidedEvent.Outcome.APPROVED);
         assertThat(event.deciderUserId()).isNull();
+        assertThat(event.documentTitle()).isEqualTo(TITLE);
     }
 
     @Test
@@ -315,7 +318,7 @@ class SubmissionServiceTest {
 
     private void givenDocument(DocumentState status) {
         when(documents.lockForAuthor(eq(DOC), any(), any())).thenReturn(new DocumentSnapshot(
-                DOC, ORG, AUTHOR, TYPE, status, 3, null));
+                DOC, ORG, AUTHOR, TYPE, status, 3, null, TITLE));
         when(documents.submissionBlocker(DOC, 3)).thenReturn(Optional.empty());
     }
 

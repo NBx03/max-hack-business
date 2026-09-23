@@ -140,7 +140,7 @@ public class DecisionService {
                     .collect(Collectors.toSet());
             documents.advanceStage(document.id(), next.getAsInt());
             events.publishEvent(new ApprovalRequestedEvent(document.id(), document.currentVersionNo(),
-                    next.getAsInt(), approvers, document.authorId()));
+                    next.getAsInt(), approvers, document.authorId(), document.title()));
         } else {
             documents.approve(document.id());
             publish(document, DocumentDecidedEvent.Outcome.APPROVED, step.getApproverId());
@@ -149,7 +149,7 @@ public class DecisionService {
 
     private void publish(DocumentSnapshot document, DocumentDecidedEvent.Outcome outcome, long deciderUserId) {
         events.publishEvent(new DocumentDecidedEvent(document.id(), document.currentVersionNo(),
-                document.authorId(), outcome, deciderUserId));
+                document.authorId(), outcome, deciderUserId, document.title()));
     }
 
     private static ApprovalStep.Decision decisionOf(DecisionRequest.Action action) {

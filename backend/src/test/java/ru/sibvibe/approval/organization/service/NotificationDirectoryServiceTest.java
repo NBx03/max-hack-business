@@ -68,6 +68,33 @@ class NotificationDirectoryServiceTest {
                 .containsExactlyInAnyOrder(910000005L, 910000006L);
     }
 
+    @Test
+    void findRealMembershipByMaxUserIdResolvesUserIdAndOrgId() {
+        when(users.findByMaxUserId(910000007L)).thenReturn(Optional.of(user(7L, 910000007L, "Иван Иванов")));
+        when(members.findFirstByUserIdAndStatusAndDemoFalse(7L, OrganizationMember.Status.ACTIVE))
+                .thenReturn(Optional.of(member(10L, 7L)));
+
+        Optional<NotificationDirectoryService.Membership> found = service.findRealMembershipByMaxUserId(910000007L);
+
+        assertThat(found).contains(new NotificationDirectoryService.Membership(7L, 1L));
+    }
+
+    @Test
+    void findRealMembershipByMaxUserIdIsEmptyForAnUnknownMaxUserId() {
+        when(users.findByMaxUserId(910000007L)).thenReturn(Optional.empty());
+
+        assertThat(service.findRealMembershipByMaxUserId(910000007L)).isEmpty();
+    }
+
+    @Test
+    void findRealMembershipByMaxUserIdIsEmptyWithoutAnActiveRealCompany() {
+        when(users.findByMaxUserId(910000007L)).thenReturn(Optional.of(user(7L, 910000007L, "Иван Иванов")));
+        when(members.findFirstByUserIdAndStatusAndDemoFalse(7L, OrganizationMember.Status.ACTIVE))
+                .thenReturn(Optional.empty());
+
+        assertThat(service.findRealMembershipByMaxUserId(910000007L)).isEmpty();
+    }
+
     private AppUser user(long id, long maxUserId, String name) {
         AppUser user = new AppUser();
         user.setId(id);

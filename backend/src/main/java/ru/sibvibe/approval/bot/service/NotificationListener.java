@@ -94,22 +94,36 @@ public class NotificationListener {
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(ApprovalRequestedEvent event) {
-        String text = "Документ ждёт вашего решения.";
+        String text = "«" + event.documentTitle() + "» ждёт вашего решения.";
         String url = links.documentLink(event.documentId());
         Map<Long, Recipient> approvers = directory.find(event.approverUserIds());
         approvers.values().forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, url));
     }
 
-    /** По документу принято итоговое решение - уведомляется автор. */
+    /**
+     * По документу принято итоговое решение - уведомляется автор, с именем того, кто решил (issue #74).
+     * У auto-approve при отправке ({@code deciderUserId == null}, CLAUDE.md, «Решение A», один сотрудник
+     * держит единственную обязательную роль) решившего человека нет - суффикс просто не добавляется.
+     */
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(DocumentDecidedEvent event) {
-        String text = switch (event.outcome()) {
-            case APPROVED -> "Документ согласован.";
-            case RETURNED -> "Документ возвращён на доработку.";
-            case REJECTED -> "Документ отклонён.";
-        };
-        directory.find(event.authorUserId()).ifPresent(author ->
-                notifier.send(author.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId())));
+        directory.find(event.authorUserId()).ifPresent(author -> {
+            String decider = event.deciderUserId() == null
+                    ? null
+                    : directory.find(event.deciderUserId()).map(Recipient::displayName).orElse(null);
+            String title = "«" + event.documentTitle() + "»";
+            String text = switch (event.outcome()) {
+                case APPROVED -> title + " согласован." + deciderSuffix(decider);
+                case RETURNED -> title + " возвращён на доработку." + deciderSuffix(decider);
+                case REJECTED -> title + " отклонён." + deciderSuffix(decider);
+            };
+            notifier.send(author.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId()));
+        });
+    }
+
+    /** Без гендерного глагола при имени (как и в {@link #on(MemberJoinedByLinkEvent)}) - пол не знаем. */
+    private static String deciderSuffix(String deciderName) {
+        return deciderName == null ? "" : " Решение: " + deciderName + ".";
     }
 }

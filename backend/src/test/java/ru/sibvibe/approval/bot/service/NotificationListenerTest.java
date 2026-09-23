@@ -109,35 +109,53 @@ class NotificationListenerTest {
     }
 
     @Test
-    void approvalRequestedNotifiesEveryApproverWithDocumentLink() {
+    void approvalRequestedNotifiesEveryApproverWithDocumentLinkAndTitle() {
         when(directory.find(Set.of(11L, 12L))).thenReturn(Map.of(
                 11L, new Recipient(910000011L, "Согласующий Один"),
                 12L, new Recipient(910000012L, "Согласующий Два")));
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
-        listener.on(new ApprovalRequestedEvent(500L, 1, 1, Set.of(11L, 12L), 99L));
+        listener.on(new ApprovalRequestedEvent(500L, 1, 1, Set.of(11L, 12L), 99L, "Закупка ноутбуков"));
 
         String documentUrl = "https://max.ru/t354_hakaton_max_bot?startapp=d_500";
-        verify(notifier).send(eq(910000011L), anyString(), anyString(), eq(documentUrl));
-        verify(notifier).send(eq(910000012L), anyString(), anyString(), eq(documentUrl));
+        verify(notifier).send(eq(910000011L), contains("Закупка ноутбуков"), anyString(), eq(documentUrl));
+        verify(notifier).send(eq(910000012L), contains("Закупка ноутбуков"), anyString(), eq(documentUrl));
     }
 
     @Test
-    void documentDecidedNotifiesAuthorWithOutcomeSpecificText() {
+    void documentDecidedNotifiesAuthorWithTitleOutcomeTextAndDeciderName() {
+        when(directory.find(99L)).thenReturn(Optional.of(new Recipient(910000099L, "Автор")));
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Иванов")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        listener.on(new DocumentDecidedEvent(
+                500L, 1, 99L, DocumentDecidedEvent.Outcome.RETURNED, 11L, "Закупка ноутбуков"));
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000099L), text.capture(), anyString(),
+                eq("https://max.ru/t354_hakaton_max_bot?startapp=d_500"));
+        assertThat(text.getValue()).contains("Закупка ноутбуков").contains("возвращён").contains("Иванов");
+    }
+
+    @Test
+    void documentDecidedWithoutADeciderOmitsTheSuffix() {
         when(directory.find(99L)).thenReturn(Optional.of(new Recipient(910000099L, "Автор")));
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
-        listener.on(new DocumentDecidedEvent(500L, 1, 99L, DocumentDecidedEvent.Outcome.RETURNED, 11L));
+        listener.on(new DocumentDecidedEvent(
+                500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков"));
 
-        verify(notifier).send(eq(910000099L), contains("возвращён"), anyString(),
-                eq("https://max.ru/t354_hakaton_max_bot?startapp=d_500"));
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000099L), text.capture(), anyString(), any());
+        assertThat(text.getValue()).contains("Закупка ноутбуков").contains("согласован").doesNotContain("Решение:");
     }
 
     @Test
     void documentDecidedDoesNothingIfAuthorIsGone() {
         when(directory.find(99L)).thenReturn(Optional.empty());
 
-        listener.on(new DocumentDecidedEvent(500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null));
+        listener.on(new DocumentDecidedEvent(
+                500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков"));
 
         verify(notifier, never()).send(anyLong(), anyString(), anyString(), any());
     }
