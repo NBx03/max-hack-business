@@ -77,3 +77,26 @@ JOIN document_type type ON type.code = 'GENERIC';
 
 -- 4. Тип документа определён моделью при загрузке — показываем это автору.
 ALTER TABLE document ADD COLUMN type_auto_detected BOOLEAN NOT NULL DEFAULT false;
+
+-- 5. Явный порядок полей. INSERT ... SELECT с JOIN в 007 не сохраняет порядок строк: на базах
+--    поля служебной записки получили id в обратном порядке, и форма начиналась с подписи, а
+--    не с адресата. Порядок — как в testdata/rules.json.
+ALTER TABLE document_type_field ADD COLUMN position INT NOT NULL DEFAULT 0;
+
+WITH ordered(type_code, field_name, position) AS (VALUES
+    ('OFFICIAL_MEMO', 'addressee', 1), ('OFFICIAL_MEMO', 'author_name', 2), ('OFFICIAL_MEMO', 'doc_date', 3),
+    ('OFFICIAL_MEMO', 'reg_number', 4), ('OFFICIAL_MEMO', 'subject', 5), ('OFFICIAL_MEMO', 'body', 6),
+    ('OFFICIAL_MEMO', 'signer_position', 7), ('OFFICIAL_MEMO', 'signer_name', 8),
+    ('VACATION_REQUEST', 'employee_name', 1), ('VACATION_REQUEST', 'employee_position', 2),
+    ('VACATION_REQUEST', 'vacation_type', 3), ('VACATION_REQUEST', 'start_date', 4),
+    ('VACATION_REQUEST', 'days_count', 5),
+    ('SUPPORT_MEASURE_REQUEST', 'applicant_name', 1), ('SUPPORT_MEASURE_REQUEST', 'applicant_inn', 2),
+    ('SUPPORT_MEASURE_REQUEST', 'smb_category', 3), ('SUPPORT_MEASURE_REQUEST', 'support_type', 4),
+    ('GENERIC', 'doc_kind', 1), ('GENERIC', 'doc_date', 2), ('GENERIC', 'reg_number', 3),
+    ('GENERIC', 'subject', 4), ('GENERIC', 'signer_position', 5), ('GENERIC', 'signer_name', 6)
+)
+UPDATE document_type_field f
+SET position = ordered.position
+FROM ordered
+JOIN document_type t ON t.code = ordered.type_code
+WHERE f.document_type_id = t.id AND f.field_name = ordered.field_name;

@@ -216,6 +216,7 @@ export function DocumentCardScreen() {
         <CheckSummary
           status={doc.check.status}
           issueCount={doc.check.issues.length}
+          manualCount={doc.check.fields.filter((field) => field.source === 'MANUAL' && field.fileValue).length}
           onOpen={() => navigate(documentCheckPath(doc.id))}
         />
       )}
@@ -403,10 +404,13 @@ function StageGroup({ stage }: { stage: RouteStage }) {
 function CheckSummary({
   status,
   issueCount,
+  manualCount,
   onOpen,
 }: {
   status: 'CHECKED' | 'FAILED';
   issueCount: number;
+  /** Поля, которые автор изменил вручную, не меняя файл, — согласующий должен это видеть (#86). */
+  manualCount: number;
   onOpen: () => void;
 }) {
   // status = FAILED значит "проверка не выполнилась", а не "прошла и ничего не нашла" -
@@ -419,6 +423,15 @@ function CheckSummary({
         as="button"
         onClick={onOpen}
         showChevron
+        subtitle={
+          manualCount > 0 ? (
+            <span style={{ color: 'var(--status-warning-fg)' }}>
+              Автор изменил вручную полей: {manualCount} — в файле значения другие
+            </span>
+          ) : (
+            'Что нашёл ИИ и что проверили правила'
+          )
+        }
         title={
           status === 'FAILED' ? (
             <span style={{ color: 'var(--status-warning-fg)' }}>Проверка не выполнена</span>

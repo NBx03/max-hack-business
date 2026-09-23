@@ -105,7 +105,9 @@ export function NewDocumentVersionScreen() {
       title="Исправленная версия"
       footer={
         <div style={{ ...stackStyle, gap: 8 }}>
-          <SubmitButton form={FORM_ID} busy={submitting}>Загрузить и проверить</SubmitButton>
+          <SubmitButton form={FORM_ID} busy={submitting} disabled={!newMain && !containsSensitive}>
+            Загрузить и проверить
+          </SubmitButton>
           <Button stretched type="button" variant="secondary" size="large" disabled={submitting} onClick={() => navigate(documentCheckPath(card.id))}>
             Отмена
           </Button>
@@ -121,9 +123,11 @@ export function NewDocumentVersionScreen() {
             {newMain ? 'Будет заменён новым файлом' : 'Будет использован в новой версии'}
           </small>
         </div>
+        {/* Без нового файла новая версия просто перечитала бы прежний файл и затёрла ручные правки
+            (тест 23.09). Поля правятся на экране проверки: там же «Исправить в файле» для DOCX. */}
         <FilePicker
-          label="Новый основной файл"
-          hint="Не выбирайте файл, если исправляете только поля"
+          label="Исправленный файл"
+          hint="PDF или DOCX, до 10 МБ. Чтобы поправить только поля, вернитесь к проверке документа."
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           file={newMain}
           onSelect={setNewMain}
@@ -165,7 +169,7 @@ export function NewDocumentVersionScreen() {
         )}
 
         {submitError && <Notice tone="danger">{submitError}</Notice>}
-        {submitting && <Typography.Text>Проверяем документ</Typography.Text>}
+        {submitting && <Notice>ИИ читает новый файл, затем правила проверяют найденные поля. Это займёт до минуты.</Notice>}
       </form>
     </DocumentScreen>
   );

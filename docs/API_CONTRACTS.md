@@ -218,7 +218,7 @@ type MemberView = {               // участник компании: отве
 
 | Часть | Что |
 |---|---|
-| `meta` | JSON `{ documentTypeId, title, visibility, containsSensitive, fields?: Record<string,string> }` — принимается и без `Content-Type` у multipart-части; `containsSensitive` относится к этой версии |
+| `meta` | JSON `{ documentTypeId?, title?, visibility, containsSensitive, fields?: Record<string,string> }` — принимается и без `Content-Type` у multipart-части; `containsSensitive` относится к этой версии |
 | `main` | Основной файл: PDF или DOCX. Обязателен, если это не документ-форма |
 | `attachments` | *SHOULD.* До 10 файлов: PDF, DOCX, XLSX, PNG, JPG |
 
@@ -232,6 +232,14 @@ type MemberView = {               // участник компании: отве
 `fields` — поля, введённые вручную: при `containsSensitive = true` или когда модель
 недоступна. Заголовок — до 255 символов; не более 100 полей и 10 000 символов в значении.
 Ограничения файлов: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
+
+**Без `documentTypeId` — «Определить автоматически» (#86).** Модель по началу текста
+выбирает один из типов с подробной проверкой; не уверена или недоступна — «Другой документ»
+(`GENERIC`, общая проверка реквизитов, только предупреждения). В карточке — `type.autoDetected = true`.
+С `containsSensitive = true` текст в модель не уходит, поэтому тип обязателен: без него — 400
+`VALIDATION_FAILED` с текстом «Выберите тип документа…».
+
+**Без `title`** — название по содержанию документа (модель), без модели — из имени файла.
 
 ### `GET /documents` — списки
 
@@ -256,15 +264,18 @@ type DocumentListItem = {
 
 ```ts
 type DocumentCard = {
-  id: number; title: string; type: { id: number; name: string; isGeneric: boolean };
+  id: number; title: string;
+  type: { id: number; name: string; isGeneric: boolean;
+          autoDetected: boolean };   // тип выбрала модель при загрузке
   status: DocumentStatus; visibility: Visibility;
   author: UserRef; currentVersionNo: number;
   versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[] }[];
-  check: CheckResult | null;     // для текущей версии; null только у generic-типа
+  check: CheckResult | null;     // для текущей версии; null только у типа без схемы (is_generic)
   route: RouteView | null;       // null у черновика, который ещё не отправлялся
   permissions: {                 // вычисляет бэкенд — фронтенд правила не дублирует
     canEditFields: boolean; canUploadVersion: boolean; canSubmit: boolean;
     canAddApprover: boolean;
+    canCorrectFile: boolean;     // автор, DRAFT или RETURNED, основной файл — DOCX (#86)
   };
   myActiveStepIds: number[];     // шаги, по которым текущий пользователь может решить сейчас
 };
@@ -311,6 +322,38 @@ type DocumentCard = {
 Только для текущей версии в `DRAFT`. Возвращённая версия не редактируется —
 она уже в истории; исправление — новая версия.
 
+Файл при этом **не меняется**: это «ИИ прочитал поле неверно, а в файле всё правильно».
+Изменённое поле получает `source = "MANUAL"` и `fileValue` — что написано в файле, чтобы
+согласующий видел ручную правку (#86). Исправить сам документ — `corrections` ниже.
+
+### `POST /documents/{id}/versions/{versionNo}/corrections` — исправить в файле (#86)
+
+`{ fields: Record<string,string> }` — только изменённые поля. Бэкенд находит в тексте DOCX
+прежнее значение каждого поля (по цитате модели, если оно встречается несколько раз),
+заменяет его новым в том же фрагменте текста — оформление сохраняется, — и создаёт новую
+версию с исправленным файлом (приложения переходят как есть). Новая версия проверяется
+заново: модель снова читает файл.
+
+```ts
+type FileCorrectionResult = {
+  card: DocumentCard;                         // уже с новой версией, статус DRAFT
+  applied: string[];                          // поля, вписанные в файл
+  notApplied: { field: string; message: string }[];  // почему не вписано: поля нет в файле,
+                                              // значение не найдено, неоднозначно, занимает
+                                              // несколько абзацев — исправить в самом документе
+};
+```
+
+- Только автор, текущая версия в `DRAFT` или `RETURNED` (из `RETURNED` → `DRAFT`), иначе 409.
+- Основной файл не DOCX (PDF) — 400 `VALIDATION_FAILED`: такой файл исправляют в исходнике.
+- Ни одно поле вписать не удалось — 400 с причинами; новая версия не создаётся.
+
+### `PUT /documents/{id}/versions/{versionNo}/type` — сменить тип черновика (#86)
+
+`{ documentTypeId: number }` → `DocumentCard`. Если модель определила вид неверно: текущая
+версия проверяется заново по схеме и правилам нового типа, `type.autoDetected` становится
+`false`. Только автор и только текущий черновик, иначе 409.
+
 ### Результат проверки
 
 ```ts
@@ -319,7 +362,8 @@ type CheckResult = {
   status: "CHECKED" | "FAILED";  // FAILED — проверка не выполнилась: «Проверка не выполнена»,
                                  // повтор — сохранить поля ещё раз; отправка недоступна
   modelAvailable: boolean;       // false — показать «Разбор моделью недоступен, заполните поля вручную»
-  fields: { name: string; value: string | null; source: "MODEL" | "MANUAL"; quote: string | null; page: number | null }[];
+  fields: { name: string; value: string | null; source: "MODEL" | "MANUAL"; quote: string | null; page: number | null;
+            fileValue?: string | null }[];   // что в файле, если автор изменил поле вручную без правки файла
   issues: ValidationIssue[];     // пустой список — «замечаний нет»
 };
 

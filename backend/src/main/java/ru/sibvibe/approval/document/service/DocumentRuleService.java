@@ -53,7 +53,7 @@ public class DocumentRuleService {
     @Transactional(readOnly = true)
     public PreparedCheck prepare(long documentTypeId, Map<String, String> suppliedFields) {
         DocumentType type = typeRepository.findById(documentTypeId).orElseThrow(NotFoundException::new);
-        List<DocumentTypeField> schema = fieldRepository.findByDocumentTypeIdOrderById(documentTypeId);
+        List<DocumentTypeField> schema = fieldRepository.findByDocumentTypeIdOrderByPositionAscIdAsc(documentTypeId);
         Map<String, String> fields = suppliedFields == null
                 ? Map.of()
                 : new LinkedHashMap<>(suppliedFields);

@@ -80,7 +80,7 @@ public class DocumentViewService {
 
     @Transactional(readOnly = true)
     public List<DocumentTypeResponse> documentTypes() {
-        Map<Long, List<DocumentTypeField>> fields = fieldRepository.findAllByOrderByDocumentTypeIdAscIdAsc()
+        Map<Long, List<DocumentTypeField>> fields = fieldRepository.findAllByOrderByDocumentTypeIdAscPositionAscIdAsc()
                 .stream()
                 .collect(Collectors.groupingBy(
                         DocumentTypeField::getDocumentTypeId,

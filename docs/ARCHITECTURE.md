@@ -78,7 +78,7 @@
 | `document` | Документы, версии, файлы версий, списки, выдача файлов | Илья | `common`, `organization`, `storage`, `rules`, `ai` |
 | `storage` | Порт `FileStorage` и реализация на MinIO | Илья | `common` |
 | `rules` | `RuleEngine`, правила и их источники | Илья | `common` |
-| `ai` | Порты `TextExtractor`, `DocumentExtractor`, маскирование, GigaChat | Илья | `common` |
+| `ai` | Порты `TextExtractor`, `DocumentExtractor`, `DocumentClassifier`, маскирование, GigaChat | Илья | `common` |
 | `approval` | Предпросмотр маршрута, отправка, решения, состояния документа | Никита | `common`, `organization`, `document` |
 | `bot` | Порт `Notifier`, отправка уведомлений, приём webhook | Никита | `common`, `organization`, `document` |
 
@@ -116,6 +116,7 @@
 | `FileStorage` | `storage` | MinIO | Подмена в тестах, смена хранилища |
 | `TextExtractor` | `ai` | PDFBox + JDK для DOCX | Новые форматы без изменения конвейера |
 | `DocumentExtractor` | `ai` | Spring AI + GigaChat | Смена провайдера модели настройкой |
+| `DocumentClassifier` | `ai` | Spring AI + GigaChat | Вид документа по тексту при загрузке с «определить автоматически» (#86); недоступна модель — «Другой документ» |
 | `MaxIdentityVerifier` | `security` | HMAC-SHA256 по секрету бота | Тесты без настоящего MAX |
 | `Notifier` | `bot` | MAX Bot API | Тесты и отключение уведомлений |
 
@@ -205,11 +206,11 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `InviteRole` | invite_id, role_id — роли для личной ссылки |
 | `JoinRequest` | id, org_id, user_id, invite_id, **status** (PENDING / APPROVED / REJECTED / CANCELLED), created_at, decided_by, decided_at |
 | `DocumentType` | id, name, code, **is_generic** |
-| `DocumentTypeField` | id, document_type_id, field_name, field_type, label, hint |
+| `DocumentTypeField` | id, document_type_id, field_name, field_type, label, hint, **position** (порядок показа, #86) |
 | `ApprovalRoute` | id, document_type_id, org_id, **stage_order**, **role_id**, **is_mandatory** |
 | `RequirementRule` | id, document_type_id, field_name, description, check_type, expected, **kind**, severity, source_title, source_url, source_ref, source_checked_at |
-| `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, created_at, updated_at |
-| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у generic-типа) |
+| `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, **type_auto_detected** (тип выбрал ИИ, #86), created_at, updated_at |
+| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у типа с `is_generic = true`; с #86 таких типов нет — «Другой документ» (`GENERIC`) тоже проверяется) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |
 | `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at |
 
@@ -308,7 +309,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | Служебная записка | `OFFICIAL_MEMO` | Руководитель отдела (необязательно) → Директор |
 | Заявление на отпуск | `VACATION_REQUEST` | Кадровик (необязательно) → Директор |
 | Заявка на меру поддержки | `SUPPORT_MEASURE_REQUEST` | Юрист и Бухгалтер параллельно (оба необязательно) → Директор |
-| Любой файл (generic) | `GENERIC` | Директор |
+| Другой документ | `GENERIC` | Директор |
 
 Роли по умолчанию (`DIRECTOR`, `DEPARTMENT_HEAD`, `LAWYER`, `ACCOUNTANT`, `HR`): Директор,
 Руководитель отдела, Юрист, Бухгалтер, Кадровик.

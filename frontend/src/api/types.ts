@@ -205,9 +205,12 @@ export interface ValidationIssue {
 export interface CheckField {
   name: string;
   value: string | null;
+  /** MODEL — нашёл ИИ в тексте файла (quote — откуда), MANUAL — ввёл автор. */
   source: 'MODEL' | 'MANUAL';
   quote: string | null;
   page: number | null;
+  /** Что написано в файле, если автор заменил найденное значение, не меняя файл (#86). */
+  fileValue?: string | null;
 }
 
 export interface CheckResult {
@@ -261,12 +264,15 @@ export interface DocumentPermissions {
   canUploadVersion: boolean;
   canSubmit: boolean;
   canAddApprover: boolean;
+  /** Исправления полей можно вписать прямо в основной файл (DOCX) новой версией (#86). */
+  canCorrectFile: boolean;
 }
 
 export interface DocumentCard {
   id: number;
   title: string;
-  type: { id: number; name: string; isGeneric: boolean };
+  /** autoDetected — тип выбрал ИИ по тексту документа при загрузке. */
+  type: { id: number; name: string; isGeneric: boolean; autoDetected: boolean };
   status: DocumentStatus;
   visibility: Visibility;
   author: UserRef;
@@ -278,6 +284,13 @@ export interface DocumentCard {
   route: RouteView | null;
   permissions: DocumentPermissions;
   myActiveStepIds: number[];
+}
+
+/** Итог «Исправить в файле»: новая версия и какие поля вписать не удалось (с причиной). */
+export interface FileCorrectionResult {
+  card: DocumentCard;
+  applied: string[];
+  notApplied: { field: string; message: string }[];
 }
 
 export type RouteResolution = 'SELECT' | 'AUTO' | 'SKIPPED' | 'AUTHOR_HOLDS_ROLE';
