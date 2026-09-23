@@ -309,7 +309,7 @@ export function DocumentCardScreen() {
         {decisionError && <ErrorText>{decisionError}</ErrorText>}
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ flex: 1 }}>
-            <Button stretched variant="secondary" onClick={closeDialog}>
+            <Button stretched variant="secondary" disabled={decisionBusy} onClick={closeDialog}>
               Отмена
             </Button>
           </div>
