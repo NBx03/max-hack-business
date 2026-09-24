@@ -219,6 +219,56 @@
         "G2",
         "G3"
       ]
+    },
+    {
+      "file": "documents/14_trip_ok.docx",
+      "type": "BUSINESS_TRIP_REQUEST",
+      "about": "Заявка на командировку без замечаний.",
+      "fields": {
+        "employee_name": "Кузнецов Игорь Олегович",
+        "destination": "г. Казань",
+        "purpose": "участие в выставке «Промэкспо»",
+        "start_date": "05.10.2026",
+        "days_count": "5"
+      },
+      "normalized": [
+        "employee_name"
+      ],
+      "issues": []
+    },
+    {
+      "file": "documents/15_trip_errors.pdf",
+      "type": "BUSINESS_TRIP_REQUEST",
+      "about": "PDF. Не указана цель, дата начала без года, срок словами.",
+      "fields": {
+        "employee_name": "Кузнецов Игорь Олегович",
+        "destination": "г. Казань",
+        "start_date": "5 октября",
+        "days_count": "пять"
+      },
+      "normalized": [
+        "employee_name"
+      ],
+      "issues": [
+        "T3",
+        "T5",
+        "T6"
+      ]
+    },
+    {
+      "file": "documents/16_trip_missing.docx",
+      "type": "BUSINESS_TRIP_REQUEST",
+      "about": "Не указаны сотрудник, место и дата начала: пустые поля ловят только правила «Заполнено».",
+      "fields": {
+        "purpose": "переговоры с заказчиком о графике поставок",
+        "days_count": "3"
+      },
+      "normalized": [],
+      "issues": [
+        "T1",
+        "T2",
+        "T4"
+      ]
     }
   ]
 }

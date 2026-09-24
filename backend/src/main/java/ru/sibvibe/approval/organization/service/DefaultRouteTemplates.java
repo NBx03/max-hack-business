@@ -16,9 +16,15 @@ final class DefaultRouteTemplates {
     static final String OFFICIAL_MEMO = "OFFICIAL_MEMO";
     static final String VACATION_REQUEST = "VACATION_REQUEST";
     static final String SUPPORT_MEASURE_REQUEST = "SUPPORT_MEASURE_REQUEST";
+    static final String BUSINESS_TRIP_REQUEST = "BUSINESS_TRIP_REQUEST";
     static final String GENERIC = "GENERIC";
 
     static final Map<String, List<Row>> TEMPLATES = Map.of(
+            // Четвёртый тип (#61): три этапа подряд — единственный маршрут с последовательными необязательными.
+            BUSINESS_TRIP_REQUEST, List.of(
+                    new Row(1, DefaultRoles.DEPARTMENT_HEAD, false),
+                    new Row(2, DefaultRoles.ACCOUNTANT, false),
+                    new Row(3, DefaultRoles.DIRECTOR, true)),
             OFFICIAL_MEMO, List.of(
                     new Row(1, DefaultRoles.DEPARTMENT_HEAD, false),
                     new Row(2, DefaultRoles.DIRECTOR, true)),

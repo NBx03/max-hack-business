@@ -296,6 +296,36 @@ class ApprovalIntegrationTest {
         assertThat(card(company.frank, memo).path("permissions").path("canUploadVersion").asBoolean()).isFalse();
     }
 
+    // ============ четвёртый тип документа (#61) ============
+
+    /**
+     * Доказательство расширяемости: заявка на командировку добавлена одной миграцией справочника и строкой
+     * маршрута по умолчанию — и проходит тот же путь, что и первые три типа, без единого нового класса:
+     * тип виден в списке, маршрут из трёх последовательных этапов, решение на каждом.
+     */
+    @Test
+    void businessTripRequestAddedAsDataGoesThroughItsThreeStageRoute() throws Exception {
+        assertThat(ok(call(company.frank, "GET", "/api/v1/document-types", null)))
+                .extracting(type -> type.path("code").asText()).contains("BUSINESS_TRIP_REQUEST");
+        long trip = createDocument(company.frank, "BUSINESS_TRIP_REQUEST");
+
+        JsonNode preview = ok(call(company.frank, "GET", "/api/v1/documents/" + trip + "/route-preview", null));
+        assertThat(preview.path("problems")).isEmpty();
+        assertThat(preview.path("stages")).extracting(stage -> stage.path("participants").get(0).path("role").path("code").asText())
+                .containsExactly("DEPARTMENT_HEAD", "ACCOUNTANT", "DIRECTOR");
+
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + trip + "/submit", null));
+        assertThat(stageStates(submitted)).containsExactly("ACTIVE", "WAITING", "WAITING");
+        long bobStep = stepOf(submitted, company.bob);
+        long erinStep = stepOf(submitted, company.erin);
+        long aliceStep = stepOf(submitted, company.alice);
+
+        assertThat(stageStates(ok(decide(company.bob, bobStep, "APPROVE", null)))).containsExactly("DONE", "ACTIVE", "WAITING");
+        assertThat(stageStates(ok(decide(company.erin, erinStep, "APPROVE", null)))).containsExactly("DONE", "DONE", "ACTIVE");
+        JsonNode approved = ok(decide(company.alice, aliceStep, "APPROVE", "Согласовано"));
+        assertThat(approved.path("status").asText()).isEqualTo("APPROVED");
+    }
+
     // ============ параллельный этап, выбор, добавленные согласующие ============
 
     @Test
@@ -736,7 +766,7 @@ class ApprovalIntegrationTest {
 
         ok(call(company.frank, "GET", "/api/v1/documents/" + memo + "/route-preview", null));
         assertThat(jdbc.queryForObject("select count(*) from approval_route where org_id = ?", Integer.class, orgId))
-                .as("маршруты по умолчанию всех четырёх типов: 2 + 2 + 3 + 1").isEqualTo(8);
+                .as("маршруты по умолчанию всех пяти типов: 2 + 2 + 3 + 3 + 1").isEqualTo(11);
         assertThat(count("approval_step")).as("предпросмотр шагов не создаёт").isZero();
         assertThat(status(memo)).isEqualTo("DRAFT");
         assertThat(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null).status()).isEqualTo(200);
@@ -939,6 +969,12 @@ class ApprovalIntegrationTest {
                     "support_type", "Консультационная поддержка",
                     "applicant_inn", "1234567890",
                     "smb_category", "малое предприятие");
+            case "BUSINESS_TRIP_REQUEST" -> Map.of(
+                    "employee_name", "Кузнецов Игорь Олегович",
+                    "destination", "г. Казань",
+                    "purpose", "участие в выставке",
+                    "start_date", "05.10.2026",
+                    "days_count", "5");
             default -> Map.of();
         };
     }

@@ -60,7 +60,7 @@ class OnboardingIntegrationTest {
     private static final AtomicLong MAX_IDS = new AtomicLong(930_000_000L);
     private static final String SCHEMA = "onboarding_it";
     private static final List<String> TYPE_CODES = List.of(
-            "OFFICIAL_MEMO", "VACATION_REQUEST", "SUPPORT_MEASURE_REQUEST", "GENERIC");
+            "OFFICIAL_MEMO", "VACATION_REQUEST", "SUPPORT_MEASURE_REQUEST", "BUSINESS_TRIP_REQUEST", "GENERIC");
 
     static {
         // Один раз до создания контекста: схема пересоздаётся, и миграции выполняются на пустой базе.
@@ -157,9 +157,9 @@ class OnboardingIntegrationTest {
         assertThat(code.path("link").asText())
                 .isEqualTo("https://max.ru/t354_hakaton_max_bot?startapp=c_" + code.path("code").asText());
 
-        // маршруты по умолчанию: записка 2 + отпуск 2 + мера поддержки 3 + любой файл 1
+        // маршруты по умолчанию: записка 2 + отпуск 2 + мера поддержки 3 + командировка 3 + другой документ 1
         assertThat(jdbc.queryForObject("select count(*) from approval_route where org_id = ?",
-                Integer.class, orgId)).isEqualTo(8);
+                Integer.class, orgId)).isEqualTo(11);
         List<Map<String, Object>> memo = jdbc.queryForList("""
                 select r.stage_order, ro.code, r.is_mandatory from approval_route r
                 join role ro on ro.id = r.role_id join document_type t on t.id = r.document_type_id
@@ -687,10 +687,10 @@ class OnboardingIntegrationTest {
             // типы появились (их создаёт миграция): при следующем старте компания получает маршруты
             showDefaultTypes();
             routeBackfillRunner.run(null);
-            assertThat(countRoutes(orgId)).isEqualTo(8);
+            assertThat(countRoutes(orgId)).isEqualTo(11);
             // повторный запуск ничего не дублирует
             assertThat(routeTemplateService.backfillAllOrganizations()).isZero();
-            assertThat(countRoutes(orgId)).isEqualTo(8);
+            assertThat(countRoutes(orgId)).isEqualTo(11);
 
             // У демо-песочницы уже есть специальный маршрут из Issue #11; backfill его не меняет.
             long sandboxOrgId = ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null))
@@ -833,7 +833,7 @@ class OnboardingIntegrationTest {
     private void hideDefaultTypes() {
         jdbc.update("""
                 update document_type set code = 'TEST_HIDDEN_' || code
-                where code in ('OFFICIAL_MEMO', 'VACATION_REQUEST', 'SUPPORT_MEASURE_REQUEST', 'GENERIC')
+                where code in ('OFFICIAL_MEMO', 'VACATION_REQUEST', 'SUPPORT_MEASURE_REQUEST', 'BUSINESS_TRIP_REQUEST', 'GENERIC')
                 """);
     }
 
