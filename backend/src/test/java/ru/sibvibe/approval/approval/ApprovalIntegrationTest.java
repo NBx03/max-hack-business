@@ -717,6 +717,12 @@ class ApprovalIntegrationTest {
         assertThat(demo.path("sourceRef").asText()).isEqualTo("п. 2.5");
         assertThat(rule(ok(call(company.alice, "GET", "/api/v1/orgs/current/rules", null)), regNumber)
                 .path("sourceTitle").asText()).startsWith("Типовые правила оформления");
+
+        // четвёртый тип (#61) — тем же способом: своё положение о командировках у демо-компании
+        long tripDestination = ruleId("BUSINESS_TRIP_REQUEST", "destination", "REQUIRED");
+        JsonNode trip = rule(ok(callAs(reviewer, demoAuthor, "GET", "/api/v1/orgs/current/rules", null)), tripDestination);
+        assertThat(trip.path("sourceTitle").asText()).startsWith("Положение о служебных командировках Демо-компании");
+        assertThat(trip.path("sourceRef").asText()).isEqualTo("п. 2.2");
     }
 
     private long ruleId(String typeCode, String field, String check) {

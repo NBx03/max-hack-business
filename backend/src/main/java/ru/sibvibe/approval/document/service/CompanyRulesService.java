@@ -101,7 +101,7 @@ public class CompanyRulesService {
      */
     @Transactional
     public void applyDemoSettings(long orgId, long userId) {
-        Map<String, DocumentType> types = typeRepository.findByCodeIn(Set.of("OFFICIAL_MEMO", "VACATION_REQUEST"))
+        Map<String, DocumentType> types = typeRepository.findByCodeIn(Set.of("OFFICIAL_MEMO", "VACATION_REQUEST", "BUSINESS_TRIP_REQUEST"))
                 .stream().collect(Collectors.toMap(DocumentType::getCode, type -> type));
         demoSource(orgId, userId, types.get("OFFICIAL_MEMO"), DEMO_MEMO_POLICY, Map.of(
                 "reg_number", "п. 2.5",
@@ -110,12 +110,20 @@ public class CompanyRulesService {
                 "employee_name", "п. 3.1",
                 "vacation_type", "п. 3.2",
                 "start_date", "п. 3.3"));
+        // Заявка на командировку (#61): четвёртый тип добавлен одними данными — и настраивается так же.
+        demoSource(orgId, userId, types.get("BUSINESS_TRIP_REQUEST"), DEMO_TRIP_POLICY, Map.of(
+                "employee_name", "п. 2.1",
+                "destination", "п. 2.2",
+                "purpose", "п. 2.3",
+                "start_date", "п. 2.4"));
     }
 
     static final String DEMO_MEMO_POLICY =
             "Инструкция по делопроизводству Демо-компании (вымышленный локальный акт на основе ГОСТ Р 7.0.97-2016)";
     static final String DEMO_VACATION_POLICY =
             "Положение об оформлении отпусков Демо-компании (вымышленный локальный акт)";
+    static final String DEMO_TRIP_POLICY =
+            "Положение о служебных командировках Демо-компании (вымышленный локальный акт)";
 
     private void demoSource(long orgId, long userId, DocumentType type, String title, Map<String, String> refs) {
         if (type == null) {
