@@ -41,7 +41,7 @@ class GigaChatLiveIntegrationTest {
 
     @Test
     @EnabledIfEnvironmentVariable(named = "GIGACHAT_CREDENTIALS", matches = ".+")
-    void extractsExpectedFieldsFromSyntheticDocumentsWithLiveModel() throws Exception {
+    void extractsExpectedFieldsAndSummariesFromSyntheticDocumentsWithLiveModel() throws Exception {
         String credentials = System.getenv("GIGACHAT_CREDENTIALS");
         String clientId = System.getenv().getOrDefault("GIGACHAT_CLIENT_ID", "");
         String scope = System.getenv().getOrDefault("GIGACHAT_SCOPE", "GIGACHAT_API_PERS");
@@ -87,6 +87,8 @@ class GigaChatLiveIntegrationTest {
         }
         List<DocumentReport> reports = new ArrayList<>();
         boolean issueMismatch = false;
+        assertThat(expected.path("documents").isArray()).isTrue();
+        assertThat(expected.path("documents").size()).isPositive();
         for (JsonNode document : expected.path("documents")) {
             String typeCode = document.path("type").asText();
             TypeData type = typeData(rules, typeCode);
@@ -105,7 +107,7 @@ class GigaChatLiveIntegrationTest {
                 throw new IllegalStateException("Не удалось прочитать " + file, exception);
             }
             if (!result.available()) {
-                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—"));
+                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—", "—"));
                 issueMismatch = true;
                 continue;
             }
@@ -137,12 +139,15 @@ class GigaChatLiveIntegrationTest {
             document.path("issues").forEach(issue -> expectedIssues.add(issue.asText()));
             boolean matches = actualIssues.equals(expectedIssues);
             issueMismatch |= !matches;
+            boolean hasSummary = result.summary() != null && !result.summary().isBlank();
+            issueMismatch |= !hasSummary;
             reports.add(new DocumentReport(
                     file.getFileName().toString(),
                     String.join(" ", expectedIssues) + " → " + String.join(" ", actualIssues),
                     (matches ? "совпали" : "расхождение") + "; " + typeReport
                             + "; название: " + display(classification.title()),
-                    fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences)));
+                    fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences),
+                    hasSummary ? result.summary() : "СВОДКИ НЕТ"));
         }
         String report = report(reports);
         if (issueMismatch) {
@@ -153,12 +158,13 @@ class GigaChatLiveIntegrationTest {
 
     private String report(List<DocumentReport> reports) {
         StringBuilder result = new StringBuilder("Отчёт GigaChat по testdata/expected.json:\n\n")
-                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей |\n")
-                .append("| --- | --- | --- | --- |\n");
+                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей | Кратко от ИИ |\n")
+                .append("| --- | --- | --- | --- | --- |\n");
         reports.forEach(row -> result.append("| ").append(table(row.file()))
                 .append(" | ").append(table(row.issues()))
                 .append(" | ").append(table(row.status()))
-                .append(" | ").append(table(row.fields())).append(" |\n"));
+                .append(" | ").append(table(row.fields()))
+                .append(" | ").append(table(row.summary())).append(" |\n"));
         return result.toString();
     }
 
@@ -226,5 +232,5 @@ class GigaChatLiveIntegrationTest {
             Map<Long, String> codeById
     ) {}
 
-    private record DocumentReport(String file, String issues, String status, String fields) {}
+    private record DocumentReport(String file, String issues, String status, String fields, String summary) {}
 }

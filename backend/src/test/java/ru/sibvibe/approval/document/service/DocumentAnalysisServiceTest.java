@@ -32,7 +32,8 @@ class DocumentAnalysisServiceTest {
 
         var result = service.analyze(10, true, prepared);
 
-        assertThat(result).isSameAs(expected);
+        assertThat(result.check()).isSameAs(expected);
+        assertThat(result.summary()).isNull();
         verify(files, never()).findByVersionIdOrderByPosition(10L);
         verify(storage, never()).get(org.mockito.ArgumentMatchers.any());
         verify(extraction, never()).extract(

@@ -32,13 +32,13 @@ public class DocumentAnalysisService {
         this.ruleService = ruleService;
     }
 
-    public DocumentRuleService.CheckData analyze(
+    public AnalysisResult analyze(
             long versionId,
             boolean containsSensitive,
             DocumentRuleService.PreparedCheck prepared
     ) {
         if (containsSensitive) {
-            return ruleService.execute(prepared);
+            return new AnalysisResult(ruleService.execute(prepared), null);
         }
         DocumentFile main = fileRepository.findByVersionIdOrderByPosition(versionId).stream()
                 .filter(file -> file.getKind() == DocumentFile.Kind.MAIN)
@@ -52,11 +52,13 @@ public class DocumentAnalysisService {
                     stored.contentType(),
                     prepared.type().getCode(),
                     prepared.schema().stream().map(this::fieldSpec).toList());
-            return ruleService.execute(prepared, extraction);
+            return new AnalysisResult(ruleService.execute(prepared, extraction), extraction.summary());
         } catch (IOException exception) {
             throw new IllegalStateException("Не удалось закрыть поток файла", exception);
         }
     }
+
+    public record AnalysisResult(DocumentRuleService.CheckData check, String summary) {}
 
     private DocumentExtractor.FieldSpec fieldSpec(DocumentTypeField field) {
         return new DocumentExtractor.FieldSpec(

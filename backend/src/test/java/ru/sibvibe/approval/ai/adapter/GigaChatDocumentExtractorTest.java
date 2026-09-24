@@ -124,7 +124,7 @@ class GigaChatDocumentExtractorTest {
                 builders, new ObjectMapper(), true, "gigachat", "secret", 1);
         try {
             var valid = enabled.parse(
-                    "{\"fields\":[{\"fieldName\":\"date\",\"value\":\"2026-09-22\",\"quote\":\"22.09.2026\",\"page\":1}]}",
+                    "{\"summary\":\"Отпуск начинается 22.09.2026.\",\"fields\":[{\"fieldName\":\"date\",\"value\":\"2026-09-22\",\"quote\":\"22.09.2026\",\"page\":1}]}",
                     schema);
             var unknown = enabled.parse(
                     "{\"fields\":[{\"fieldName\":\"unknown\",\"value\":42}],\"extra\":true}",
@@ -135,8 +135,15 @@ class GigaChatDocumentExtractorTest {
             var duplicate = enabled.parse(
                     "{\"fields\":[{\"fieldName\":\"date\",\"value\":null},"
                             + "{\"fieldName\":\"date\",\"value\":null}]}", schema);
+            var summaryArray = enabled.parse(
+                    "{\"summary\":[\"а\",\"б\"],\"fields\":[{\"fieldName\":\"date\","
+                            + "\"value\":\"2026-09-22\",\"quote\":null,\"page\":null}]}", schema);
+            var summaryTooLong = enabled.parse(
+                    "{\"summary\":\"" + "x".repeat(2_001) + "\",\"fields\":[{\"fieldName\":\"date\","
+                            + "\"value\":\"2026-09-22\",\"quote\":null,\"page\":null}]}", schema);
 
             assertThat(valid.available()).isTrue();
+            assertThat(valid.summary()).isEqualTo("Отпуск начинается 22.09.2026.");
             assertThat(valid.fields()).containsKey("date");
             assertThat(unknown.available()).isTrue();
             assertThat(unknown.fields().get("date").value()).isNull();
@@ -144,6 +151,12 @@ class GigaChatDocumentExtractorTest {
             assertThat(markdown.fields().get("date").value()).isNull();
             assertThat(invalid.available()).isFalse();
             assertThat(duplicate.available()).isFalse();
+            assertThat(summaryArray.available()).isTrue();
+            assertThat(summaryArray.fields().get("date").value()).isEqualTo("2026-09-22");
+            assertThat(summaryArray.summary()).isNull();
+            assertThat(summaryTooLong.available()).isTrue();
+            assertThat(summaryTooLong.fields().get("date").value()).isEqualTo("2026-09-22");
+            assertThat(summaryTooLong.summary()).isNull();
         } finally {
             enabled.closeExecutor();
         }

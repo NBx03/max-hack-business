@@ -414,13 +414,12 @@ public class DocumentCommandService {
         }
         DocumentRuleService.CheckData pending = ruleService.pending(prepared);
         try {
-            persistenceService.completeCheck(
-                    documentId,
-                    attempt,
-                    analysisService.analyze(attempt.versionId(), containsSensitive, prepared));
+            DocumentAnalysisService.AnalysisResult analysis =
+                    analysisService.analyze(attempt.versionId(), containsSensitive, prepared);
+            persistenceService.completeCheck(documentId, attempt, analysis.check(), analysis.summary());
         } catch (RuntimeException exception) {
             LOGGER.error("Не удалось проверить правила для версии {}", attempt.versionId(), exception);
-            persistenceService.failCheck(documentId, attempt, pending);
+            persistenceService.failCheck(documentId, attempt, pending, true);
         }
     }
 

@@ -51,6 +51,10 @@ public class DocumentVersion {
     @Column(name = "check_status")
     private String checkStatus;
 
+    /** Проверенная краткая сводка модели; {@code null}, если модель недоступна или документ чувствительный. */
+    @Column(name = "ai_summary")
+    private String aiSummary;
+
     /** Автор отозвал эту версию с согласования; {@code null} — не отзывалась. */
     @Column(name = "withdrawn_at")
     private Instant withdrawnAt;

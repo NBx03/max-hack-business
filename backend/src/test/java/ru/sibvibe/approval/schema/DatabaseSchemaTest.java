@@ -58,7 +58,7 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(14);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(15);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
                     .isEqualTo(19);
             assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(17);
@@ -247,6 +247,7 @@ class DatabaseSchemaTest {
         rejected(connection, "23505", "INSERT INTO document_version(id,document_id,version_no,contains_sensitive,created_by,created_at) VALUES (10,1,1,false,1,CURRENT_TIMESTAMP)");
         accepted(connection, "UPDATE document_version SET check_status='FAILED' WHERE id=1");
         accepted(connection, "UPDATE document_version SET check_status=NULL WHERE id=1");
+        accepted(connection, "UPDATE document_version SET ai_summary='Краткая сводка' WHERE id=1");
         rejected(connection, "23514", "UPDATE document_version SET check_status='UNKNOWN' WHERE id=1");
         rejected(connection, "23505", file(10, 1, "MAIN", 1));
         rejected(connection, "23503", file(10, 999, "ATTACHMENT", 1));

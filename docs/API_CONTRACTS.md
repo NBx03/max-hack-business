@@ -451,6 +451,7 @@ type CheckResult = {
   status: "CHECKED" | "FAILED";  // FAILED — проверка не выполнилась: «Проверка не выполнена»,
                                  // повтор — сохранить поля ещё раз; отправка недоступна
   modelAvailable: boolean;       // false — показать «Разбор моделью недоступен, заполните поля вручную»
+  summary: string | null;        // 2–3 предложения «Кратко от ИИ»; null — блок не показывать (#92)
   textMissing: boolean;          // true — в файле нет текста (скан): модель не вызывалась, поля вручную (#86)
   fields: { name: string; value: string | null; source: "MODEL" | "MANUAL"; quote: string | null; page: number | null;
             fileValue?: string | null }[];   // что в файле, если автор изменил поле вручную без правки файла
@@ -464,6 +465,10 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
   quote: string | null; page: number | null;
 };
 ```
+
+`summary` приходит из того же вызова модели, что и поля. Бэкенд восстанавливает в ней
+замаскированные значения и отдаёт сводку только тогда, когда каждое число и дата дословно
+встречаются в тексте файла. Для чувствительного документа и при недоступной модели — `null`.
 
 ## Маршрут и решения
 

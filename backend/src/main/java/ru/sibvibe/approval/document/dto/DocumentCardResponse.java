@@ -60,6 +60,7 @@ public record DocumentCardResponse(
             int versionNo,
             String status,
             boolean modelAvailable,
+            String summary,
             List<FieldValue> fields,
             List<ValidationIssueView> issues,
             boolean textMissing

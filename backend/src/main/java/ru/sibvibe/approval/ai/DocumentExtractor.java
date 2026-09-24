@@ -7,7 +7,7 @@ import java.util.Map;
  * Порт извлечения структурированных данных из документа.
  *
  * Здесь и только здесь работает языковая модель. Она делает ровно одно:
- * превращает неструктурированный текст в набор полей. Решение о том,
+ * превращает неструктурированный текст в набор полей и краткую сводку. Решение о том,
  * нарушено ли требование, принимает {@code RuleEngine} детерминированным
  * кодом - модель к этому решению не допускается.
  *
@@ -46,12 +46,18 @@ public interface DocumentExtractor {
      * @param available false - модель была недоступна. Не ошибка, а штатный режим:
      *                  проверка правил выполнится по полям, введённым вручную
      * @param providerId какой провайдер отработал, для журнала; {@link #NO_TEXT} — в файле нет текста
+     * @param summary    краткая сводка; после восстановления масок и проверки фактов сохраняется на версии
      */
     record ExtractionResult(
             Map<String, ExtractedField> fields,
             boolean available,
-            String providerId
+            String providerId,
+            String summary
     ) {
+        public ExtractionResult(Map<String, ExtractedField> fields, boolean available, String providerId) {
+            this(fields, available, providerId, null);
+        }
+
         public boolean textMissing() {
             return NO_TEXT.equals(providerId);
         }

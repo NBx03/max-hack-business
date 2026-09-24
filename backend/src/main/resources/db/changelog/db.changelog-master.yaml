@@ -41,3 +41,6 @@ databaseChangeLog:
   - include:
       file: 014-trip-days-count-hint.sql
       relativeToChangelogFile: true
+  - include:
+      file: 015-document-ai-summary.sql
+      relativeToChangelogFile: true

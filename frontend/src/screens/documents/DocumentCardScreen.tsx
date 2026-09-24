@@ -333,6 +333,8 @@ export function DocumentCardScreen() {
         </div>
       )}
 
+      {doc.check?.summary && <AiSummary summary={doc.check.summary} />}
+
       {doc.check && (
         <CheckSummary
           status={doc.check.status}
@@ -577,6 +579,28 @@ function FormContent({ content, definitions }: { content: Record<string, string>
         ))}
       </dl>
       <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Заполнено в приложении, без файла</span>
+    </div>
+  );
+}
+
+/** Сводка модели для согласующего (#92): только если каждое число и дата из неё есть в тексте документа. */
+function AiSummary({ summary }: { summary: string }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: 12,
+        borderRadius: 8,
+        background: 'var(--background-secondary)',
+      }}
+    >
+      <Typography.Text>Кратко от ИИ</Typography.Text>
+      <span style={{ fontSize: 14, color: 'var(--text-primary)', lineHeight: 1.4 }}>{summary}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+        Составлено ИИ по тексту документа. Решение принимаете вы
+      </span>
     </div>
   );
 }

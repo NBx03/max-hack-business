@@ -24,7 +24,7 @@ class DocumentExtractionServiceTest {
             assertThat(request.maskedText()).contains("<INN_1>").doesNotContain("1234567890");
             return new DocumentExtractor.ExtractionResult(Map.of(
                     "inn", new DocumentExtractor.ExtractedField("<INN_1>", "ИНН заявителя <INN_1>", 99)),
-                    true, "test");
+                    true, "test", "Документ касается <INN_1> и подан 15.09.2026.");
         };
         var service = service(text, model);
 
@@ -33,6 +33,48 @@ class DocumentExtractionServiceTest {
         assertThat(result.available()).isTrue();
         assertThat(result.fields().get("inn"))
                 .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", "ИНН заявителя 1234567890", 1));
+        // Даты в сводке тоже обязаны быть в исходном тексте, поэтому вся сводка отклонена.
+        assertThat(result.summary()).isNull();
+    }
+
+    @Test
+    void restoresMaskedSummaryWhenEveryNumberOccursVerbatim() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
+                List.of("ИНН заявителя 1234567890. Срок исполнения 15.09.2026."), true));
+        DocumentExtractor model = request -> new DocumentExtractor.ExtractionResult(Map.of(
+                "inn", new DocumentExtractor.ExtractedField("<INN_1>", "ИНН заявителя <INN_1>", 1)),
+                true, "test", "Документ касается <INN_1>. Срок исполнения — 15.09.2026.");
+
+        var result = service(text, model).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+
+        assertThat(result.summary())
+                .isEqualTo("Документ касается 1234567890. Срок исполнения — 15.09.2026.");
+    }
+
+    @Test
+    void discardsEntireSummaryWhenModelInventsNumber() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
+                List.of("Срок исполнения 15.09.2026, сумма 1000 рублей."), true));
+        DocumentExtractor model = request -> new DocumentExtractor.ExtractionResult(Map.of(), true, "test",
+                "Исполнить до 15.09.2026. Сумма составляет 2000 рублей.");
+
+        var result = service(text, model).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+
+        assertThat(result.summary()).isNull();
+    }
+
+    @Test
+    void requiresWholeNumericTokensWordMonthAndResolvedPlaceholders() {
+        String source = "Срок 15.09.2026, сумма 1000 рублей. Начало с 1 ноября 2026 года. Лимит 1\u202F000.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Сумма 100 рублей.", source)).isFalse();
+        assertThat(DocumentExtractionService.summarySupportedBy("Касается 5 сотрудников.", source)).isFalse();
+        assertThat(DocumentExtractionService.summarySupportedBy("Начало 1 октября 2026 года.", source)).isFalse();
+        assertThat(DocumentExtractionService.summarySupportedBy("Документ подписал <PERSON_9>.", source)).isFalse();
+        assertThat(DocumentExtractionService.summarySupportedBy(
+                "Начало 1 ноября 2026 года. Лимит 1 000.", source)).isTrue();
     }
 
     @Test

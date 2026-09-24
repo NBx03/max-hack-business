@@ -7,9 +7,12 @@ import ru.sibvibe.approval.ai.TextExtractor;
 
 import java.io.InputStream;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -26,6 +29,15 @@ public class DocumentExtractionService {
     private static final int MIN_TEXT_LETTERS = 10;
     /** Любые пробелы, включая неразрывный и перевод строки. */
     private static final String WHITESPACE = "[\\s\\u00A0]+";
+    /** Целое число, дата, сумма или другой числовой фрагмент — проверяется целиком и дословно. */
+    private static final Pattern SUMMARY_NUMBER = Pattern.compile(
+            "(?<![\\p{L}\\p{N}_])\\d+(?:(?:[ \\u00A0\\u202F]+|[.,:/-])\\d+)*(?![\\p{L}\\p{N}_])");
+    private static final Pattern SUMMARY_WORD_DATE = Pattern.compile(
+            "(?iu)(?<![\\p{L}\\p{N}_])(\\d{1,2})[\\s\\u00A0\\u202F]+"
+                    + "(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)"
+                    + "(?:[\\s\\u00A0\\u202F]+(\\d{4}))?(?![\\p{L}\\p{N}_])");
+    private static final Pattern UNRESOLVED_PLACEHOLDER = Pattern.compile("<[A-Z]+_\\d+>");
+    private static final Pattern NUMBER_SPACES = Pattern.compile("[ \\u00A0\\u202F]+");
 
     private final TextExtractor textExtractor;
     private final DocumentExtractor documentExtractor;
@@ -81,7 +93,11 @@ public class DocumentExtractionService {
             restored.put(spec.fieldName(), new DocumentExtractor.ExtractedField(
                     value, verified.valid() ? verified.quote() : null, verified.valid() ? verified.page() : null));
         }
-        return new DocumentExtractor.ExtractionResult(Map.copyOf(restored), true, model.providerId());
+        String summary = masked.restore(model.summary());
+        if (!summarySupportedBy(summary, original.fullText())) {
+            summary = null;
+        }
+        return new DocumentExtractor.ExtractionResult(Map.copyOf(restored), true, model.providerId(), summary);
     }
 
     /**
@@ -118,6 +134,47 @@ public class DocumentExtractionService {
                 .map(Pattern::quote)
                 .collect(Collectors.joining(WHITESPACE));
         return Optional.of(Pattern.compile(regex));
+    }
+
+    static boolean summarySupportedBy(String summary, String source) {
+        if (summary == null || summary.isBlank()) {
+            return true;
+        }
+        if (source == null || UNRESOLVED_PLACEHOLDER.matcher(summary).find()) {
+            return false;
+        }
+        Set<String> sourceNumbers = numericTokens(source);
+        for (String number : numericTokens(summary)) {
+            if (!sourceNumbers.contains(number)) {
+                return false;
+            }
+        }
+        Set<String> sourceWordDates = wordDateTokens(source);
+        for (String date : wordDateTokens(summary)) {
+            if (!sourceWordDates.contains(date)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Set<String> numericTokens(String text) {
+        Set<String> result = new HashSet<>();
+        Matcher matcher = SUMMARY_NUMBER.matcher(text);
+        while (matcher.find()) {
+            result.add(NUMBER_SPACES.matcher(matcher.group()).replaceAll(" "));
+        }
+        return result;
+    }
+
+    private static Set<String> wordDateTokens(String text) {
+        Set<String> result = new HashSet<>();
+        Matcher matcher = SUMMARY_WORD_DATE.matcher(text);
+        while (matcher.find()) {
+            result.add(matcher.group(1) + " " + matcher.group(2).toLowerCase(Locale.ROOT)
+                    + (matcher.group(3) == null ? "" : " " + matcher.group(3)));
+        }
+        return result;
     }
 
     /**

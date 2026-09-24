@@ -212,6 +212,10 @@ public class DocumentPersistenceService {
                 && ("CHECKED".equals(current.getCheckStatus()) || fileless)
                 ? readCheckData(current)
                 : null;
+        if (previousFields != null) {
+            // Основной файл не менялся: проверенная сводка относится к тому же тексту.
+            version.setAiSummary(current.getAiSummary());
+        }
 
         becomeDraft(document, versionNo, now);
         return new CreatedVersion(documentId, version.getId(), versionNo, checkToken, previousFields);
@@ -433,6 +437,27 @@ public class DocumentPersistenceService {
             CheckAttempt attempt,
             DocumentRuleService.CheckData result
     ) {
+        return completeCheck(documentId, attempt, result, null, false);
+    }
+
+    /** Модельный анализ заменяет сводку; {@code null} явно удаляет прежнюю. */
+    @Transactional
+    public boolean completeCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData result,
+            String summary
+    ) {
+        return completeCheck(documentId, attempt, result, summary, true);
+    }
+
+    private boolean completeCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData result,
+            String summary,
+            boolean replaceSummary
+    ) {
         documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
         DocumentVersion version = currentAttempt(documentId, attempt);
         if (version == null) {
@@ -441,6 +466,9 @@ public class DocumentPersistenceService {
         version.setExtractedFields(fieldsJson(result, null));
         version.setValidationIssues(objectMapper.valueToTree(result.issues()));
         version.setCheckStatus("CHECKED");
+        if (replaceSummary) {
+            version.setAiSummary(summary);
+        }
         return true;
     }
 
@@ -450,6 +478,17 @@ public class DocumentPersistenceService {
             CheckAttempt attempt,
             DocumentRuleService.CheckData pending
     ) {
+        return failCheck(documentId, attempt, pending, false);
+    }
+
+    /** Ошибка модельного анализа удаляет сводку; ручная перепроверка сохраняет её. */
+    @Transactional
+    public boolean failCheck(
+            long documentId,
+            CheckAttempt attempt,
+            DocumentRuleService.CheckData pending,
+            boolean clearSummary
+    ) {
         documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
         DocumentVersion version = currentAttempt(documentId, attempt);
         if (version == null) {
@@ -458,6 +497,9 @@ public class DocumentPersistenceService {
         version.setExtractedFields(fieldsJson(pending, null));
         version.setValidationIssues(objectMapper.createArrayNode());
         version.setCheckStatus("FAILED");
+        if (clearSummary) {
+            version.setAiSummary(null);
+        }
         return true;
     }
 

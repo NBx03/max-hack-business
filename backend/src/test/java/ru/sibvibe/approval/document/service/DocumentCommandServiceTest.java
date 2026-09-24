@@ -100,7 +100,7 @@ class DocumentCommandServiceTest {
         service.create(user(), request(), multipart);
 
         verify(persistence).failCheck(
-                1, new DocumentPersistenceService.CheckAttempt(2, "attempt-1"), pending);
+                1, new DocumentPersistenceService.CheckAttempt(2, "attempt-1"), pending, true);
         verify(storage, never()).delete("new-key");
     }
 
@@ -116,6 +116,8 @@ class DocumentCommandServiceTest {
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
         when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
+        when(analysis.analyze(2, false, prepared)).thenReturn(new DocumentAnalysisService.AnalysisResult(
+                new DocumentRuleService.CheckData(true, List.of(), List.of()), "Краткая сводка"));
 
         service.create(user(), new CreateDocumentRequest(null, " ", Document.Visibility.PRIVATE, false, null), multipart);
 

@@ -33,11 +33,16 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
     private static final int MAX_QUOTE_LENGTH = 2_000;
     /** Попыток на один документ: повтор — только если ответ не разобран, и в пределах того же тайм-аута. */
     static final int MAX_ATTEMPTS = 2;
+    private static final int MAX_SUMMARY_LENGTH = 2_000;
     private static final String SYSTEM_PROMPT = """
             Ты извлекаешь структурированные поля из текста документа.
             Не проверяй правила, не оценивай документ и не добавляй сведения, которых нет в тексте.
+            Не давай оценок и рекомендаций и не предлагай решение по документу.
             Верни только JSON без markdown строго вида:
-            {"fields":[{"fieldName":"имя","value":"значение или null","quote":"дословная цитата или null","page":1}]}
+            {"summary":"2–3 предложения или null","fields":[{"fieldName":"имя","value":"значение или null","quote":"дословная цитата или null","page":1}]}
+            summary кратко объясняет, что просит документ, какие в нём суммы и сроки и кого он касается.
+            Используй только сведения из текста. Числа и даты копируй дословно, не вычисляй и не нормализуй.
+            Метки маскирования в summary тоже возвращай без изменений.
             Для каждого поля схемы верни ровно один объект. fieldName не изменяй.
             value — точная копия значения из текста: не переводи слова в числа, не меняй формат даты,
             кавычки, регистр и другие символы. Метки <PERSON_1>, <INN_1>, <SNILS_1>, <PASSPORT_1>,
@@ -169,7 +174,8 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
             for (String name : expected.keySet()) {
                 fields.putIfAbsent(name, new ExtractedField(null, null, null));
             }
-            return new ExtractionResult(Map.copyOf(fields), true, "gigachat");
+            String summary = optionalSummary(root);
+            return new ExtractionResult(Map.copyOf(fields), true, "gigachat", summary);
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             LOGGER.warn("GigaChat вернул некорректный JSON извлечения полей");
             return unavailable();
@@ -216,6 +222,16 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
         }
         if (!value.isTextual() || value.textValue().length() > maxLength) {
             throw new IllegalArgumentException();
+        }
+        return value.textValue();
+    }
+
+    /** Сводка — необязательное дополнение: её дефект не должен уничтожать корректно извлечённые поля. */
+    private String optionalSummary(JsonNode root) {
+        JsonNode value = root.get("summary");
+        if (value == null || value.isNull() || !value.isTextual()
+                || value.textValue().isBlank() || value.textValue().length() > MAX_SUMMARY_LENGTH) {
+            return null;
         }
         return value.textValue();
     }
