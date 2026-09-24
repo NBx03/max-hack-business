@@ -20,7 +20,7 @@ function roleLine(roles: { name: string }[], isAdmin: boolean): string {
   return names.length > 0 ? names.join(', ') : 'без ролей — роли назначает администратор';
 }
 
-const captionStyle = { fontSize: 13, color: 'var(--text-secondary)' } as const;
+const captionStyle = { fontSize: 14, color: 'var(--text-secondary)' } as const;
 
 /**
  * Раздел «Компания» нижнего меню: кто в компании и с какими ролями (видно всем), администрирование,
@@ -123,30 +123,21 @@ export function CompanyScreen() {
 
       <section style={sectionStyle}>
         <Typography.Headline variant="small">Как устроено согласование</Typography.Headline>
-        <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-          Документ проходит нужных людей в установленном порядке, а ошибки оформления находятся до отправки, а не
-          у последнего согласующего.
-        </Typography.Text>
         <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10, color: 'var(--text-primary)' }}>
           <li>
-            <strong>Подготовка.</strong> Автор загружает документ. Сервис распознаёт его реквизиты — адресата, дату,
-            номер, подпись — и сверяет с требованиями к оформлению. У каждого замечания указано основание.
+            <strong>Проверка.</strong> Сервис распознаёт реквизиты и находит ошибки оформления.
           </li>
           <li>
-            <strong>Исправление.</strong> Критичные замечания нужно устранить до отправки — прямо в приложении
-            или загрузив исправленный файл.
+            <strong>Исправление.</strong> Критичные замечания устраняются до отправки.
           </li>
           <li>
-            <strong>Маршрут.</strong> Кто согласует документ и в каком порядке, задано для каждого вида документов
-            заранее. Перед отправкой автор видит всю цепочку с именами.
+            <strong>Маршрут.</strong> Автор видит всю цепочку согласующих с именами.
           </li>
           <li>
-            <strong>Решения.</strong> Согласующие получают сообщение в MAX, когда подходит их очередь, и
-            согласуют, возвращают на доработку или отклоняют документ. Решения принимают только люди.
+            <strong>Решения.</strong> Согласующие получают сообщение в MAX, когда подошла их очередь.
           </li>
           <li>
-            <strong>Результат.</strong> Когда все этапы пройдены, документ получает статус «Согласован», а автор —
-            уведомление. История решений хранится вместе с каждой версией документа.
+            <strong>Результат.</strong> Статус «Согласован» и история решений по каждой версии.
           </li>
         </ol>
       </section>
@@ -156,10 +147,7 @@ export function CompanyScreen() {
           <Typography.Headline variant="small">Демонстрационный режим</Typography.Headline>
           {inDemo ? (
             <>
-              <span style={captionStyle}>
-                Вы в демонстрационной компании: сменить сотрудника можно полосой вверху экрана. Действия здесь
-                не затрагивают настоящие компании.
-              </span>
+              <span style={captionStyle}>Сотрудника меняйте полосой вверху. Настоящие компании это не затрагивает.</span>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <Button variant="secondary" disabled={restarting} onClick={() => void actAs(null)}>
                   Выйти из демонстрации
@@ -172,10 +160,7 @@ export function CompanyScreen() {
             </>
           ) : (
             <>
-              <span style={captionStyle}>
-                Для знакомства с продуктом: готовая компания с сотрудниками и документами, где можно пройти
-                согласование от имени каждого участника. Ваша компания при этом не меняется.
-              </span>
+              <span style={captionStyle}>Компания с вымышленными сотрудниками — пройти согласование за каждого.</span>
               <div>
                 <Button variant="ghost" loading={demo.busy} onClick={() => void demo.open()}>
                   {demo.hasSandbox ? 'Продолжить демонстрацию' : 'Открыть демонстрацию'}

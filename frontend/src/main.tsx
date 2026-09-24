@@ -22,9 +22,12 @@ if (!container) {
 createRoot(container).render(
   <StrictMode>
     <MaxUI resetBody className="app-root">
-      <SessionProvider>
-        <App />
-      </SessionProvider>
+      {/* Рамка приложения: на широком экране всё — шапка демо, экран и нижнее меню — одной колонкой (theme/tokens.css). */}
+      <div className="app-frame">
+        <SessionProvider>
+          <App />
+        </SessionProvider>
+      </div>
     </MaxUI>
   </StrictMode>,
 );

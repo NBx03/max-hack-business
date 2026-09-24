@@ -22,6 +22,35 @@ body,
 }
 
 /*
+ * Рамка приложения — одна колонка на всё: плашка демо, экран и нижнее меню. На широком окне
+ * (веб-версия MAX во весь экран, монитор 27") раньше контент стоял узкой колонкой по центру, а нижнее
+ * меню растягивалось на всю ширину (приёмка 24.09, п. 14). Теперь приложение выглядит как экран
+ * телефона посреди окна: колонка 560px с границами по бокам, поле вокруг — вторичным фоном.
+ */
+.app-frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--background-primary);
+  box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+  .app-root {
+    background: var(--background-secondary) !important;
+  }
+
+  .app-frame {
+    border-left: 1px solid var(--divider-primary);
+    border-right: 1px solid var(--divider-primary);
+  }
+}
+
+/*
  * Цвета тонов статуса/решения (StatusTone) - дополняют палитру @maxhub/max-ui,
  * в которой нет готовых "оранжевого"/"жёлтого" семантических токенов (есть только
  * --icon-negative/--icon-positive). Светлая/тёмная пара, а не расчёт в JS -
