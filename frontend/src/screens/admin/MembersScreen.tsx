@@ -9,6 +9,7 @@ import { RolePicker } from '../../components/base/RolePicker';
 import { Toast } from '../../components/base/Toast';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
 import { ADMIN_BACK, AdminLoadError, AdminTabs, roleNames } from './AdminFormParts';
+import { removedRoleIds, returnedDocumentsText } from './memberChanges';
 
 function sameRoleIds(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
@@ -90,14 +91,17 @@ export function MembersScreen() {
     setSaving(true);
     setEditError(null);
     try {
+      let returned = 0;
       if (rolesChanged) {
-        applyUpdate(await setMemberRoles(editing.memberId, editRoleIds));
+        const changed = await setMemberRoles(editing.memberId, editRoleIds);
+        applyUpdate(changed);
+        returned = changed.returnedDocuments;
       }
       if (adminChanged) {
         applyUpdate(await setMemberAdmin(editing.memberId, editIsAdmin));
       }
       closeEdit();
-      setToast('Изменения сохранены');
+      setToast(['Изменения сохранены.', returnedDocumentsText(returned)].filter(Boolean).join(' '));
     } catch (error) {
       try {
         const fresh = await getMembers();
@@ -128,7 +132,7 @@ export function MembersScreen() {
       applyUpdate(updated);
       setConfirmDisable(false);
       closeEdit();
-      setToast('Сотрудник исключён');
+      setToast(['Сотрудник исключён из компании.', returnedDocumentsText(updated.returnedDocuments)].filter(Boolean).join(' '));
     } catch (error) {
       setConfirmDisable(false);
       setEditError(errorMessage(error));
@@ -234,6 +238,11 @@ export function MembersScreen() {
       >
         <div style={stackStyle}>
           <RolePicker roles={roles} selectedRoleIds={editRoleIds} onChange={setEditRoleIds} disabled={saving || disabling} />
+          {editing && removedRoleIds(editing.roles.map((role) => role.id), editRoleIds).length > 0 && (
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              Документы, которые ждут решения сотрудника в снятой роли, вернутся авторам — их можно отправить заново.
+            </span>
+          )}
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch checked={editIsAdmin} disabled={saving || disabling} onChange={(event) => setEditIsAdmin(event.target.checked)} />
             <Typography.Text>Права администратора</Typography.Text>
@@ -252,7 +261,7 @@ export function MembersScreen() {
         open={confirmDisable}
         onClose={() => setConfirmDisable(false)}
         title={`Исключить «${editing?.user.fullName ?? ''}»?`}
-        description="Доступ к документам компании закроется сразу. Документы, которые ждут его решения, вернутся авторам — их можно отправить заново."
+        description="Доступ к документам компании закроется сразу. Документы, которые ждут решения сотрудника, вернутся авторам — их можно отправить заново."
         confirmLabel="Исключить"
         destructive
         busy={disabling}

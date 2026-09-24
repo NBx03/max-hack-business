@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.dto.AdminFlagRequest;
+import ru.sibvibe.approval.organization.dto.MemberChangeView;
 import ru.sibvibe.approval.organization.dto.MemberView;
 import ru.sibvibe.approval.organization.dto.RoleIdsRequest;
 import ru.sibvibe.approval.organization.service.MemberService;
@@ -33,7 +34,7 @@ public class MemberController {
     }
 
     @PutMapping("/{memberId}/roles")
-    public MemberView setRoles(
+    public MemberChangeView setRoles(
             @AuthenticationPrincipal CurrentUser currentUser,
             @PathVariable long memberId,
             @Valid @RequestBody RoleIdsRequest request
@@ -51,7 +52,7 @@ public class MemberController {
     }
 
     @PostMapping("/{memberId}/disable")
-    public MemberView disable(@AuthenticationPrincipal CurrentUser currentUser, @PathVariable long memberId) {
+    public MemberChangeView disable(@AuthenticationPrincipal CurrentUser currentUser, @PathVariable long memberId) {
         return memberService.disable(currentUser, memberId);
     }
 }

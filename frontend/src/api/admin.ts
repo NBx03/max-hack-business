@@ -60,8 +60,11 @@ export function getMembers(): Promise<MemberView[]> {
   return apiRequest<MemberView[]>('/orgs/current/members');
 }
 
-export function setMemberRoles(memberId: number, roleIds: number[]): Promise<MemberView> {
-  return apiRequest<MemberView>(`/orgs/current/members/${memberId}/roles`, {
+/** Ответ на снятие роли и исключение: сколько документов, ждавших решения человека, вернулось авторам. */
+export type MemberChange = MemberView & { returnedDocuments: number };
+
+export function setMemberRoles(memberId: number, roleIds: number[]): Promise<MemberChange> {
+  return apiRequest<MemberChange>(`/orgs/current/members/${memberId}/roles`, {
     method: 'PUT',
     body: { roleIds },
   });
@@ -75,6 +78,6 @@ export function setMemberAdmin(memberId: number, isAdmin: boolean): Promise<Memb
 }
 
 /** SHOULD: повторный вызов ничего не меняет - тот же ответ, без ошибки. */
-export function disableMember(memberId: number): Promise<MemberView> {
-  return apiRequest<MemberView>(`/orgs/current/members/${memberId}/disable`, { method: 'POST' });
+export function disableMember(memberId: number): Promise<MemberChange> {
+  return apiRequest<MemberChange>(`/orgs/current/members/${memberId}/disable`, { method: 'POST' });
 }

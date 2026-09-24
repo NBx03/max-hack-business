@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.PendingStepsGuard;
+import ru.sibvibe.approval.organization.dto.MemberChangeView;
 import ru.sibvibe.approval.organization.dto.MemberView;
 import ru.sibvibe.approval.organization.entity.JoinRequest;
 import ru.sibvibe.approval.organization.entity.MemberRole;
@@ -81,7 +82,7 @@ public class MemberService {
      * ждал, пока человек решит (приёмка 24.09, п. 15).
      */
     @Transactional
-    public MemberView setRoles(CurrentUser actor, long memberId, Collection<Long> roleIds) {
+    public MemberChangeView setRoles(CurrentUser actor, long memberId, Collection<Long> roleIds) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
         OrganizationMember member = memberRepository.findByIdAndOrgIdForUpdate(memberId, orgId)
                 .orElseThrow(OrganizationErrors::notFound);
@@ -100,12 +101,13 @@ public class MemberService {
         Set<Long> added = new LinkedHashSet<>(target);
         added.removeAll(current);
 
+        int returned = 0;
         if (!removed.isEmpty()) {
             memberRoleRepository.deleteByMemberIdAndRoleIdIn(memberId, removed);
-            pendingStepsGuard.releaseSteps(orgId, member.getUserId(), removed);
+            returned = pendingStepsGuard.releaseSteps(orgId, member.getUserId(), removed);
         }
         grantRoles(memberId, added, actor.userId(), clock.instant());
-        return assembler.assemble(member);
+        return new MemberChangeView(assembler.assemble(member), returned);
     }
 
     /**
@@ -138,20 +140,20 @@ public class MemberService {
      * решений, а вернувшийся по заявке или ссылке человек включается в той же записи.
      */
     @Transactional
-    public MemberView disable(CurrentUser actor, long memberId) {
+    public MemberChangeView disable(CurrentUser actor, long memberId) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
         organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
         OrganizationMember member = memberRepository.findByIdAndOrgIdForUpdate(memberId, orgId)
                 .orElseThrow(OrganizationErrors::notFound);
         if (member.getStatus() == OrganizationMember.Status.DISABLED) {
-            return assembler.assemble(member);
+            return new MemberChangeView(assembler.assemble(member), 0);
         }
         if (member.isAdmin() && activeAdmins(orgId) <= 1) {
             throw OrganizationErrors.lastAdmin("Нельзя отключить последнего администратора");
         }
         member.setStatus(OrganizationMember.Status.DISABLED);
-        pendingStepsGuard.releaseSteps(orgId, member.getUserId(), null);
-        return assembler.assemble(member);
+        int returned = pendingStepsGuard.releaseSteps(orgId, member.getUserId(), null);
+        return new MemberChangeView(assembler.assemble(member), returned);
     }
 
     /**

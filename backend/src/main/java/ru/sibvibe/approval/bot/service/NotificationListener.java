@@ -122,7 +122,8 @@ public class NotificationListener {
         String url = links.documentLink(event.documentId());
         String title = "«" + event.documentTitle() + "»";
         String who = directory.find(event.removedUserId()).map(Recipient::displayName).orElse("Согласующий");
-        String why = event.roleRemoved() ? "больше не согласует его в своей роли" : "исключён из компании";
+        // Без глагола с родом при имени — пол не знаем (как в deciderSuffix).
+        String why = event.roleRemoved() ? "больше не согласует его в своей роли" : "больше не в компании";
         directory.find(event.authorUserId()).ifPresent(author -> notifier.send(author.maxUserId(),
                 title + " вернулся к вам: " + who + " " + why + ". Отправьте документ заново — если он не менялся, "
                         + "прежние согласования сохранятся.",
