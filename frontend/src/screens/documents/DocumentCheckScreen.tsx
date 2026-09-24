@@ -371,26 +371,19 @@ export function DocumentCheckScreen() {
   // Пока идёт правка полей, смена типа стёрла бы введённое — кнопку прячем (ревью #88).
   const canChangeType = isDraft && card.permissions.canEditFields && !editing;
 
-  // Поля правятся одной кнопкой — «Изменить» у «Данных документа»; внизу только то, чего там нет:
-  // заменить файл целиком и сохранить черновик (приёмка 24.09, п. 7: «Исправить замечания» внизу
-  // и «Изменить» справа делали одно и то же). «Заменить файл», а не «Другой файл»: это замена файла
-  // этого же документа, а не переход к другому документу (п. 8).
-  const replaceFile = card.permissions.canUploadVersion ? (
-    <Button stretched variant="secondary" onClick={() => navigate(documentNewVersionPath(card.id))}>Заменить файл</Button>
-  ) : null;
+  // Каждое действие — в одном месте (приёмка 24.09, п. 7: «Исправить замечания» внизу и «Изменить» справа
+  // делали одно и то же). Поля — «Изменить» у «Данных документа»; файл целиком — «Заменить файл» вверху, рядом
+  // с типом, и у чистого черновика тоже; внизу — только куда дальше: к маршруту или сохранить черновик.
+  // «Заменить файл», а не «Другой файл»: это новый файл этого же документа, а не другой документ (п. 8).
+  const canReplaceFile = card.permissions.canUploadVersion && !editing;
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
       <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id))}>К маршруту</Button>
       <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
     </div>
   ) : isDraft && canEdit ? (
-    <div style={{ display: 'flex', gap: 8 }}>
-      {replaceFile && <div style={{ flex: 1 }}>{replaceFile}</div>}
-      <div style={{ flex: 1 }}>
-        <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
-      </div>
-    </div>
-  ) : isReturned ? replaceFile : null;
+    <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
+  ) : null;
 
   return (
     <DocumentScreen back={back} title={card.title} footer={footer}>
@@ -409,6 +402,11 @@ export function DocumentCheckScreen() {
             }}
           >
             Сменить тип
+          </Button>
+        )}
+        {canReplaceFile && (
+          <Button size="small" variant="secondary" onClick={() => navigate(documentNewVersionPath(card.id))}>
+            Заменить файл
           </Button>
         )}
       </div>
@@ -447,7 +445,7 @@ export function DocumentCheckScreen() {
 
       {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Исправьте поля или загрузите файл ещё раз.</Notice>}
       {mustFix && check?.status !== 'FAILED' && (
-        <Notice tone="danger">Есть критичные замечания — отправить пока нельзя. Исправьте поля кнопкой «Изменить» ниже или замените файл.</Notice>
+        <Notice tone="danger">Есть критичные замечания — отправить пока нельзя. Исправьте поля кнопкой «Изменить» ниже или замените файл кнопкой вверху.</Notice>
       )}
       {manualCount > 0 && !editing && (
         <Notice>
