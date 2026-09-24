@@ -56,7 +56,7 @@
 | 401 | Личность не подтверждена: `INIT_DATA_INVALID`, `INIT_DATA_EXPIRED` (данные запуска старше 24 часов — фронтенд показывает «Откройте приложение заново») |
 | 403 | Нет прав: `FORBIDDEN`, `NOT_ADMIN`, `DEMO_ACT_AS_FORBIDDEN` |
 | 404 | Нет такого или не видно вам: `NOT_FOUND`, `INVITE_NOT_FOUND` |
-| 409 | Нельзя в текущем состоянии: `INVALID_STATE`, `STEP_NOT_ACTIVE`, `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS`, `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED`, `BLOCKING_ISSUES`, `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
+| 409 | Нельзя в текущем состоянии: `INVALID_STATE`, `STEP_NOT_ACTIVE`, `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS`, `LAST_ADMIN`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED`, `BLOCKING_ISSUES`, `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
 | 429 | Слишком много попыток ввода кода: `TOO_MANY_ATTEMPTS`, `details.retryAfterSeconds` — через сколько можно снова |
 | 405 | Метод не поддерживается для этого адреса: `METHOD_NOT_ALLOWED` |
 | Прочие 4xx | Ошибка запроса, которую отдаёт сам Spring (например, 406): `BAD_REQUEST`, HTTP-статус сохраняется |
@@ -161,10 +161,11 @@ type MemberView = {               // участник компании: отве
 | `POST /orgs/current/join-requests/{id}/reject` | ADMIN | → 200 |
 | `GET /orgs/current/members` | ADMIN | → `MemberView[]` |
 | `GET /orgs/current/colleagues` | Участник | → `MemberView[]` — только активные сотрудники своей компании, для раздела «Компания» (приёмка 24.09). Не участник — 403 |
+| `GET /orgs/current/routes` | Участник | → `RouteOverview[]`: `{ documentTypeId, stages: { stageOrder, participants: { role: RoleRef, mandatory }[] }[] }` — маршруты компании по типам, только чтение (раздел «Компания»). Недостающие маршруты по умолчанию создаются при обращении, как и при отправке |
 | *SHOULD* `GET /orgs/current/roles/{id}/members` | Участник | → `UserRef[]` — активные носители роли, для добавления согласующего |
-| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView`. 409 `MEMBER_HAS_PENDING_STEPS` (снять можно только роль без незавершённых шагов), 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
+| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView`. Снятая роль действует сразу: документы, где человек ещё не решил в этой роли, возвращаются авторам (приёмка 24.09, п. 15). 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
-| *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView`; повторный вызов ничего не меняет. 409 `LAST_ADMIN`, `MEMBER_HAS_PENDING_STEPS` |
+| *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView`; сразу, повторный вызов ничего не меняет. Документы, где человек ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` |
 
 Заявка, участник, роль и приглашение ищутся **в компании администратора**: чужой id — 404, в том
 числе роль другой компании в `roleIds`.
@@ -283,6 +284,13 @@ type DocumentCard = {
     canWithdraw: boolean;        // автор, IN_APPROVAL — «Отозвать с согласования»
   };
   myActiveStepIds: number[];     // шаги, по которым текущий пользователь может решить сейчас
+  // Что изменилось в текущей версии по сравнению с предыдущей (приёмка 24.09): согласующему не нужно
+  // перечитывать документ целиком. null у первой версии; пустые списки — документ не менялся.
+  changes: {
+    comparedToVersionNo: number;
+    files: { change: "ADDED" | "REMOVED" | "REPLACED"; kind: "MAIN" | "ATTACHMENT"; fileName: string }[];
+    fields: { name: string; label: string; before: string | null; after: string | null }[];
+  } | null;
 };
 ```
 
@@ -402,6 +410,9 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
     }[];
   }[];
   problems: { code: "ROUTE_ROLE_EMPTY" | "BLOCKING_ISSUES"; message: string }[];
+  // Кто уже одобрил прошлую версию, если документ с тех пор не менялся (те же файлы и поля):
+  // при отправке их шаги сразу согласованы с autoReason = CARRIED_OVER. null — переносить нечего.
+  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number }[] } | null;
 }
 ```
 
@@ -425,7 +436,7 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
 ```ts
 {
   selections: { stageOrder: number; roleId: number; userId: number }[];  // где кандидатов несколько
-  extraApprovers?: { stageOrder: number; roleId: number; userId: number }[];  // SHOULD
+  extraApprovers?: { stageOrder: number; roleId: number; userId: number; newStage?: boolean }[];
 }
 ```
 
@@ -435,14 +446,20 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
 - **`selections`** нужны там, где кандидатов несколько (`resolution = SELECT`); там, где выбор не нужен, или дважды
   для одной роли — 400 `VALIDATION_FAILED`. Пара «этап + роль» вне маршрута или человек не из кандидатов — 404.
   Не выбран человек там, где нужно, — 409 `SELECTION_REQUIRED`.
-- **`extraApprovers`** (SHOULD): этап должен быть в шаблоне, роль — из этой компании, человек — её активный носитель и
-  не автор (404 иначе). 400 `VALIDATION_FAILED` — для автора и для дубля: того же человека в той же роли на том же
+- **`extraApprovers`**: автор расширяет маршрут (приёмка 24.09, п. 12). `newStage` нет или `false` — вместе с этапом
+  шаблона `stageOrder`; `true` — **отдельным новым этапом перед** этапом шаблона `stageOrder`, а `stageOrder` на
+  единицу больше последнего — новым последним этапом, после всех. Добавленные с одним местом согласуют одновременно.
+  После вставки этапы нумеруются подряд с 1; без новых этапов номера совпадают с шаблоном. Место вне шаблона — 404.
+  Роль — из этой компании, человек — её активный носитель и не автор (404 иначе). 400 `VALIDATION_FAILED` — для автора и для дубля: того же человека в той же роли на том же
   этапе, будь он добавлен дважды, подставлен автоматически или выбран в `selections`. Маршрут только растёт: убрать
   участника шаблона нельзя, а «добавить» уже стоящего — значит не добавить никого.
 - **Нельзя отправить** (`BLOCKING_ISSUES`), если у типа с проверкой она не выполнилась (`check_status ≠ CHECKED`) или
   есть замечание `BLOCKER`; та же логика определяет `permissions.canSubmit`.
 - Если решать некому (обязательные роли только у автора, остальное пропущено), документ становится «Согласован» сразу,
   а шаг автора в истории подписан «согласовано автором как <роль>».
+- **Одобрения прошлой версии сохраняются, если документ не менялся** (приёмка 24.09, п. 1): те же файлы (по ключу
+  хранилища) и те же значения полей, что у предыдущей версии. Шаг того же человека в той же роли создаётся сразу
+  `APPROVED` с `autoReason = CARRIED_OVER`. Изменился хоть один файл или поле — согласуют все заново.
 - `permissions.canAddApprover` — `true` у автора черновика.
 
 Добавленный согласующий (SHOULD) согласует **в роли**: он должен быть её активным носителем
@@ -464,7 +481,9 @@ type StepView = {
   decision: Decision; comment: string | null;
   activatedAt: string | null;    // когда этап шага стал активным; null — этап ещё не начался
   decidedAt: string | null;      // у AUTHOR_HOLDS_ROLE — момент отправки
-  autoReason: "AUTHOR_HOLDS_ROLE" | null;  // показывать «согласовано автором как <роль>»
+  autoReason: "AUTHOR_HOLDS_ROLE" | "CARRIED_OVER" | "MEMBER_REMOVED" | null;
+  // AUTHOR_HOLDS_ROLE — «согласовано автором как <роль>»; CARRIED_OVER — «согласовано ранее»: одобрение прошлой
+  // версии, документ не менялся; MEMBER_REMOVED — у SKIPPED: согласующего исключили или сняли роль, документ вернулся
 };
 ```
 
