@@ -10,7 +10,7 @@ import ru.sibvibe.approval.document.entity.DocumentTypeField;
 import ru.sibvibe.approval.document.repository.DocumentTypeFieldRepository;
 import ru.sibvibe.approval.document.repository.DocumentTypeRepository;
 import ru.sibvibe.approval.rules.RuleEngine;
-import ru.sibvibe.approval.rules.repository.RequirementRuleRepository;
+import ru.sibvibe.approval.rules.service.RuleCatalogService;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -32,26 +32,30 @@ public class DocumentRuleService {
 
     private final DocumentTypeRepository typeRepository;
     private final DocumentTypeFieldRepository fieldRepository;
-    private final RequirementRuleRepository ruleRepository;
+    private final RuleCatalogService ruleCatalog;
     private final RuleEngine ruleEngine;
     private final Clock clock;
 
     public DocumentRuleService(
             DocumentTypeRepository typeRepository,
             DocumentTypeFieldRepository fieldRepository,
-            RequirementRuleRepository ruleRepository,
+            RuleCatalogService ruleCatalog,
             RuleEngine ruleEngine,
             Clock clock
     ) {
         this.typeRepository = typeRepository;
         this.fieldRepository = fieldRepository;
-        this.ruleRepository = ruleRepository;
+        this.ruleCatalog = ruleCatalog;
         this.ruleEngine = ruleEngine;
         this.clock = clock;
     }
 
+    /**
+     * Схема полей и правила, которые действуют в компании {@code orgId}: шаблон сервиса с её настройками (#90).
+     * Выключенное компанией правило не проверяется вовсе.
+     */
     @Transactional(readOnly = true)
-    public PreparedCheck prepare(long documentTypeId, Map<String, String> suppliedFields) {
+    public PreparedCheck prepare(long orgId, long documentTypeId, Map<String, String> suppliedFields) {
         DocumentType type = typeRepository.findById(documentTypeId).orElseThrow(NotFoundException::new);
         List<DocumentTypeField> schema = fieldRepository.findByDocumentTypeIdOrderByPositionAscIdAsc(documentTypeId);
         Map<String, String> fields = suppliedFields == null
@@ -68,21 +72,21 @@ public class DocumentRuleService {
         if (fields.keySet().stream().anyMatch(name -> name == null || !knownNames.contains(name))) {
             throw DocumentApiException.validation("Переданы неизвестные поля документа");
         }
-        List<RuleEngine.RequirementRule> rules = ruleRepository
-                .findByDocumentTypeIdOrderById(documentTypeId).stream()
+        List<RuleEngine.RequirementRule> rules = ruleCatalog.forType(orgId, documentTypeId).stream()
+                .filter(RuleCatalogService.CatalogRule::enabled)
                 .map(rule -> new RuleEngine.RequirementRule(
-                        rule.getId(),
+                        rule.id(),
                         type.getCode(),
-                        rule.getFieldName(),
-                        rule.getDescription(),
-                        rule.getCheckType(),
-                        rule.getExpected(),
-                        rule.getKind(),
-                        rule.getSeverity(),
-                        rule.getSourceTitle(),
-                        rule.getSourceUrl(),
-                        rule.getSourceRef(),
-                        rule.getSourceCheckedAt()))
+                        rule.fieldName(),
+                        rule.description(),
+                        rule.check(),
+                        rule.expected(),
+                        rule.kind(),
+                        rule.severity(),
+                        rule.sourceTitle(),
+                        rule.sourceUrl(),
+                        rule.sourceRef(),
+                        rule.sourceCheckedAt()))
                 .toList();
         return new PreparedCheck(
                 type,

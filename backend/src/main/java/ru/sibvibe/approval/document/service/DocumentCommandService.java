@@ -76,7 +76,7 @@ public class DocumentCommandService {
         DocumentFileValidator.ValidatedFile validated = fileValidator.validateMain(main);
         TypeChoice choice = chooseType(request, validated);
         DocumentRuleService.PreparedCheck prepared =
-                ruleService.prepare(choice.typeId(), request.fields());
+                ruleService.prepare(membership.orgId(), choice.typeId(), request.fields());
         DocumentPersistenceService.NewFile stored = upload(validated);
         DocumentPersistenceService.CreatedVersion created;
         try {
@@ -106,7 +106,7 @@ public class DocumentCommandService {
         Membership membership = requireMembership(currentUser);
         Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
-                ruleService.prepare(document.getDocumentTypeId(), request.fields());
+                ruleService.prepare(membership.orgId(), document.getDocumentTypeId(), request.fields());
         DocumentPersistenceService.NewFile stored = main == null || main.isEmpty()
                 ? null
                 : upload(fileValidator.validateMain(main));
@@ -145,7 +145,7 @@ public class DocumentCommandService {
         Membership membership = requireMembership(currentUser);
         Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
-                ruleService.prepare(document.getDocumentTypeId(), request.fields());
+                ruleService.prepare(membership.orgId(), document.getDocumentTypeId(), request.fields());
         DocumentPersistenceService.FieldsUpdateAttempt update = persistenceService.beginFieldsUpdate(
                 documentId,
                 versionNo,
@@ -160,7 +160,7 @@ public class DocumentCommandService {
     public DocumentCardResponse changeType(long documentId, int versionNo, CurrentUser currentUser, long documentTypeId) {
         Membership membership = requireMembership(currentUser);
         requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
-        DocumentRuleService.PreparedCheck prepared = ruleService.prepare(documentTypeId, null);
+        DocumentRuleService.PreparedCheck prepared = ruleService.prepare(membership.orgId(), documentTypeId, null);
         DocumentPersistenceService.RetypeAttempt attempt = persistenceService.beginRetype(
                 documentId, versionNo, membership.orgId(), currentUser.userId(), prepared);
         runCheck(documentId, attempt.checkAttempt(), attempt.containsSensitive(), prepared);
@@ -187,7 +187,7 @@ public class DocumentCommandService {
                     + "PDF исправьте в исходном документе и загрузите его новой версией");
         }
         // Имена полей — только из схемы типа (та же проверка, что у ручной правки).
-        ruleService.prepare(source.documentTypeId(), request.fields());
+        ruleService.prepare(membership.orgId(), source.documentTypeId(), request.fields());
 
         Map<String, DocumentCardResponse.FieldValue> current = new LinkedHashMap<>();
         source.fields().forEach(field -> current.putIfAbsent(field.name(), field));
@@ -227,7 +227,7 @@ public class DocumentCommandService {
         // не участвует: берём исправленные значения.
         DocumentRuleService.PreparedCheck prepared;
         if (source.containsSensitive()) {
-            prepared = ruleService.prepare(source.documentTypeId(), corrected);
+            prepared = ruleService.prepare(membership.orgId(), source.documentTypeId(), corrected);
         } else {
             Map<String, String> carried = new LinkedHashMap<>();
             Map<String, String> carriedFileValues = new LinkedHashMap<>();
@@ -237,7 +237,7 @@ public class DocumentCommandService {
                     carriedFileValues.put(name, field.fileValue());
                 }
             });
-            prepared = ruleService.prepare(source.documentTypeId(), carried).withFileValues(carriedFileValues);
+            prepared = ruleService.prepare(membership.orgId(), source.documentTypeId(), carried).withFileValues(carriedFileValues);
         }
         DocumentPersistenceService.CreatedVersion created;
         try {

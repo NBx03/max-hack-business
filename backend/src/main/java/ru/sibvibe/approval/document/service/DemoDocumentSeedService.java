@@ -30,27 +30,32 @@ public class DemoDocumentSeedService {
     private final DocumentVersionRepository versionRepository;
     private final DocumentRuleService ruleService;
     private final ObjectMapper objectMapper;
+    private final CompanyRulesService companyRules;
 
     public DemoDocumentSeedService(
             DocumentTypeRepository typeRepository,
             DocumentRepository documentRepository,
             DocumentVersionRepository versionRepository,
             DocumentRuleService ruleService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            CompanyRulesService companyRules
     ) {
         this.typeRepository = typeRepository;
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
         this.ruleService = ruleService;
         this.objectMapper = objectMapper;
+        this.companyRules = companyRules;
     }
 
     public SeededDocuments seed(long orgId, long authorId, Instant now) {
+        // Сначала правила: демо-документы проверяются уже по правилам своей компании.
+        companyRules.applyDemoSettings(orgId, authorId);
         DocumentType type = typeRepository.findByCodeIn(Set.of(MEMO_TYPE)).stream()
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Не найден тип документа " + MEMO_TYPE));
         Map<String, String> fields = memoFields(now);
-        DocumentRuleService.CheckData check = ruleService.execute(ruleService.prepare(type.getId(), fields));
+        DocumentRuleService.CheckData check = ruleService.execute(ruleService.prepare(orgId, type.getId(), fields));
         if (check == null || check.issues().stream()
                 .anyMatch(issue -> issue.severity() == ru.sibvibe.approval.rules.RuleEngine.Severity.BLOCKER)) {
             throw new IllegalStateException("Справочные правила отклоняют чистый демо-документ");

@@ -25,6 +25,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -51,7 +53,7 @@ class DocumentCommandServiceTest {
         var validated = new DocumentFileValidator.ValidatedFile(new byte[]{1}, "memo.pdf", "application/pdf");
         var prepared = prepared();
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
-        when(rules.prepare(5, Map.of())).thenReturn(prepared);
+        when(rules.prepare(anyLong(), eq(5L), eq(Map.of()))).thenReturn(prepared);
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
         when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
                 .thenThrow(new IllegalStateException("db unavailable"));
@@ -70,7 +72,7 @@ class DocumentCommandServiceTest {
         var validated = new DocumentFileValidator.ValidatedFile(
                 new byte[]{1}, "memo.pdf", "application/pdf");
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
-        when(rules.prepare(5, Map.of())).thenReturn(prepared());
+        when(rules.prepare(anyLong(), eq(5L), eq(Map.of()))).thenReturn(prepared());
         when(storage.put(any(), any(), any(), anyLong()))
                 .thenThrow(new FileStorageException("storage unavailable"));
 
@@ -87,7 +89,7 @@ class DocumentCommandServiceTest {
         var prepared = prepared();
         var pending = new DocumentRuleService.CheckData(false, List.of(), List.of());
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
-        when(rules.prepare(5, Map.of())).thenReturn(prepared);
+        when(rules.prepare(anyLong(), eq(5L), eq(Map.of()))).thenReturn(prepared);
         when(rules.pending(prepared)).thenReturn(pending);
         when(analysis.analyze(2, false, prepared)).thenThrow(new IllegalArgumentException("broken rule"));
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
@@ -110,7 +112,7 @@ class DocumentCommandServiceTest {
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
         when(typeGuess.guess(validated.content(), "application/pdf"))
                 .thenReturn(new DocumentTypeGuessService.Guess(prepared.type(), "О закупке ноутбуков"));
-        when(rules.prepare(5, null)).thenReturn(prepared);
+        when(rules.prepare(anyLong(), eq(5L), isNull())).thenReturn(prepared);
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
         when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));

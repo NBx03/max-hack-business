@@ -27,8 +27,9 @@ class DemoDocumentSeedServiceTest {
     private final DocumentRepository documents = mock(DocumentRepository.class);
     private final DocumentVersionRepository versions = mock(DocumentVersionRepository.class);
     private final DocumentRuleService rules = mock(DocumentRuleService.class);
+    private final CompanyRulesService companyRules = mock(CompanyRulesService.class);
     private final DemoDocumentSeedService service =
-            new DemoDocumentSeedService(types, documents, versions, rules, new ObjectMapper());
+            new DemoDocumentSeedService(types, documents, versions, rules, new ObjectMapper(), companyRules);
 
     @Test
     void createsOneCheckedMemoInEveryDocumentState() {
@@ -36,7 +37,7 @@ class DemoDocumentSeedServiceTest {
         memo.setId(7L);
         memo.setCode("OFFICIAL_MEMO");
         when(types.findByCodeIn(Set.of("OFFICIAL_MEMO"))).thenReturn(List.of(memo));
-        when(rules.prepare(any(Long.class), any())).thenReturn(mock(DocumentRuleService.PreparedCheck.class));
+        when(rules.prepare(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), any())).thenReturn(mock(DocumentRuleService.PreparedCheck.class));
         when(rules.execute(any())).thenReturn(new DocumentRuleService.CheckData(false, List.of(), List.of()));
         AtomicLong ids = new AtomicLong(100);
         when(documents.save(any())).thenAnswer(invocation -> {

@@ -571,6 +571,141 @@ class ApprovalIntegrationTest {
                 .as("документ изменился — Эрин согласует заново").hasSize(1);
     }
 
+    // ============ правила проверки компании (#90) ============
+
+    @Test
+    void administratorAdaptsARuleAndTheAuthorsDraftUsesItAfterRecheck() throws Exception {
+        long signerPosition = ruleId("OFFICIAL_MEMO", "signer_position", "REQUIRED");
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        assertThat(issue(card(company.frank, memo), "signer_position").path("severity").asText()).isEqualTo("WARNING");
+
+        // смотреть может любой участник, менять — только администратор
+        JsonNode rules = ok(call(company.frank, "GET", "/api/v1/orgs/current/rules", null));
+        assertThat(rules.path("canEdit").asBoolean()).isFalse();
+        assertThat(rules.path("types").get(0).path("code").asText()).isEqualTo("OFFICIAL_MEMO");
+        assertThat(rule(rules, signerPosition).path("sourceTitle").asText()).startsWith("Типовые правила оформления");
+        Map<String, Object> setting = new HashMap<>();
+        setting.put("enabled", true);
+        setting.put("severity", "BLOCKER");
+        setting.put("description", "Укажите должность — так требует наша инструкция.");
+        setting.put("sourceTitle", "Инструкция по делопроизводству ООО «Ромашка»");
+        setting.put("sourceRef", "п. 4.2");
+        Resp notAdmin = call(company.frank, "PUT", "/api/v1/orgs/current/rules/" + signerPosition, setting);
+        assertThat(notAdmin.status()).isEqualTo(403);
+        assertThat(notAdmin.code()).isEqualTo("NOT_ADMIN");
+
+        JsonNode changed = rule(ok(call(company.alice, "PUT", "/api/v1/orgs/current/rules/" + signerPosition, setting)),
+                signerPosition);
+        assertThat(changed.path("customized").asBoolean()).isTrue();
+        assertThat(changed.path("sourceUrl").isNull()).isTrue();
+
+        // уже выданные замечания — снимок: без «Проверить заново» черновик не меняется
+        assertThat(issue(card(company.frank, memo), "signer_position").path("severity").asText()).isEqualTo("WARNING");
+        JsonNode rechecked = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/versions/1/recheck", null));
+        JsonNode adapted = issue(rechecked, "signer_position");
+        assertThat(adapted.path("severity").asText()).isEqualTo("BLOCKER");
+        assertThat(adapted.path("message").asText()).isEqualTo("Укажите должность — так требует наша инструкция.");
+        assertThat(adapted.path("sourceTitle").asText()).isEqualTo("Инструкция по делопроизводству ООО «Ромашка»");
+        assertThat(adapted.path("sourceRef").asText()).isEqualTo("п. 4.2");
+        assertThat(rechecked.path("permissions").path("canSubmit").asBoolean()).isFalse();
+
+        // выключенное правило не проверяется
+        setting.put("enabled", false);
+        ok(call(company.alice, "PUT", "/api/v1/orgs/current/rules/" + signerPosition, setting));
+        JsonNode withoutRule = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/versions/1/recheck", null));
+        assertThat(issue(withoutRule, "signer_position").isMissingNode()).isTrue();
+        assertThat(withoutRule.path("permissions").path("canSubmit").asBoolean()).isTrue();
+
+        // у другой компании всё по-прежнему
+        Company other = newCompany("Лютик");
+        assertThat(rule(ok(call(other.frank, "GET", "/api/v1/orgs/current/rules", null)), signerPosition)
+                .path("customized").asBoolean()).isFalse();
+
+        // «Сбросить к типовому»
+        JsonNode reset = rule(ok(call(company.alice, "DELETE", "/api/v1/orgs/current/rules/" + signerPosition, null)),
+                signerPosition);
+        assertThat(reset.path("customized").asBoolean()).isFalse();
+        assertThat(reset.path("enabled").asBoolean()).isTrue();
+        assertThat(reset.path("severity").asText()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void lawCannotBeChangedAndOnlySimpleExpectedValuesAreEditable() throws Exception {
+        long smbCategory = ruleId("SUPPORT_MEASURE_REQUEST", "smb_category", "ONE_OF");
+        JsonNode law = rule(ok(call(company.alice, "GET", "/api/v1/orgs/current/rules", null)), smbCategory);
+        assertThat(law.path("locked").asBoolean()).isTrue();
+        Map<String, Object> weaken = Map.of("enabled", false, "severity", "INFO",
+                "description", law.path("description").asText());
+        Resp refused = call(company.alice, "PUT", "/api/v1/orgs/current/rules/" + smbCategory, weaken);
+        assertThat(refused.status()).isEqualTo(400);
+        assertThat(refused.code()).isEqualTo("VALIDATION_FAILED");
+
+        long vacationType = ruleId("VACATION_REQUEST", "vacation_type", "ONE_OF");
+        JsonNode vacation = rule(ok(call(company.alice, "GET", "/api/v1/orgs/current/rules", null)), vacationType);
+        Map<String, Object> wider = new HashMap<>();
+        wider.put("enabled", true);
+        wider.put("severity", vacation.path("severity").asText());
+        wider.put("description", vacation.path("description").asText());
+        wider.put("allowedValues", List.of("ежегодный оплачиваемый", "без сохранения заработной платы", "учебный"));
+        JsonNode saved = rule(ok(call(company.alice, "PUT", "/api/v1/orgs/current/rules/" + vacationType, wider)),
+                vacationType);
+        assertThat(saved.path("allowedValues")).hasSize(3);
+        assertThat(saved.path("customized").asBoolean()).isTrue();
+
+        // у шаблона формата ожидаемое значение не настраивается: regex через интерфейс не открываем
+        long regNumber = ruleId("OFFICIAL_MEMO", "reg_number", "MATCHES_PATTERN");
+        JsonNode pattern = rule(ok(call(company.alice, "GET", "/api/v1/orgs/current/rules", null)), regNumber);
+        Map<String, Object> withLength = new HashMap<>();
+        withLength.put("enabled", true);
+        withLength.put("severity", pattern.path("severity").asText());
+        withLength.put("description", pattern.path("description").asText());
+        withLength.put("minLength", 5);
+        assertThat(call(company.alice, "PUT", "/api/v1/orgs/current/rules/" + regNumber, withLength).status())
+                .isEqualTo(400);
+    }
+
+    @Test
+    void demoCompanyShowsItsOwnLocalActsWhileTheTemplateStaysNeutral() throws Exception {
+        Person reviewer = newUser();
+        JsonNode sandbox = ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null));
+        long demoAuthor = demoUser(sandbox, "DEPARTMENT_HEAD");
+        long regNumber = ruleId("OFFICIAL_MEMO", "reg_number", "MATCHES_PATTERN");
+
+        JsonNode demo = rule(ok(callAs(reviewer, demoAuthor, "GET", "/api/v1/orgs/current/rules", null)), regNumber);
+        assertThat(demo.path("customized").asBoolean()).isTrue();
+        assertThat(demo.path("sourceTitle").asText()).startsWith("Инструкция по делопроизводству Демо-компании");
+        assertThat(demo.path("sourceRef").asText()).isEqualTo("п. 2.5");
+        assertThat(rule(ok(call(company.alice, "GET", "/api/v1/orgs/current/rules", null)), regNumber)
+                .path("sourceTitle").asText()).startsWith("Типовые правила оформления");
+    }
+
+    private long ruleId(String typeCode, String field, String check) {
+        return jdbc.queryForObject("select rule.id from requirement_rule rule"
+                + " join document_type type on type.id = rule.document_type_id"
+                + " where type.code = ? and rule.field_name = ? and rule.check_type = ?",
+                Long.class, typeCode, field, check);
+    }
+
+    private static JsonNode rule(JsonNode rules, long ruleId) {
+        for (JsonNode type : rules.path("types")) {
+            for (JsonNode rule : type.path("rules")) {
+                if (rule.path("id").asLong() == ruleId) {
+                    return rule;
+                }
+            }
+        }
+        throw new AssertionError("Нет правила " + ruleId);
+    }
+
+    private static JsonNode issue(JsonNode card, String field) {
+        for (JsonNode issue : card.path("check").path("issues")) {
+            if (field.equals(issue.path("fieldName").asText())) {
+                return issue;
+            }
+        }
+        return com.fasterxml.jackson.databind.node.MissingNode.getInstance();
+    }
+
     // ============ демо-режим: проверяющий один проходит всю цепочку ============
 
     @Test
