@@ -133,14 +133,14 @@ DOCS = [
         "file": "03_memo_word_date.pdf",
         "type": "OFFICIAL_MEMO",
         "about": (
-            "PDF. Дата словами, номер без индекса, короткий текст, в подписи нет должности. "
-            "Дата словами даёт и M3, и M4: движок не разбирает её по шаблону ДД.ММ.ГГГГ."
+            "PDF. Дата без года — не понять, о каком годе речь (словесно-цифровой способ с годом ГОСТ допускает). "
+            "Номер без индекса, короткий текст, в подписи нет должности."
         ),
         "lines": [
             ("right", "Главному бухгалтеру ООО «Демо-компания» Соколовой Е.Н."),
             ("", ""),
             ("bold", "СЛУЖЕБНАЯ ЗАПИСКА"),
-            ("", "15 сентября 2026 г. № 119"),
+            ("", "15 сентября № 119"),
             ("", ""),
             ("", "О возмещении командировочных расходов"),
             ("", ""),
@@ -151,14 +151,14 @@ DOCS = [
         "fields": {
             "addressee": "Главному бухгалтеру ООО «Демо-компания» Соколовой Е.Н.",
             "author_name": "Д.В. Смирнов",
-            "doc_date": "15 сентября 2026 г.",
+            "doc_date": "15 сентября",
             "reg_number": "119",
             "subject": "О возмещении командировочных расходов",
             "body": "Прошу возместить расходы.",
             "signer_name": "Д.В. Смирнов",
         },
         "normalized": [],
-        "issues": ["M3", "M4", "M5", "M8", "M9"],
+        "issues": ["M3", "M5", "M8", "M9"],
     },
     {
         "file": "04_vacation_ok.docx",
@@ -314,6 +314,80 @@ DOCS = [
         "normalized": [],
         "issues": ["S1", "S3", "S5"],
     },
+    {
+        "file": "11_order_other.docx",
+        "type": "GENERIC",
+        "about": (
+            "Другой документ — приказ: общая проверка реквизитов. Дата словесно-цифровым способом, "
+            "все реквизиты на месте — замечаний нет."
+        ),
+        "lines": [
+            ("right", "ООО «Демо-компания»"),
+            ("", ""),
+            ("bold", "ПРИКАЗ"),
+            ("", "«18» сентября 2026 г.        № 42-П"),
+            ("", ""),
+            ("", "О проведении инвентаризации"),
+            ("", ""),
+            ("", "В связи с окончанием квартала приказываю провести инвентаризацию основных средств "
+                 "до 30 сентября 2026 года. Ответственным назначить главного бухгалтера Е.Н. Соколову."),
+            ("", ""),
+            ("", "Генеральный директор        В.П. Орлов"),
+        ],
+        "fields": {
+            "doc_kind": "ПРИКАЗ",
+            "doc_date": "«18» сентября 2026 г.",
+            "reg_number": "42-П",
+            "subject": "О проведении инвентаризации",
+            "signer_position": "Генеральный директор",
+            "signer_name": "В.П. Орлов",
+        },
+        "normalized": [],
+        "issues": [],
+    },
+    {
+        "file": "12_act_errors.pdf",
+        "type": "GENERIC",
+        "about": "PDF. Другой документ — акт без даты, номера и подписи с расшифровкой: только предупреждения.",
+        "lines": [
+            ("right", "ООО «Демо-компания»"),
+            ("", ""),
+            ("bold", "АКТ"),
+            ("", "приёма-передачи оборудования"),
+            ("", ""),
+            ("", "Ноутбуки в количестве пяти штук переданы отделу продаж в исправном состоянии."),
+            ("", ""),
+            ("", "Передал: склад        Принял: отдел продаж"),
+        ],
+        "fields": {
+            "doc_kind": "АКТ",
+            "subject": "приёма-передачи оборудования",
+        },
+        "normalized": [],
+        "issues": ["G1", "G4", "G5"],
+    },
+    {
+        "file": "13_letter_errors.docx",
+        "type": "GENERIC",
+        "about": "Другой документ — письмо: дата без числа не читается, заголовка нет.",
+        "lines": [
+            ("right", "Директору ООО «Ромашка» (вымышленное)"),
+            ("", ""),
+            ("", "Исх. № 57 от сентябрь 2026 г."),
+            ("", ""),
+            ("", "Уважаемый коллега! Направляем график поставок на октябрь для согласования."),
+            ("", ""),
+            ("", "Руководитель отдела продаж        А.С. Петрова"),
+        ],
+        "fields": {
+            "doc_date": "сентябрь 2026 г.",
+            "reg_number": "57",
+            "signer_position": "Руководитель отдела продаж",
+            "signer_name": "А.С. Петрова",
+        },
+        "normalized": [],
+        "issues": ["G2", "G3"],
+    },
 ]
 
 
@@ -321,16 +395,43 @@ DOCS = [
 # Предварительная проверка данных
 # ---------------------------------------------------------------------------
 
+RU_MONTHS = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
+    "июля": 7, "августа": 8, "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12,
+}
+
+
+def safe_date(year, month, day):
+    try:
+        return date(int(year), int(month), int(day))
+    except ValueError:
+        return None
+
+
+def parse_ru_date(value: str):
+    """Тот же алгоритм, что RussianDates.parse в бэкенде: цифровая, словесно-цифровая дата и ISO."""
+    text = re.sub(r"[«»\"“”„‘’']", "", value).replace(" ", " ").lower()
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*(г\.?|год|года)\s*$", "", text).strip()
+    if m := re.fullmatch(r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})", text):
+        return safe_date(m[3], m[2], m[1])
+    if m := re.fullmatch(r"(\d{1,2})\s+([а-яё]+)\s+(\d{4})", text):
+        month = RU_MONTHS.get(m[2])
+        return safe_date(m[3], month, m[1]) if month else None
+    if m := re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", text):
+        return safe_date(m[1], m[2], m[3])
+    return None
+
+
 def parse_date(value: str, pattern: str):
+    if pattern == "RU_DATE":
+        return parse_ru_date(value)
     if pattern != "dd.MM.uuuu":
-        raise GenerationError(f"Предпроверка знает только шаблон dd.MM.uuuu, а не {pattern}")
+        raise GenerationError(f"Предпроверка знает только RU_DATE и dd.MM.uuuu, а не {pattern}")
     if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", value):
         return None
     day, month, year = (int(part) for part in value.split("."))
-    try:
-        return date(year, month, day)
-    except ValueError:
-        return None
+    return safe_date(year, month, day)
 
 
 def violates(rule: dict, value) -> bool:
@@ -343,8 +444,9 @@ def violates(rule: dict, value) -> bool:
     if check == "DATE_FORMAT":
         return parse_date(value, rule["expected"]) is None
     if check == "DATE_NOT_FUTURE":
+        # Неразборчивую дату это правило не судит: о формате сообщает DATE_FORMAT.
         parsed = parse_date(value, rule["expected"])
-        return parsed is None or parsed > REFERENCE_DATE
+        return parsed is not None and parsed > REFERENCE_DATE
     if check == "MATCHES_PATTERN":
         return re.fullmatch(rule["expected"], value) is None
     if check == "MIN_LENGTH":
@@ -543,7 +645,10 @@ def rules_md() -> str:
             ref = f"{SHORT_SOURCE[r['source']]}, {r['sourceRef']}" if r["sourceRef"] else SHORT_SOURCE[r["source"]]
             link = f"[{cell(ref)}]({src['url']})" if src["url"] else cell(ref)
             # Внутри кода в таблице GitHub понимает только экранированный «\|».
-            param = "`" + r["expected"].replace("|", "\\|") + "`" if r["expected"] else "—"
+            if r["expected"] == "RU_DATE":
+                param = "полная дата: 23.09.2026 или «23» сентября 2026 г."
+            else:
+                param = "`" + r["expected"].replace("|", "\\|") + "`" if r["expected"] else "—"
             out.append(
                 f"| {r['code']} | `{r['field']}` | {CHECK[r['check']]} | {param} | {KIND[r['kind']]} "
                 f"| {SEVERITY[r['severity']]} | {link} | {cell(r['description'])} |"

@@ -33,5 +33,9 @@ public class DocumentTypeField {
     @Column(name = "hint", columnDefinition = "text")
     private String hint;
 
+    /** Порядок поля в форме и в результате проверки — как в testdata/rules.json, не по id. */
+    @Column(name = "position", nullable = false)
+    private int position;
+
     public enum FieldType { STRING, DATE, NUMBER, PERSON, ORGANIZATION }
 }

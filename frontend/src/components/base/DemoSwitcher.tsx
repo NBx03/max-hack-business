@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { errorMessage } from '../../api/errors';
+import { ErrorText } from './StateCard';
 import { useNavigate } from 'react-router-dom';
 import { Button, CellList, CellSimple } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
@@ -21,8 +23,10 @@ function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
  * "Общие правила": "/me.actingAs не пустой").
  */
 export function DemoSwitcher() {
-  const { me, sandboxUsers, actAs, startSandbox, refresh } = useSession();
+  const { me, sandboxUsers, actAs, startSandbox } = useSession();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
@@ -77,7 +81,12 @@ export function DemoSwitcher() {
         </button>
       </div>
 
-      <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="Участники песочницы">
+      <BottomSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title="Участники песочницы"
+        dismissible={!restarting}
+      >
         <CellList mode="full-width">
           {sandboxUsers.map((participant, index) => (
             <CellSimple
@@ -106,20 +115,26 @@ export function DemoSwitcher() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Button
             variant="secondary"
+            loading={restarting}
             onClick={() => {
-              // После пересоздания прежние id недействительны - сразу входим от имени автора.
-              void startSandbox()
+              // Шторка остаётся открытой до результата: ошибку пересоздания человек видит здесь же,
+              // а не теряет молча (ревью #87). Прежнего участника при сбое возвращает startSandbox.
+              setRestarting(true);
+              setRestartError(null);
+              startSandbox()
                 .then((users) => {
+                  // После пересоздания прежние id недействительны - сразу входим от имени автора.
                   const entry = demoEntryUser(users);
+                  setSheetOpen(false);
                   return entry === null ? undefined : actAs(entry);
                 })
-                // Не удалось пересоздать — свежий /me покажет текущее состояние.
-                .catch(() => refresh());
-              setSheetOpen(false);
+                .catch((err: unknown) => setRestartError(errorMessage(err)))
+                .finally(() => setRestarting(false));
             }}
           >
             Начать заново
           </Button>
+          {restartError && <ErrorText>{restartError}</ErrorText>}
           {me.actingAs && (
             <Button
               variant="secondary"

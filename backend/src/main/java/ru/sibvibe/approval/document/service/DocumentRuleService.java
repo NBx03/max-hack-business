@@ -53,7 +53,7 @@ public class DocumentRuleService {
     @Transactional(readOnly = true)
     public PreparedCheck prepare(long documentTypeId, Map<String, String> suppliedFields) {
         DocumentType type = typeRepository.findById(documentTypeId).orElseThrow(NotFoundException::new);
-        List<DocumentTypeField> schema = fieldRepository.findByDocumentTypeIdOrderById(documentTypeId);
+        List<DocumentTypeField> schema = fieldRepository.findByDocumentTypeIdOrderByPositionAscIdAsc(documentTypeId);
         Map<String, String> fields = suppliedFields == null
                 ? Map.of()
                 : new LinkedHashMap<>(suppliedFields);
@@ -125,7 +125,7 @@ public class DocumentRuleService {
                         issue.quote(),
                         issue.page()))
                 .toList();
-        return new CheckData(extraction.available(), fields, issues);
+        return new CheckData(extraction.available(), fields, issues, extraction.textMissing());
     }
 
     public CheckData executeManualUpdate(PreparedCheck prepared, CheckData previous) {
@@ -153,8 +153,32 @@ public class DocumentRuleService {
         }
         PreparedCheck merged = new PreparedCheck(
                 prepared.type(), prepared.schema(), Collections.unmodifiableMap(manual), prepared.rules());
-        return execute(merged, new DocumentExtractor.ExtractionResult(
+        CheckData result = execute(merged, new DocumentExtractor.ExtractionResult(
                 Map.copyOf(extracted), previous != null && previous.modelAvailable(), "stored"));
+        if (result == null) {
+            return null;
+        }
+        // Ручная правка без изменения файла видна согласующему: рядом со значением — что в файле (#86).
+        List<DocumentCardResponse.FieldValue> fields = result.fields().stream()
+                .map(field -> withFileValue(field, previousByName.get(field.name())))
+                .toList();
+        return new CheckData(result.modelAvailable(), fields, result.issues(),
+                previous != null && previous.textMissing());
+    }
+
+    private static DocumentCardResponse.FieldValue withFileValue(
+            DocumentCardResponse.FieldValue field,
+            DocumentCardResponse.FieldValue old
+    ) {
+        if (!"MANUAL".equals(field.source()) || old == null) {
+            return field;
+        }
+        String inFile = old.fileValue() != null ? old.fileValue() : "MODEL".equals(old.source()) ? old.value() : null;
+        if (inFile == null || Objects.equals(inFile, field.value())) {
+            return field;
+        }
+        return new DocumentCardResponse.FieldValue(
+                field.name(), field.value(), field.source(), field.quote(), field.page(), inFile);
     }
 
     public CheckData pending(PreparedCheck prepared) {
@@ -186,7 +210,8 @@ public class DocumentRuleService {
         if (prepared.suppliedFields().containsKey(name)) {
             String value = prepared.suppliedFields().get(name);
             values.put(name, value);
-            return new DocumentCardResponse.FieldValue(name, value, "MANUAL", null, null);
+            return new DocumentCardResponse.FieldValue(
+                    name, value, "MANUAL", null, null, prepared.fileValues().get(name));
         }
         DocumentExtractor.ExtractedField extracted = extraction.fields().get(name);
         String value = extracted == null ? null : extracted.value();
@@ -202,16 +227,44 @@ public class DocumentRuleService {
                 extracted == null ? null : extracted.page());
     }
 
+    /**
+     * fileValues — что написано в файле для полей из suppliedFields, которые автор раньше заменил
+     * вручную, не меняя файл: согласующий продолжает видеть расхождение (ревью слитого #88).
+     */
     public record PreparedCheck(
             DocumentType type,
             List<DocumentTypeField> schema,
             Map<String, String> suppliedFields,
-            List<RuleEngine.RequirementRule> rules
-    ) {}
+            List<RuleEngine.RequirementRule> rules,
+            Map<String, String> fileValues
+    ) {
+        public PreparedCheck(
+                DocumentType type,
+                List<DocumentTypeField> schema,
+                Map<String, String> suppliedFields,
+                List<RuleEngine.RequirementRule> rules
+        ) {
+            this(type, schema, suppliedFields, rules, Map.of());
+        }
 
+        public PreparedCheck withFileValues(Map<String, String> values) {
+            return new PreparedCheck(type, schema, suppliedFields, rules, Map.copyOf(values));
+        }
+    }
+
+    /** textMissing — в файле не нашлось текста (скан): поля только вручную, и экран говорит почему. */
     public record CheckData(
             boolean modelAvailable,
             List<DocumentCardResponse.FieldValue> fields,
-            List<DocumentCardResponse.ValidationIssueView> issues
-    ) {}
+            List<DocumentCardResponse.ValidationIssueView> issues,
+            boolean textMissing
+    ) {
+        public CheckData(
+                boolean modelAvailable,
+                List<DocumentCardResponse.FieldValue> fields,
+                List<DocumentCardResponse.ValidationIssueView> issues
+        ) {
+            this(modelAvailable, fields, issues, false);
+        }
+    }
 }

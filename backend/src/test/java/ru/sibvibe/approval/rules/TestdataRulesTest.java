@@ -48,7 +48,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestdataRulesTest {
 
     private static final Path TESTDATA = Path.of("..", "testdata");
-    private static final Set<String> TYPE_CODES = Set.of("OFFICIAL_MEMO", "VACATION_REQUEST", "SUPPORT_MEASURE_REQUEST");
+    // GENERIC — «Другой документ»: общая проверка реквизитов любого документа (#86).
+    private static final Set<String> TYPE_CODES =
+            Set.of("OFFICIAL_MEMO", "VACATION_REQUEST", "SUPPORT_MEASURE_REQUEST", "GENERIC");
     private static final Set<String> FIELD_TYPES = Set.of("STRING", "DATE", "NUMBER", "PERSON", "ORGANIZATION");
     private static final Pattern DOCX_TEXT = Pattern.compile("<w:t(?:\\s[^>]*)?>([^<]*)</w:t>");
 
@@ -113,7 +115,7 @@ class TestdataRulesTest {
 
             JsonNode rules = type.get("rules");
             // Объём из CLAUDE.md, решение B, и задачи #21: записка — 8–10 правил, заявление на отпуск — 4–5,
-            // заявка на меру поддержки — 5–6.
+            // заявка на меру поддержки и «Другой документ» (#86) — 5–6.
             switch (code) {
                 case "OFFICIAL_MEMO" -> assertThat(rules.size()).isBetween(8, 10);
                 case "VACATION_REQUEST" -> assertThat(rules.size()).isBetween(4, 5);

@@ -2,6 +2,8 @@ package ru.sibvibe.approval.schema;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.hibernate.Session;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -24,7 +26,11 @@ import java.net.http.HttpResponse;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Savepoint;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
@@ -52,12 +58,13 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(8);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(9);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
                     .isEqualTo(18);
             assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(16);
             assertThat(context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
             checkReferenceData(jdbc);
+            checkReferenceDataMatchesTestdata(jdbc);
             firstChecksums = checksums(jdbc);
             assertHealthy(context);
             checkMappingsAndConstraints(context);
@@ -81,8 +88,8 @@ class DatabaseSchemaTest {
                 left join requirement_rule rule on rule.document_type_id = type.id
                 """))
                 .containsEntry("types", 4L)
-                .containsEntry("fields", 17L)
-                .containsEntry("rules", 21L);
+                .containsEntry("fields", 23L)
+                .containsEntry("rules", 26L);
         assertThat(jdbc.queryForList("""
                 select type.code, count(distinct field.id) as fields, count(distinct rule.id) as rules
                 from document_type type
@@ -92,7 +99,7 @@ class DatabaseSchemaTest {
                 order by type.code
                 """))
                 .containsExactly(
-                        Map.of("code", "GENERIC", "fields", 0L, "rules", 0L),
+                        Map.of("code", "GENERIC", "fields", 6L, "rules", 5L),
                         Map.of("code", "OFFICIAL_MEMO", "fields", 8L, "rules", 10L),
                         Map.of("code", "SUPPORT_MEASURE_REQUEST", "fields", 4L, "rules", 6L),
                         Map.of("code", "VACATION_REQUEST", "fields", 5L, "rules", 5L));
@@ -109,6 +116,62 @@ class DatabaseSchemaTest {
                 .containsEntry("kind", "LEGAL")
                 .containsEntry("severity", "BLOCKER")
                 .containsEntry("source_ref", "ст. 4.1, ч. 3, п. 5");
+    }
+
+    /**
+     * Справочник в базе построчно совпадает с testdata/rules.json — источником RULES.md и тестов правил.
+     * Раньше сверялось только количество строк: правка текста или ожидаемого значения в миграции без
+     * правки rules.json (или наоборот) проходила незамеченной (ревью #49).
+     */
+    private void checkReferenceDataMatchesTestdata(JdbcTemplate jdbc) throws Exception {
+        JsonNode root = new ObjectMapper().readTree(Path.of("..", "testdata", "rules.json").toFile());
+        String checkedAt = root.get("sourceCheckedAt").asText();
+        List<String> expectedTypes = new ArrayList<>();
+        List<String> expectedFields = new ArrayList<>();
+        List<String> expectedRules = new ArrayList<>();
+        for (JsonNode type : root.get("types")) {
+            String code = type.get("code").asText();
+            expectedTypes.add(code + " | " + type.get("name").asText());
+            for (JsonNode field : type.get("fields")) {
+                expectedFields.add(String.join(" | ", code, field.get("name").asText(), field.get("type").asText(),
+                        field.get("label").asText(), text(field, "hint")));
+            }
+            for (JsonNode rule : type.get("rules")) {
+                JsonNode source = root.get("sources").get(rule.get("source").asText());
+                expectedRules.add(String.join(" | ", code, rule.get("field").asText(), rule.get("check").asText(),
+                        text(rule, "expected"), rule.get("kind").asText(), rule.get("severity").asText(),
+                        text(source, "title"), text(source, "url"), text(rule, "sourceRef"),
+                        rule.get("description").asText(), checkedAt));
+            }
+        }
+        assertThat(jdbc.queryForList("select code || ' | ' || name from document_type", String.class))
+                .containsExactlyInAnyOrderElementsOf(expectedTypes);
+        // Порядок полей внутри типа — как в rules.json: в нём же их показывает экран проверки.
+        // Сортировка потока устойчива, поэтому внутри типа порядок rules.json сохраняется.
+        assertThat(jdbc.queryForList("""
+                select concat_ws(' | ', type.code, field.field_name, field.field_type, field.label,
+                                 coalesce(field.hint, '<null>'))
+                from document_type_field field
+                join document_type type on type.id = field.document_type_id
+                order by type.code, field.position, field.id
+                """, String.class))
+                .containsExactlyElementsOf(expectedFields.stream()
+                        .sorted(Comparator.comparing(line -> line.substring(0, line.indexOf(" | "))))
+                        .toList());
+        assertThat(jdbc.queryForList("""
+                select concat_ws(' | ', type.code, rule.field_name, rule.check_type, coalesce(rule.expected, '<null>'),
+                                 rule.kind, rule.severity, coalesce(rule.source_title, '<null>'),
+                                 coalesce(rule.source_url, '<null>'), coalesce(rule.source_ref, '<null>'),
+                                 rule.description, rule.source_checked_at::date::text)
+                from requirement_rule rule
+                join document_type type on type.id = rule.document_type_id
+                """, String.class))
+                .containsExactlyInAnyOrderElementsOf(expectedRules);
+    }
+
+    private static String text(JsonNode node, String name) {
+        JsonNode value = node.get(name);
+        return value == null || value.isNull() ? "<null>" : value.asText();
     }
 
     private ConfigurableApplicationContext start(Map<String, Object> properties) {

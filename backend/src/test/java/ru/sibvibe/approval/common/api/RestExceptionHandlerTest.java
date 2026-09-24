@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -76,6 +78,21 @@ class RestExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void wrongMethodHasOwnCodeInsteadOfInternalError() throws Exception {
+        mockMvc.perform(get("/test"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void otherSpringClientErrorsAreBadRequestNotInternalError() throws Exception {
+        mockMvc.perform(get("/gone"))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"));
+    }
+
     @RestController
     private static class TestController {
 
@@ -85,6 +102,11 @@ class RestExceptionHandlerTest {
 
         @PostMapping(value = "/multipart", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         void multipart(@RequestPart("main") byte[] main) {
+        }
+
+        @GetMapping("/gone")
+        void gone() {
+            throw new ResponseStatusException(HttpStatus.GONE);
         }
 
         @GetMapping("/test/{id}")

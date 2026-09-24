@@ -65,7 +65,40 @@ class DocumentExtractionServiceTest {
         assertThat(result.fields().get("inn").page()).isNull();
     }
 
+    /** Скан без текстового слоя: в модель ничего не уходит, иначе «не найдено» по каждому полю. */
+    @Test
+    void scannedPdfWithoutTextIsNotSentToModelAndIsMarkedAsTextMissing() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(List.of(" ", "1", "2 "), true));
+        DocumentExtractor model = request -> {
+            throw new AssertionError("модель не должна вызываться для файла без текста");
+        };
+
+        var result = service(text, model).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+
+        assertThat(result.available()).isFalse();
+        assertThat(result.textMissing()).isTrue();
+        assertThat(result.fields()).isEmpty();
+    }
+
+    @Test
+    void acceptsQuoteWhoseLineBreakModelReturnedAsSpaceAndKeepsDocumentText() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
+                List.of("Шапка", "ИНН\u00A0заявителя\n  1234567890"), true));
+        DocumentExtractor model = request -> new DocumentExtractor.ExtractionResult(Map.of(
+                "inn", new DocumentExtractor.ExtractedField("<INN_1>", "ИНН заявителя <INN_1>", 1)),
+                true, "test");
+
+        var result = service(text, model).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+
+        assertThat(result.fields().get("inn"))
+                .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", "ИНН\u00A0заявителя\n  1234567890", 2));
+    }
+
     private DocumentExtractionService service(TextExtractor text, DocumentExtractor model) {
-        return new DocumentExtractionService(text, model, new TextMinimizer(), new SensitiveDataMasker());
+        return new DocumentExtractionService(text, model,
+                request -> new ru.sibvibe.approval.ai.DocumentClassifier.Classification(null, null, false),
+                new TextMinimizer(), new SensitiveDataMasker());
     }
 }

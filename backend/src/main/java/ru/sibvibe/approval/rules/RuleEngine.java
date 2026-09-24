@@ -49,7 +49,10 @@ public interface RuleEngine {
      * @param kind          вид правила: закон, внутренний регламент или наше продуктовое допущение
      * @param check         какая проверка выполняется
      * @param expected      REQUIRED: не используется; DATE_FORMAT/DATE_NOT_FUTURE:
-     *                      шаблон DateTimeFormatter (например dd.MM.uuuu), null/blank — ISO_LOCAL_DATE;
+     *                      RU_DATE — полная дата в любом принятом виде («23.09.2026», «"23" сентября
+     *                      2026 г.», ISO), либо шаблон DateTimeFormatter (например dd.MM.uuuu),
+     *                      null/blank — ISO_LOCAL_DATE. DATE_NOT_FUTURE неразборчивую дату пропускает:
+     *                      о формате сообщает DATE_FORMAT;
      *                      MATCHES_PATTERN: Java regex для всей строки;
      *                      MIN_LENGTH: неотрицательное целое число Unicode code points;
      *                      ONE_OF: непустой JSON-массив непустых строк, точное сравнение

@@ -5,13 +5,16 @@ import type {
   DocumentListItem,
   DocumentStatus,
   DocumentType,
+  FileCorrectionResult,
   Page,
   RoutePreview,
   Visibility,
 } from './types';
 
 export interface CreateDocumentInput {
-  documentTypeId: number;
+  /** null — «Определить автоматически»: тип выберет ИИ по тексту (#86). */
+  documentTypeId: number | null;
+  /** Пусто — название по содержанию документа или имени файла. */
   title: string;
   visibility: Visibility;
   containsSensitive: boolean;
@@ -77,8 +80,8 @@ export function createDocument(input: CreateDocumentInput): Promise<DocumentCard
   form.append(
     'meta',
     jsonPart({
-      documentTypeId: input.documentTypeId,
-      title: input.title,
+      ...(input.documentTypeId !== null ? { documentTypeId: input.documentTypeId } : {}),
+      ...(input.title.trim() ? { title: input.title.trim() } : {}),
       visibility: input.visibility,
       containsSensitive: input.containsSensitive,
       ...(input.fields ? { fields: input.fields } : {}),
@@ -118,6 +121,31 @@ export function updateDocumentFields(
   return apiRequest<CheckResult>(`/documents/${documentId}/versions/${versionNo}/fields`, {
     method: 'PUT',
     body: { fields },
+    timeoutMs: 120_000,
+  });
+}
+
+/**
+ * «Исправить в файле» (#86): исправленные значения вписываются в DOCX, документ получает новую
+ * версию и проверяется заново — модель снова читает файл, поэтому до 2 минут.
+ */
+export function correctFile(
+  documentId: number,
+  versionNo: number,
+  fields: Record<string, string>,
+): Promise<FileCorrectionResult> {
+  return apiRequest<FileCorrectionResult>(`/documents/${documentId}/versions/${versionNo}/corrections`, {
+    method: 'POST',
+    body: { fields },
+    timeoutMs: 120_000,
+  });
+}
+
+/** Сменить тип черновика, если ИИ определил вид неверно; версия перепроверяется. */
+export function changeDocumentType(documentId: number, versionNo: number, documentTypeId: number): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>(`/documents/${documentId}/versions/${versionNo}/type`, {
+    method: 'PUT',
+    body: { documentTypeId },
     timeoutMs: 120_000,
   });
 }

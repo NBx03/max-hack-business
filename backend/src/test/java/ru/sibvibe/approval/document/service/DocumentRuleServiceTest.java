@@ -63,6 +63,34 @@ class DocumentRuleServiceTest {
         });
     }
 
+    /** Правка «без изменения файла», перенесённая в новую версию, сохраняет значение из файла. */
+    @Test
+    void carriedManualValueKeepsWhatIsWrittenInTheFile() {
+        RuleEngine engine = mock(RuleEngine.class);
+        var service = new DocumentRuleService(
+                mock(DocumentTypeRepository.class),
+                mock(DocumentTypeFieldRepository.class),
+                mock(RequirementRuleRepository.class),
+                engine,
+                Clock.fixed(Instant.parse("2026-09-24T00:00:00Z"), ZoneOffset.UTC));
+        DocumentType type = new DocumentType();
+        type.setCode("MEMO");
+        DocumentTypeField number = new DocumentTypeField();
+        number.setFieldName("number");
+        var prepared = new DocumentRuleService.PreparedCheck(type, List.of(number), Map.of("number", "СЗ-7"), List.of())
+                .withFileValues(Map.of("number", "СЗ 7"));
+        when(engine.validate(any(), any(), any())).thenReturn(List.of());
+
+        DocumentRuleService.CheckData result = service.execute(prepared,
+                new DocumentExtractor.ExtractionResult(Map.of(), true, "test"));
+
+        assertThat(result.fields()).singleElement().satisfies(value -> {
+            assertThat(value.value()).isEqualTo("СЗ-7");
+            assertThat(value.source()).isEqualTo("MANUAL");
+            assertThat(value.fileValue()).isEqualTo("СЗ 7");
+        });
+    }
+
     @Test
     void mergesModelFieldsWithManualOverridesAndPassesVerifiedLocations() {
         RuleEngine engine = mock(RuleEngine.class);
@@ -125,8 +153,9 @@ class DocumentRuleServiceTest {
         var result = service.executeManualUpdate(prepared, previous);
 
         assertThat(result.modelAvailable()).isTrue();
+        // Изменённое поле помнит, что в файле: согласующий видит ручную правку (#86).
         assertThat(result.fields()).containsExactly(
                 new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
-                new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null));
+                new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null, "Из модели"));
     }
 }

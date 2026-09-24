@@ -9,6 +9,7 @@ import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
 import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
+import ru.sibvibe.approval.document.dto.FileCorrectionResponse;
 import ru.sibvibe.approval.document.dto.UpdateFieldsRequest;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.repository.DocumentReadRepository;
@@ -16,11 +17,20 @@ import ru.sibvibe.approval.document.repository.DocumentRepository;
 import ru.sibvibe.approval.storage.FileStorage;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Service
 public class DocumentCommandService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DocumentCommandService.class);
+    private static final int MAX_TITLE_LENGTH = 255;
 
     private final DocumentRepository documentRepository;
     private final DocumentReadRepository documentReadRepository;
@@ -30,6 +40,8 @@ public class DocumentCommandService {
     private final DocumentPersistenceService persistenceService;
     private final DocumentViewService viewService;
     private final FileStorage fileStorage;
+    private final DocumentTypeGuessService typeGuessService;
+    private final DocxCorrector docxCorrector;
 
     public DocumentCommandService(
             DocumentRepository documentRepository,
@@ -39,8 +51,12 @@ public class DocumentCommandService {
             DocumentAnalysisService analysisService,
             DocumentPersistenceService persistenceService,
             DocumentViewService viewService,
-            FileStorage fileStorage
+            FileStorage fileStorage,
+            DocumentTypeGuessService typeGuessService,
+            DocxCorrector docxCorrector
     ) {
+        this.typeGuessService = typeGuessService;
+        this.docxCorrector = docxCorrector;
         this.documentRepository = documentRepository;
         this.documentReadRepository = documentReadRepository;
         this.fileValidator = fileValidator;
@@ -57,18 +73,20 @@ public class DocumentCommandService {
             MultipartFile main
     ) {
         Membership membership = requireMembership(currentUser);
-        DocumentRuleService.PreparedCheck prepared =
-                ruleService.prepare(request.documentTypeId(), request.fields());
         DocumentFileValidator.ValidatedFile validated = fileValidator.validateMain(main);
+        TypeChoice choice = chooseType(request, validated);
+        DocumentRuleService.PreparedCheck prepared =
+                ruleService.prepare(choice.typeId(), request.fields());
         DocumentPersistenceService.NewFile stored = upload(validated);
         DocumentPersistenceService.CreatedVersion created;
         try {
             created = persistenceService.create(
                     membership.orgId(),
                     currentUser.userId(),
-                    request.title(),
+                    choice.title(),
                     request.visibility(),
                     request.containsSensitive(),
+                    choice.autoDetected(),
                     prepared,
                     stored);
         } catch (RuntimeException exception) {
@@ -109,7 +127,12 @@ public class DocumentCommandService {
             }
             throw exception;
         }
-        runCheck(documentId, created.checkAttempt(), request.containsSensitive(), prepared);
+        if (created.previousFields() != null) {
+            runManualCheck(documentId, new DocumentPersistenceService.FieldsUpdateAttempt(
+                    created.checkAttempt(), created.previousFields()), prepared);
+        } else {
+            runCheck(documentId, created.checkAttempt(), request.containsSensitive(), prepared);
+        }
         return viewService.card(documentId, currentUser);
     }
 
@@ -132,6 +155,161 @@ public class DocumentCommandService {
         runManualCheck(documentId, update, prepared);
         return viewService.card(documentId, currentUser).check();
     }
+
+    /** «Сменить тип» у черновика: вид, определённый моделью, оказался неверным (#86). */
+    public DocumentCardResponse changeType(long documentId, int versionNo, CurrentUser currentUser, long documentTypeId) {
+        Membership membership = requireMembership(currentUser);
+        requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
+        DocumentRuleService.PreparedCheck prepared = ruleService.prepare(documentTypeId, null);
+        DocumentPersistenceService.RetypeAttempt attempt = persistenceService.beginRetype(
+                documentId, versionNo, membership.orgId(), currentUser.userId(), prepared);
+        runCheck(documentId, attempt.checkAttempt(), attempt.containsSensitive(), prepared);
+        return viewService.card(documentId, currentUser);
+    }
+
+    /**
+     * «Исправить в файле» (#86): исправленные значения полей вписываются в сам DOCX, и документ
+     * получает новую версию, которая проверяется заново — как если бы автор поправил файл в Word
+     * и загрузил его. Так согласующий получает исправленный файл, а не прежний файл плюс «исправленные поля».
+     */
+    public FileCorrectionResponse correctFile(
+            long documentId,
+            int versionNo,
+            CurrentUser currentUser,
+            UpdateFieldsRequest request
+    ) {
+        Membership membership = requireMembership(currentUser);
+        requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
+        DocumentPersistenceService.CorrectionSource source = persistenceService.correctionSource(
+                documentId, versionNo, membership.orgId(), currentUser.userId());
+        if (!DocxCorrector.DOCX.equals(source.main().getMimeType())) {
+            throw DocumentApiException.validation("Вписать исправления можно только в документ Word (DOCX). "
+                    + "PDF исправьте в исходном документе и загрузите его новой версией");
+        }
+        // Имена полей — только из схемы типа (та же проверка, что у ручной правки).
+        ruleService.prepare(source.documentTypeId(), request.fields());
+
+        Map<String, DocumentCardResponse.FieldValue> current = new LinkedHashMap<>();
+        source.fields().forEach(field -> current.putIfAbsent(field.name(), field));
+        Map<String, String> corrected = new LinkedHashMap<>();
+        current.forEach((name, field) -> corrected.put(name, field.value()));
+        List<DocxCorrector.Replacement> replacements = new ArrayList<>();
+        request.fields().forEach((name, value) -> {
+            DocumentCardResponse.FieldValue old = current.get(name);
+            String inFile = old == null ? null : old.fileValue() != null ? old.fileValue() : old.value();
+            String newValue = value == null ? "" : value.strip();
+            if (!Objects.equals(inFile == null ? "" : inFile.strip(), newValue)) {
+                replacements.add(new DocxCorrector.Replacement(name, inFile, newValue, old == null ? null : old.quote()));
+                corrected.put(name, newValue);
+            }
+        });
+        if (replacements.isEmpty()) {
+            throw DocumentApiException.validation("Вы не изменили ни одного поля");
+        }
+
+        DocxCorrector.Result result = docxCorrector.apply(read(source.main().getStorageKey()), replacements);
+        List<FileCorrectionResponse.NotApplied> notApplied = result.failed().entrySet().stream()
+                .map(entry -> new FileCorrectionResponse.NotApplied(entry.getKey(), entry.getValue().message()))
+                .toList();
+        if (result.applied().isEmpty()) {
+            throw DocumentApiException.validation("Не удалось вписать исправления в файл: " + notApplied.stream()
+                    .map(FileCorrectionResponse.NotApplied::message)
+                    .distinct()
+                    .collect(Collectors.joining("; ")));
+        }
+
+        DocumentPersistenceService.NewFile stored = upload(new DocumentFileValidator.ValidatedFile(
+                result.content(), source.main().getFileName(), DocxCorrector.DOCX));
+        // Без чувствительных данных поля заново извлекает модель из нового файла — проверяется файл,
+        // а не наши представления о нём. Но поля, которые автор раньше заменил вручную, не меняя файл,
+        // и которые сейчас в файл не вписывались, модель прочитала бы по-старому — их переносим как есть,
+        // вместе с тем, что в файле (иначе правка молча откатывалась). С чувствительными данными модель
+        // не участвует: берём исправленные значения.
+        DocumentRuleService.PreparedCheck prepared;
+        if (source.containsSensitive()) {
+            prepared = ruleService.prepare(source.documentTypeId(), corrected);
+        } else {
+            Map<String, String> carried = new LinkedHashMap<>();
+            Map<String, String> carriedFileValues = new LinkedHashMap<>();
+            current.forEach((name, field) -> {
+                if (!result.applied().contains(name) && "MANUAL".equals(field.source()) && field.fileValue() != null) {
+                    carried.put(name, field.value());
+                    carriedFileValues.put(name, field.fileValue());
+                }
+            });
+            prepared = ruleService.prepare(source.documentTypeId(), carried).withFileValues(carriedFileValues);
+        }
+        DocumentPersistenceService.CreatedVersion created;
+        try {
+            created = persistenceService.createVersion(
+                    documentId,
+                    membership.orgId(),
+                    currentUser.userId(),
+                    versionNo,
+                    source.containsSensitive(),
+                    source.attachmentIds(),
+                    prepared,
+                    stored);
+        } catch (RuntimeException exception) {
+            compensate(stored.storageKey(), exception);
+            throw exception;
+        }
+        runCheck(documentId, created.checkAttempt(), source.containsSensitive(), prepared);
+        return new FileCorrectionResponse(viewService.card(documentId, currentUser), result.applied(), notApplied);
+    }
+
+    private byte[] read(String storageKey) {
+        FileStorage.StoredFile stored = fileStorage.get(storageKey);
+        try (InputStream content = stored.content()) {
+            return content.readNBytes((int) DocumentFileValidator.MAX_FILE_SIZE + 1);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Не удалось прочитать основной файл документа", exception);
+        }
+    }
+
+    /**
+     * Тип и название нового документа (#86). Тип не указан — его выбирает модель по тексту; с
+     * чувствительными данными текст в модель не уходит, поэтому тип тогда обязателен. Название
+     * не указано — по содержанию документа, а без модели — из имени файла.
+     */
+    private TypeChoice chooseType(CreateDocumentRequest request, DocumentFileValidator.ValidatedFile file) {
+        String title = request.title() == null ? "" : request.title().strip();
+        if (request.documentTypeId() != null) {
+            if (title.isEmpty()) {
+                String guessed = request.containsSensitive()
+                        ? null
+                        : typeGuessService.guess(file.content(), file.mimeType()).title();
+                title = titleOrFileName(guessed, file.fileName());
+            }
+            return new TypeChoice(request.documentTypeId(), title, false);
+        }
+        if (request.containsSensitive()) {
+            throw DocumentApiException.validation("Выберите тип документа: с чувствительными данными документ "
+                    + "не отправляется в ИИ, поэтому определить тип автоматически нельзя");
+        }
+        DocumentTypeGuessService.Guess guess = typeGuessService.guess(file.content(), file.mimeType());
+        return new TypeChoice(guess.type().getId(),
+                title.isEmpty() ? titleOrFileName(guess.title(), file.fileName()) : title, true);
+    }
+
+    static String titleOrFileName(String guessed, String fileName) {
+        if (guessed != null && !guessed.isBlank()) {
+            return truncate(guessed.strip());
+        }
+        String name = fileName == null ? "" : fileName.strip();
+        int dot = name.lastIndexOf('.');
+        if (dot > 0) {
+            name = name.substring(0, dot);
+        }
+        name = name.replace('_', ' ').strip();
+        return name.isEmpty() ? "Документ" : truncate(name);
+    }
+
+    private static String truncate(String value) {
+        return value.length() <= MAX_TITLE_LENGTH ? value : value.substring(0, MAX_TITLE_LENGTH).strip();
+    }
+
+    private record TypeChoice(long typeId, String title, boolean autoDetected) {}
 
     private DocumentPersistenceService.NewFile upload(DocumentFileValidator.ValidatedFile file) {
         String key = fileStorage.put(

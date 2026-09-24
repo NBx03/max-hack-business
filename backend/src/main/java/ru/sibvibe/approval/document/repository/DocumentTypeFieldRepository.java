@@ -6,7 +6,7 @@ import ru.sibvibe.approval.document.entity.DocumentTypeField;
 import java.util.List;
 
 public interface DocumentTypeFieldRepository extends JpaRepository<DocumentTypeField, Long> {
-    List<DocumentTypeField> findByDocumentTypeIdOrderById(Long documentTypeId);
+    List<DocumentTypeField> findByDocumentTypeIdOrderByPositionAscIdAsc(Long documentTypeId);
 
-    List<DocumentTypeField> findAllByOrderByDocumentTypeIdAscIdAsc();
+    List<DocumentTypeField> findAllByOrderByDocumentTypeIdAscPositionAscIdAsc();
 }
