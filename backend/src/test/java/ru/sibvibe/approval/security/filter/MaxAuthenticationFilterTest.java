@@ -145,6 +145,14 @@ class MaxAuthenticationFilterTest {
         assertThat(invoke(filter(false), request("GET", "/actuator/health/readiness")).getStatus()).isEqualTo(200);
     }
 
+    @Test
+    void botWebhookIsLeftToItsControllerBecauseMaxServerSendsNoInitData() throws Exception {
+        assertThat(invoke(filter(false), request("POST", "/api/v1/bot/webhook")).getStatus()).isEqualTo(200);
+        // только сам webhook и только POST: соседние пути по-прежнему требуют данные запуска
+        assertThat(invoke(filter(false), request("GET", "/api/v1/bot/webhook")).getStatus()).isEqualTo(401);
+        assertThat(invoke(filter(false), request("POST", "/api/v1/bot/webhook/x")).getStatus()).isEqualTo(401);
+    }
+
     private MaxAuthenticationFilter filter(boolean devProfile) {
         return new MaxAuthenticationFilter(verifier, currentUserService, objectMapper, clock, devProfile);
     }

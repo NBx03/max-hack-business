@@ -52,10 +52,17 @@ public class MaxAuthenticationFilter extends OncePerRequestFilter {
         this.devProfile = devProfile;
     }
 
+    /**
+     * Пути без данных запуска MAX. Разрешения в {@code SecurityConfiguration} этот фильтр не видит: он стоит раньше
+     * и отвечает 401 сам, поэтому каждый открытый путь нужно перечислить и здесь. Webhook бота вызывает сервер MAX,
+     * а не мини-приложение, — без этой строки все входящие сообщения боту получали 401 и бот молчал (приёмка 24.09,
+     * п. 13); подлинность запроса проверяет секрет подписки в {@code BotWebhookController}.
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return path.equals("/error")
+                || request.getMethod().equals("POST") && path.equals("/api/v1/bot/webhook")
                 || path.startsWith("/actuator/health")
                 || request.getMethod().equals("GET")
                     && path.matches("/api/v1/files/[1-9][0-9]*/content")
