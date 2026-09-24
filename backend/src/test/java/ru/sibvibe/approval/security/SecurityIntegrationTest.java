@@ -185,7 +185,7 @@ class SecurityIntegrationTest {
         HttpResponse<String> wrongMethod = sendAuthorized(
                 "POST", "/api/v1/me", signedAuthorization(), null);
         assertThat(wrongMethod.statusCode()).isEqualTo(405);
-        assertApiError(wrongMethod, "INTERNAL_ERROR");
+        assertApiError(wrongMethod, "METHOD_NOT_ALLOWED");
     }
 
     private void createRealMembership(long userId) {

@@ -7,6 +7,8 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import ru.sibvibe.approval.storage.FileStorage;
 import ru.sibvibe.approval.storage.FileStorageException;
 import ru.sibvibe.approval.storage.StoredFileNotFoundException;
@@ -25,6 +27,8 @@ import java.util.regex.Pattern;
  */
 @RequiredArgsConstructor
 public class MinioFileStorage implements FileStorage {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(MinioFileStorage.class);
 
     private static final String FILE_NAME_METADATA = "filename-base64";
     private static final Pattern STORAGE_KEY = Pattern.compile(
@@ -57,6 +61,8 @@ public class MinioFileStorage implements FileStorage {
             return storageKey;
         } catch (Exception exception) {
             // Причину SDK не передаём наружу: она может содержать URL и заголовки запроса.
+            // В лог сервера — краткая причина, иначе на стенде не понять, почему файл не сохранился (ревью #37).
+            LOGGER.warn("MinIO: не удалось сохранить файл {}: {}", storageKey, describe(exception));
             throw new FileStorageException("Не удалось сохранить файл");
         }
     }
@@ -82,11 +88,14 @@ public class MinioFileStorage implements FileStorage {
         } catch (ErrorResponseException exception) {
             closeOnFailure(response);
             if (isMissingObject(exception)) {
+                LOGGER.warn("MinIO: файла {} нет в хранилище", storageKey);
                 throw new StoredFileNotFoundException();
             }
+            LOGGER.warn("MinIO: не удалось получить файл {}: {}", storageKey, describe(exception));
             throw new FileStorageException("Не удалось получить файл");
         } catch (Exception exception) {
             closeOnFailure(response);
+            LOGGER.warn("MinIO: не удалось получить файл {}: {}", storageKey, describe(exception));
             throw new FileStorageException("Не удалось получить файл");
         }
     }
@@ -99,9 +108,11 @@ public class MinioFileStorage implements FileStorage {
         } catch (ErrorResponseException exception) {
             // DELETE идемпотентен; отсутствие бакета или прав при этом остаётся ошибкой.
             if (!isMissingObject(exception)) {
+                LOGGER.warn("MinIO: не удалось удалить файл {}: {}", storageKey, describe(exception));
                 throw new FileStorageException("Не удалось удалить файл");
             }
         } catch (Exception exception) {
+            LOGGER.warn("MinIO: не удалось удалить файл {}: {}", storageKey, describe(exception));
             throw new FileStorageException("Не удалось удалить файл");
         }
     }
@@ -110,6 +121,22 @@ public class MinioFileStorage implements FileStorage {
         if (storageKey == null || !STORAGE_KEY.matcher(storageKey).matches()) {
             throw new IllegalArgumentException("Некорректный ключ файла");
         }
+    }
+
+    /**
+     * Причина для лога без трассы SDK: код ошибки S3 или классы исключения и его первопричины
+     * с их сообщениями (обрыв сети, отказ в соединении). Заголовков запроса здесь нет.
+     */
+    static String describe(Exception exception) {
+        if (exception instanceof ErrorResponseException response && response.errorResponse() != null) {
+            return "S3 " + response.errorResponse().code() + " (" + response.errorResponse().message() + ")";
+        }
+        Throwable root = exception;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String summary = exception.getClass().getSimpleName() + ": " + exception.getMessage();
+        return root == exception ? summary : summary + "; причина " + root.getClass().getSimpleName() + ": " + root.getMessage();
     }
 
     private static boolean isMissingObject(ErrorResponseException exception) {

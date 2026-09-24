@@ -212,6 +212,15 @@ class MinioFileStorageTest {
         return Base64.getEncoder().encodeToString(name.getBytes(StandardCharsets.UTF_8));
     }
 
+    @Test
+    void describesFailureForServerLogWithoutSdkTrace() {
+        assertThat(MinioFileStorage.describe(error("AccessDenied")))
+                .isEqualTo("S3 AccessDenied (Тестовая ошибка)");
+        assertThat(MinioFileStorage.describe(new IOException("запрос прерван",
+                new java.net.ConnectException("Connection refused"))))
+                .isEqualTo("IOException: запрос прерван; причина ConnectException: Connection refused");
+    }
+
     private static ErrorResponseException error(String code) {
         return new ErrorResponseException(
                 new ErrorResponse(code, "Тестовая ошибка", BUCKET, KEY, null, null, null), null, null);

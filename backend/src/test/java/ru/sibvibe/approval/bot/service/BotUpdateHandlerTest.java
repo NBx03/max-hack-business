@@ -59,8 +59,32 @@ class BotUpdateHandlerTest {
 
         handler.handle(message("Привет"));
 
-        verify(notifier).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+        org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000042L), text.capture(), anyString(), eq(APP_LINK));
         verify(documents, never()).findByTitleFragment(anyLong(), anyLong(), anyString(), anyInt());
+        // Не то же приветствие с обещанием поиска: иначе бот выглядит зависшим (ревью #83).
+        assertThat(text.getValue()).contains("доступен сотрудникам компании").doesNotContain("пришлю его статус");
+    }
+
+    @Test
+    void greetingPromisesTitleSearchOnlyToCompanyMembers() throws Exception {
+        when(links.appLink()).thenReturn(APP_LINK);
+        when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.empty());
+        when(directory.findRealMembershipByMaxUserId(910000043L)).thenReturn(Optional.of(new Membership(7L, 1L)));
+
+        handler.handle(json("""
+                { "update_type": "bot_started", "user": { "user_id": 910000042 } }
+                """));
+        handler.handle(json("""
+                { "update_type": "bot_started", "user": { "user_id": 910000043 } }
+                """));
+
+        org.mockito.ArgumentCaptor<String> guest = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.ArgumentCaptor<String> member = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000042L), guest.capture(), anyString(), eq(APP_LINK));
+        verify(notifier).send(eq(910000043L), member.capture(), anyString(), eq(APP_LINK));
+        assertThat(guest.getValue()).doesNotContain("пришлю его статус").contains("демо-компанию");
+        assertThat(member.getValue()).contains("пришлю его статус");
     }
 
     @Test

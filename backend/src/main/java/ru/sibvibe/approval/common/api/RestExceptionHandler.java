@@ -64,6 +64,16 @@ public class RestExceptionHandler {
             return ResponseEntity.status(status)
                     .body(new ApiError("NOT_FOUND", "Ресурс не найден"));
         }
+        // Остальные 4xx Spring (405, 406…) — ошибка запроса, а не сбой сервиса (ревью #42, #45):
+        // «Сервис временно недоступен» на них уводил бы разбор не туда.
+        if (status.value() == HttpStatus.METHOD_NOT_ALLOWED.value()) {
+            return ResponseEntity.status(status)
+                    .body(new ApiError("METHOD_NOT_ALLOWED", "Это действие по такому адресу не поддерживается"));
+        }
+        if (status.is4xxClientError()) {
+            return ResponseEntity.status(status)
+                    .body(new ApiError("BAD_REQUEST", "Некорректный запрос"));
+        }
         return ResponseEntity.status(status)
                 .body(new ApiError("INTERNAL_ERROR", "Сервис временно недоступен"));
     }
