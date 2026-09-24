@@ -11,6 +11,7 @@ import {
 import { getActingAsId, setActingAsId } from '../api/client';
 import { ApiError, GENERIC_ERROR_MESSAGE } from '../api/errors';
 import { createDemoSandbox, getDemoSandbox, getMe } from '../api/session';
+import { isLaunchHandled } from './launch';
 import type { DemoSandboxUser, MeResponse } from '../api/types';
 
 type SessionStatus = 'loading' | 'ready' | 'error';
@@ -108,7 +109,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       let response = await getMeWithDemoRecovery();
       if (!resumeTried.current) {
         resumeTried.current = true;
-        const saved = !response.actingAs && !response.membership && response.sandbox ? readDemoActor(response.user.id) : null;
+        // Открыли по ссылке (приглашение, документ из уведомления) — ведём по ссылке, а не в демонстрацию:
+        // иначе приглашение в компанию молча открывало бы демо-компанию.
+        const byLink = Boolean(response.startParam) && !isLaunchHandled();
+        const saved = !byLink && !response.actingAs && !response.membership && response.sandbox
+          ? readDemoActor(response.user.id)
+          : null;
         if (saved !== null) {
           setActingAsId(saved);
           // Песочницу пересоздали или участника нет — getMeWithDemoRecovery вернёт обычный вход.
