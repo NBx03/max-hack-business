@@ -26,7 +26,21 @@ export function CenteredColumn({ children, style }: { children: ReactNode; style
  * чтобы не навязывать, что именно должно растягиваться на экранах с несколькими блоками.
  */
 export function ScreenShell({ children }: { children: ReactNode }) {
-  return <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>{children}</div>;
+  // Прокручивается сам экран, а не страница: высота приложения равна видимой области MAX
+  // (theme/tokens.css), поэтому нижняя панель всегда в кадре. data-scroll-root — для scrollToTop.
+  return (
+    <div
+      data-scroll-root
+      style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/** Прокрутить текущий экран к началу (вместо window.scrollTo — страница сама не прокручивается). */
+export function scrollScreenToTop(): void {
+  document.querySelector('[data-scroll-root]')?.scrollTo({ top: 0 });
 }
 
 /** Центрирует контент по всему экрану - загрузка и общая ошибка сессии (App.tsx). */
@@ -34,7 +48,8 @@ export function FullscreenCenter({ children }: { children: ReactNode }) {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        flex: 1,
+        minHeight: 0,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

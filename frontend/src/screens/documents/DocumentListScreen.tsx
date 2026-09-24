@@ -3,8 +3,7 @@ import { Button, CellList, CellSimple, Input, Spinner, Typography } from '@maxhu
 import { useNavigate } from 'react-router-dom';
 import { getDocuments, getDocumentTypes, type DocumentTab, type DocumentListFilters } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
-import { getOrganizationMetrics } from '../../api/organization';
-import type { DocumentListItem, DocumentStatus, DocumentType, OrganizationMetrics, UserRef } from '../../api/types';
+import type { DocumentListItem, DocumentStatus, DocumentType, UserRef } from '../../api/types';
 import { BottomSheet } from '../../components/base/BottomSheet';
 import { AppNav } from '../../components/base/AppNav';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
@@ -46,22 +45,6 @@ function waitingText(iso: string): string {
   return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
 }
 
-function formatHours(value: number | null): string {
-  return value === null ? '—' : `${value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} ч`;
-}
-
-function formatRate(value: number | null): string {
-  return value === null ? '—' : `${Math.round(value * 100)}%`;
-}
-
-function documentsLabel(count: number): string {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${count} документ`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${count} документа`;
-  return `${count} документов`;
-}
-
 /**
  * 8. Список документов - главный экран (docs/SCREENS.md). Администрирование переехало
  * в раздел «Компания» нижнего меню (AppNav).
@@ -80,7 +63,6 @@ export function DocumentListScreen() {
   // "Ждут меня" со счётчиком - total отдельного запроса с size=1, независимо от фильтров текущей вкладки.
   const waitingCountQuery = useAsync(() => getDocuments('WAITING_ME', { size: 1 }), []);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
-  const metricsQuery = useAsync(() => getOrganizationMetrics(), []);
 
   useEffect(() => {
     if (listQuery.status !== 'ready') {
@@ -111,12 +93,6 @@ export function DocumentListScreen() {
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
         <Typography.Headline variant="large-strong">Документы</Typography.Headline>
-
-        {/* Показатели - второстепенный блок: пока грузятся, держим место (список не прыгает),
-            а при ошибке просто не показываем - главный экран не должен выглядеть сломанным
-            из-за вторичного запроса (ревью #81). */}
-        {metricsQuery.status === 'loading' && <MetricsPlaceholder />}
-        {metricsQuery.status === 'ready' && <MetricsBlock metrics={metricsQuery.data} />}
 
         <Tabs tabs={tabs} activeKey={tab} onChange={setTab} />
 
@@ -180,56 +156,6 @@ export function DocumentListScreen() {
         />
       </BottomSheet>
     </ScreenShell>
-  );
-}
-
-const metricsSectionStyle = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
-  padding: 16,
-  borderRadius: 12,
-  background: 'var(--background-secondary)',
-  border: '1px solid var(--divider-primary)',
-  // Та же высота, что у готового блока: при загрузке список под ним не прыгает.
-  minHeight: 112,
-  boxSizing: 'border-box',
-} as const;
-
-function MetricsPlaceholder() {
-  return <section aria-busy style={metricsSectionStyle} />;
-}
-
-function MetricsBlock({ metrics }: { metrics: OrganizationMetrics }) {
-  const itemStyle = {
-    flex: 1,
-    minWidth: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-  } as const;
-
-  return (
-    <section aria-labelledby="effect-metrics-title" style={metricsSectionStyle}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-        <Typography.Title id="effect-metrics-title" variant="medium-strong">Эффект согласования</Typography.Title>
-        <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-          {metrics.documentsCount === 0 ? 'Нет данных' : documentsLabel(metrics.documentsCount)}
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: 16 }}>
-        {/* Headline, а не Title large-strong: тот 16 px, как обычный текст, и главные
-            числа блока не читались как показатели (ревью #81). */}
-        <div style={itemStyle}>
-          <Typography.Headline variant="large-strong">{formatHours(metrics.medianApprovalHours)}</Typography.Headline>
-          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Медианный срок согласования</span>
-        </div>
-        <div style={itemStyle}>
-          <Typography.Headline variant="large-strong">{formatRate(metrics.returnRate)}</Typography.Headline>
-          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Доля возвратов</span>
-        </div>
-      </div>
-    </section>
   );
 }
 

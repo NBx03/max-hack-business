@@ -41,7 +41,10 @@ export function App() {
   return (
     <BrowserRouter>
       <DemoSwitcher />
-      <AppRoutes key={actorKey} me={me} />
+      {/* Экран занимает остаток высоты под плашкой демо и прокручивается сам (Layout.ScreenShell). */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <AppRoutes key={actorKey} me={me} />
+      </div>
     </BrowserRouter>
   );
 }

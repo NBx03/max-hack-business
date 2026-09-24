@@ -46,9 +46,7 @@ export function DemoSwitcher() {
           заголовок экрана и ссылку «‹ назад» (тест 23.09). sticky - остаётся видна при прокрутке. */}
       <div
         style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
+          flex: 'none',
           padding: 'calc(8px + env(safe-area-inset-top)) 16px 8px',
           background: 'var(--background-primary)',
           borderBottom: '1px solid var(--divider-primary)',

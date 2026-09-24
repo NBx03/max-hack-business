@@ -50,4 +50,8 @@ public class DocumentVersion {
 
     @Column(name = "check_status")
     private String checkStatus;
+
+    /** Автор отозвал эту версию с согласования; {@code null} — не отзывалась. */
+    @Column(name = "withdrawn_at")
+    private Instant withdrawnAt;
 }

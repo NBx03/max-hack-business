@@ -7,6 +7,7 @@ import ru.sibvibe.approval.approval.dto.DecisionRequest;
 import ru.sibvibe.approval.approval.entity.ApprovalStep;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
+import ru.sibvibe.approval.approval.event.DocumentWithdrawnEvent;
 import ru.sibvibe.approval.approval.repository.ApprovalStepRepository;
 import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.security.CurrentUser;
@@ -117,6 +118,30 @@ public class DecisionService {
             }
         }
         return documentId;
+    }
+
+    /**
+     * «Отозвать с согласования» — только автор и только пока документ на согласовании (приёмка 24.09:
+     * заметил ошибку после отправки — раньше оставалось ждать, пока вернут). Ожидающие шаги версии
+     * получают {@code SKIPPED}, как при возврате, документ — {@code RETURNED}.
+     */
+    @Transactional
+    public void withdraw(CurrentUser user, long documentId) {
+        DocumentSnapshot document = documents.lockForAuthor(documentId, user, "Отозвать документ может только автор");
+        if (document.status() != DocumentState.IN_APPROVAL) {
+            throw ApprovalErrors.invalidState("Документ уже не на согласовании");
+        }
+        List<ApprovalStep> versionSteps = steps
+                .findByDocumentIdAndVersionNoOrderByStageOrderAscIdAsc(documentId, document.currentVersionNo());
+        Set<Long> waiting = versionSteps.stream()
+                .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING && step.getActivatedAt() != null)
+                .map(ApprovalStep::getApproverId)
+                .collect(Collectors.toSet());
+        versionSteps.stream()
+                .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING)
+                .forEach(step -> step.setDecision(ApprovalStep.Decision.SKIPPED));
+        documents.withdraw(documentId);
+        events.publishEvent(new DocumentWithdrawnEvent(documentId, document.title(), waiting));
     }
 
     private void approve(DocumentSnapshot document, ApprovalStep step, List<ApprovalStep> versionSteps, Instant now) {

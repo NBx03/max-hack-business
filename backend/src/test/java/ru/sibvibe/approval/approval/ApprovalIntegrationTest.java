@@ -230,6 +230,32 @@ class ApprovalIntegrationTest {
 
     // ============ последовательные этапы ============
 
+    /** Приёмка 24.09: автор отзывает документ с согласования — шаги пропущены, документ возвращён к нему. */
+    @Test
+    void authorWithdrawsDocumentFromApproval() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null));
+        long bobStep = stepOf(submitted, company.bob);
+        assertThat(submitted.path("permissions").path("canWithdraw").asBoolean()).isTrue();
+
+        // отозвать может только автор
+        assertThat(call(company.bob, "POST", "/api/v1/documents/" + memo + "/withdraw", null).status()).isEqualTo(403);
+
+        JsonNode withdrawn = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/withdraw", null));
+        assertThat(withdrawn.path("status").asText()).isEqualTo("RETURNED");
+        assertThat(withdrawn.path("permissions").path("canWithdraw").asBoolean()).isFalse();
+        assertThat(withdrawn.path("permissions").path("canUploadVersion").asBoolean()).isTrue();
+        assertThat(withdrawn.path("versions").get(0).path("withdrawnAt").isNull()).isFalse();
+        assertThat(jdbc.queryForList("select decision from approval_step where document_id = ?", String.class, memo))
+                .containsOnly("SKIPPED");
+
+        // решение по отозванному документу уже не принять, повторно не отозвать
+        Resp late = decide(company.bob, bobStep, "APPROVE", null);
+        assertThat(late.status()).isEqualTo(409);
+        assertThat(call(company.frank, "POST", "/api/v1/documents/" + memo + "/withdraw", null).status()).isEqualTo(409);
+        assertThat(waitingMe(company.bob)).isZero();
+    }
+
     @Test
     void sequentialStagesActivateOneByOneAndTheDocumentEndsApproved() throws Exception {
         long memo = createDocument(company.frank, "OFFICIAL_MEMO");

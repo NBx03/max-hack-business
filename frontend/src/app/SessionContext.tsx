@@ -63,11 +63,38 @@ async function getMeWithDemoRecovery(): Promise<MeResponse> {
   }
 }
 
+/**
+ * Демонстрация запоминается только у того, у кого нет своей компании (жюри): после закрытия
+ * мини-приложения он возвращается туда же, а не на экран приветствия (приёмка 24.09). У сотрудника
+ * настоящей компании приложение открывается в его компании: уведомления бота ведут к её документам.
+ */
+const DEMO_ACTOR_KEY = 'approval.demoActor.';
+
+function readDemoActor(userId: number): number | null {
+  try {
+    const value = Number(window.localStorage.getItem(DEMO_ACTOR_KEY + userId));
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDemoActor(userId: number, actorId: number | null): void {
+  try {
+    if (actorId === null) window.localStorage.removeItem(DEMO_ACTOR_KEY + userId);
+    else window.localStorage.setItem(DEMO_ACTOR_KEY + userId, String(actorId));
+  } catch {
+    // Хранилище недоступно (приватный режим) — просто не запоминаем.
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [me, setMe] = useState<MeResponse | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [sandboxUsers, setSandboxUsers] = useState<DemoSandboxUser[] | null>(null);
+  // Автовозврат в демонстрацию — один раз за открытие, иначе «Выйти из демонстрации» не работала бы.
+  const resumeTried = useRef(false);
 
   // silent - обновить /me, не показывая общий спиннер: при смене участника демо экран
   // не должен исчезать вместе с плашкой «Демо» (ревью #44). Экраны при этом всё равно
@@ -78,7 +105,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     setError(null);
     try {
-      const response = await getMeWithDemoRecovery();
+      let response = await getMeWithDemoRecovery();
+      if (!resumeTried.current) {
+        resumeTried.current = true;
+        const saved = !response.actingAs && !response.membership && response.sandbox ? readDemoActor(response.user.id) : null;
+        if (saved !== null) {
+          setActingAsId(saved);
+          // Песочницу пересоздали или участника нет — getMeWithDemoRecovery вернёт обычный вход.
+          response = await getMeWithDemoRecovery();
+        }
+      }
       // Участники существующей песочницы загружаются до перехода в ready: иначе экран
       // приветствия успел бы увидеть sandboxUsers = null, решить, что песочницы нет,
       // и кнопка «Открыть демо» пересоздала бы её, стерев прогресс проверяющего.
@@ -103,8 +139,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     async (userId: number | null) => {
       setActingAsId(userId);
       await load(true);
+      if (me) writeDemoActor(me.user.id, userId);
     },
-    [load],
+    [load, me],
   );
 
   // Ошибку создания бросает вызывающему: экран приветствия показывает её у своей кнопки.

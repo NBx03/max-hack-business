@@ -133,7 +133,7 @@ export function NewDocumentVersionScreen() {
           label="Исправленный файл"
           hint={
             isReturned
-              ? 'PDF или DOCX, до 10 МБ. Файл верный, а ИИ прочитал поле неправильно? Отправьте без нового файла — поля сохранятся, и на экране проверки их можно будет исправить.'
+              ? 'PDF или DOCX, до 10 МБ. Файл верный, а поле распознано неправильно? Отправьте без нового файла — поля сохранятся, и на экране проверки их можно будет исправить.'
               : 'PDF или DOCX, до 10 МБ. Чтобы поправить только поля, вернитесь к проверке документа — там кнопка «Изменить».'
           }
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -174,7 +174,7 @@ export function NewDocumentVersionScreen() {
         {containsSensitive && type && (
           <section style={sectionStyle}>
             <Typography.Headline variant="medium">Данные документа</Typography.Headline>
-            <FieldInputs definitions={type.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
+            <FieldInputs typeCode={type.code} definitions={type.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
           </section>
         )}
 
@@ -182,7 +182,7 @@ export function NewDocumentVersionScreen() {
         {submitting && (
           <Notice>
             {newMain && !containsSensitive
-              ? 'ИИ читает новый файл, затем правила проверяют найденные поля. Это займёт до минуты.'
+              ? 'Распознаём реквизиты нового файла и проверяем их по правилам. Это займёт до минуты.'
               : 'Проверяем документ по правилам…'}
           </Notice>
         )}

@@ -1,13 +1,24 @@
 /*
- * .MaxUI__ (корневой div компонента <MaxUI>) красит себя в var(--background-primary),
- * но высоту не задаёт - под коротким содержимым (например, ErrorState) снизу видна
- * не закрашенная часть страницы: сама тема живёт только внутри этого div (переменные
- * определены на классе .MaxUI_colorScheme_*), а не на html/body. min-height растягивает
- * закрашенный фон на весь экран даже когда контента на нём меньше вьюпорта.
+ * Приложение занимает ровно видимую область мини-приложения, не больше: прокручивается
+ * только содержимое экрана, а не страница целиком. Иначе в веб-версии MAX прокручивалось
+ * окно самого MAX, и нижнее меню уезжало за край (приёмка 24.09). --app-height выставляет
+ * app/viewport.ts по размеру от MAX Bridge (getViewportSize) и innerHeight; 100dvh — запасной.
+ * .MaxUI__ (корневой div <MaxUI>) красит себя в var(--background-primary): тема живёт на нём.
  */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
 .app-root {
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100dvh;
+  height: var(--app-height, 100dvh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /*

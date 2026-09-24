@@ -7,9 +7,12 @@ import './theme/tokens.css';
 import { App } from './App';
 import { SessionProvider } from './app/SessionContext';
 import { watchRelaunch } from './app/launch';
+import { watchViewportHeight } from './app/viewport';
 
 // Повторное открытие из бота при уже открытом мини-приложении (app/launch.ts).
 watchRelaunch();
+// Высота приложения — по видимой области MAX, а не 100vh (app/viewport.ts).
+watchViewportHeight();
 
 const container = document.getElementById('root');
 if (!container) {

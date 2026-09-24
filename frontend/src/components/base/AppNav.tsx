@@ -72,7 +72,7 @@ export function AppNav() {
         display: 'flex',
         borderTop: '1px solid var(--divider-primary)',
         background: 'var(--background-primary)',
-        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
     >
       {items.map((item) => {
@@ -92,12 +92,13 @@ export function AppNav() {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 2,
-              padding: '8px 0 6px',
+              gap: 3,
+              padding: '6px 0',
               border: 'none',
               background: 'transparent',
               color: isActive ? 'var(--text-primary)' : 'var(--text-tertiary)',
-              fontSize: 11,
+              fontSize: 12,
+              lineHeight: '16px',
               fontWeight: isActive ? 600 : 500,
               cursor: 'pointer',
             }}

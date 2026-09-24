@@ -217,7 +217,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `ApprovalRoute` | id, document_type_id, org_id, **stage_order**, **role_id**, **is_mandatory** |
 | `RequirementRule` | id, document_type_id, field_name, description, check_type, expected, **kind**, severity, source_title, source_url, source_ref, source_checked_at |
 | `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, **type_auto_detected** (тип выбрал ИИ, #86), created_at, updated_at |
-| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у типа с `is_generic = true`; с #86 таких типов нет — «Другой документ» (`GENERIC`) тоже проверяется) |
+| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у типа с `is_generic = true`; с #86 таких типов нет — «Другой документ» (`GENERIC`) тоже проверяется), **withdrawn_at** (автор отозвал версию с согласования) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |
 | `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at, **last_reminded_at** (напоминание о застрявшем шаге, issue #60; `null` — ни разу) |
 
@@ -254,6 +254,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `IN_APPROVAL` | Согласован последний этап | `APPROVED` | Документ неизменяем |
 | `IN_APPROVAL` | Вернуть | `RETURNED` | Остальные ожидающие шаги версии → `SKIPPED` |
 | `IN_APPROVAL` | Отклонить | `REJECTED` | Остальные ожидающие шаги версии → `SKIPPED` |
+| `IN_APPROVAL` | Автор отзывает с согласования | `RETURNED` | Ожидающие шаги версии → `SKIPPED`, `document_version.withdrawn_at`; дальше как после возврата |
 | `RETURNED` | Новая версия | `DRAFT` | Проверка заново; шаги прошлой версии остаются в истории |
 | `APPROVED`, `REJECTED` | — | — | Конечные состояния |
 

@@ -44,7 +44,9 @@ class SensitiveDataMaskerTest {
                 "Кузнецов Игорь Олегович", "Соколовой Е.Н.", "Орлову В.П.");
 
         try (var files = Files.list(documents)) {
-            for (Path file : files.filter(Files::isRegularFile).toList()) {
+            // «~$…» — служебный файл Word рядом с открытым документом, не тестовый документ.
+            for (Path file : files.filter(Files::isRegularFile)
+                    .filter(path -> !path.getFileName().toString().startsWith("~$")).toList()) {
                 String mime = file.toString().endsWith(".pdf")
                         ? "application/pdf"
                         : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";

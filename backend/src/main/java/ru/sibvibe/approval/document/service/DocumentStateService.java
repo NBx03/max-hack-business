@@ -141,6 +141,23 @@ public class DocumentStateService {
         finish(documentId, Document.Status.RETURNED);
     }
 
+    /**
+     * {@code IN_APPROVAL → RETURNED} по решению автора: «Отозвать с согласования» (приёмка 24.09). Дальше —
+     * как после возврата: новая версия и отправка заново с первого этапа. Версия помечается отозванной.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void withdraw(long documentId) {
+        Document document = locked(documentId);
+        require(document, Document.Status.IN_APPROVAL, "Документ уже не на согласовании");
+        DocumentVersion version = versionRepository
+                .findByDocumentIdAndVersionNo(documentId, document.getCurrentVersionNo())
+                .orElseThrow(NotFoundException::new);
+        version.setWithdrawnAt(clock.instant());
+        document.setStatus(Document.Status.RETURNED);
+        document.setCurrentStage(null);
+        touch(document);
+    }
+
     /** {@code IN_APPROVAL → REJECTED}: окончательно. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void reject(long documentId) {

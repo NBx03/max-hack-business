@@ -212,6 +212,7 @@ class OnboardingIntegrationTest {
         // заявитель не видит ничего, кроме названия
         assertThat(call(bob, "GET", "/api/v1/orgs/current/roles", null).status()).isEqualTo(403);
         assertThat(call(bob, "GET", "/api/v1/orgs/current/members", null).status()).isEqualTo(403);
+        assertThat(call(bob, "GET", "/api/v1/orgs/current/colleagues", null).status()).isEqualTo(403);
         assertThat(call(bob, "GET", "/api/v1/orgs/current/invite-code", null).status()).isEqualTo(403);
 
         // чужую заявку отменить нельзя, и она выглядит несуществующей
@@ -250,7 +251,10 @@ class OnboardingIntegrationTest {
         assertThat(bobMe.path("pendingJoinRequest").isNull()).isTrue();
         assertThat(call(bob, "GET", "/api/v1/orgs/current/roles", null).status()).isEqualTo(200);
 
-        // не администратор управлять компанией не может
+        // сотрудников своей компании видит любой участник, а управлять ими — только администратор
+        JsonNode colleagues = ok(call(bob, "GET", "/api/v1/orgs/current/colleagues", null));
+        assertThat(colleagues).hasSize(2);
+        assertThat(colleagues.get(0).path("roles").isArray()).isTrue();
         Resp notAdmin = call(bob, "GET", "/api/v1/orgs/current/members", null);
         assertThat(notAdmin.status()).isEqualTo(403);
         assertThat(notAdmin.code()).isEqualTo("NOT_ADMIN");

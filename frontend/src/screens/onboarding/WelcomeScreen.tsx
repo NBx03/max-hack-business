@@ -1,9 +1,28 @@
-import { Button } from '@maxhub/max-ui';
+import { Button, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
-import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
+import { ErrorText, OnboardingLayout } from './OnboardingLayout';
 
-/** 1. Приветствие (docs/SCREENS.md). */
+const FEATURES = [
+  {
+    title: 'Проверка до отправки',
+    text: 'Сервис распознаёт реквизиты документа и находит ошибки оформления до того, как документ уйдёт на согласование.',
+  },
+  {
+    title: 'Понятный маршрут',
+    text: 'Кто и в каком порядке согласует документ, задано заранее. Перед отправкой видна вся цепочка с именами.',
+  },
+  {
+    title: 'Уведомления в MAX',
+    text: 'Согласующий получает сообщение, когда подходит его очередь, автор — когда решение принято.',
+  },
+];
+
+/**
+ * 1. Приветствие (docs/SCREENS.md): что это за сервис и два пути — создать компанию или вступить
+ * по коду. Демонстрация — третьим, негромким действием: она для знакомства с продуктом (приёмка 24.09:
+ * экран был пустым, текст мелким, а про демо говорилось так, будто это режим для всех).
+ */
 export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) {
   const { me } = useSession();
   const demo = useOpenDemo();
@@ -11,7 +30,7 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
   return (
     <OnboardingLayout
       title="Согласование документов"
-      subtitle="Загрузите документ — ИИ прочитает его, правила компании проверят, а люди согласуют по маршруту. Прямо в MAX."
+      subtitle="Готовьте, проверяйте и согласовывайте документы компании прямо в MAX."
       footer={
         <>
           <Button size="large" stretched onClick={onCreate}>
@@ -22,19 +41,47 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
           </Button>
           {me?.demoMode && (
             <Button size="large" variant="ghost" stretched loading={demo.busy} onClick={() => void demo.open()}>
-              {demo.hasSandbox ? 'Вернуться в демо-компанию' : 'Открыть демо-компанию'}
+              {demo.hasSandbox ? 'Продолжить демонстрацию' : 'Посмотреть демонстрацию'}
             </Button>
           )}
+          {demo.error && <ErrorText>{demo.error}</ErrorText>}
         </>
       }
     >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
+        {FEATURES.map((feature, index) => (
+          <div key={feature.title} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <span
+              aria-hidden
+              style={{
+                flex: 'none',
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--background-secondary)',
+                border: '1px solid var(--divider-primary)',
+                fontWeight: 700,
+                fontSize: 15,
+              }}
+            >
+              {index + 1}
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Typography.Headline variant="small">{feature.title}</Typography.Headline>
+              <span style={{ fontSize: 15, lineHeight: '21px', color: 'var(--text-secondary)' }}>{feature.text}</span>
+            </div>
+          </div>
+        ))}
+      </div>
       {me?.demoMode && (
-        <Hint>
-          Демо-компания — ваша личная копия с готовыми сотрудниками и документами: действуйте от имени
-          любого из них, другим это не мешает.
-        </Hint>
+        <span style={{ fontSize: 14, lineHeight: '20px', color: 'var(--text-tertiary)', marginTop: 'auto' }}>
+          Демонстрация — готовая компания с вымышленными сотрудниками и документами, чтобы попробовать сервис,
+          не создавая свою.
+        </span>
       )}
-      {demo.error && <ErrorText>{demo.error}</ErrorText>}
     </OnboardingLayout>
   );
 }

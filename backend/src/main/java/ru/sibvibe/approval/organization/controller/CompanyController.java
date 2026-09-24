@@ -18,6 +18,8 @@ import ru.sibvibe.approval.organization.dto.CreateOrganizationRequest;
 import ru.sibvibe.approval.organization.dto.OrganizationCreatedResponse;
 import ru.sibvibe.approval.organization.dto.RoleNameRequest;
 import ru.sibvibe.approval.organization.service.CompanyService;
+import ru.sibvibe.approval.organization.dto.MemberView;
+import ru.sibvibe.approval.organization.service.MemberService;
 import ru.sibvibe.approval.organization.service.RoleService;
 
 import java.util.List;
@@ -28,10 +30,12 @@ public class CompanyController {
 
     private final CompanyService companyService;
     private final RoleService roleService;
+    private final MemberService memberService;
 
-    public CompanyController(CompanyService companyService, RoleService roleService) {
+    public CompanyController(CompanyService companyService, RoleService roleService, MemberService memberService) {
         this.companyService = companyService;
         this.roleService = roleService;
+        this.memberService = memberService;
     }
 
     /** Создаёт компанию от имени реальной личности: демо-участник компанию создать не может. */
@@ -65,6 +69,12 @@ public class CompanyController {
             @Valid @RequestBody RoleNameRequest request
     ) {
         return roleService.rename(currentUser, id, request.name());
+    }
+
+    /** Сотрудники своей компании — любому участнику (раздел «Компания»); управление — /orgs/current/members. */
+    @GetMapping("/orgs/current/colleagues")
+    public List<MemberView> colleagues(@AuthenticationPrincipal CurrentUser currentUser) {
+        return memberService.colleagues(currentUser);
     }
 
     @GetMapping("/orgs/current/roles/{id}/members")
