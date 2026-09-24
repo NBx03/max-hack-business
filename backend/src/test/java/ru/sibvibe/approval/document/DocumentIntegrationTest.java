@@ -226,6 +226,28 @@ class DocumentIntegrationTest {
         assertThat(corrected.path("card").path("check").path("fields").get(0).path("value").asText()).isEqualTo("43");
     }
 
+    /**
+     * Ревью #88: новая версия с тем же основным файлом (убрали приложение, возвращённый документ без правки
+     * файла) переносит поля прежней версии, а не перечитывает файл и не стирает правки автора.
+     */
+    @Test
+    void newVersionWithSameMainFileKeepsFieldsOfPreviousVersion() throws Exception {
+        JsonNode created = createPrivateDocument(pdf());
+        long documentId = created.path("id").asLong();
+        long fileId = created.path("versions").get(0).path("files").get(0).path("id").asLong();
+
+        mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
+                        .file(textJsonPart("meta", Map.of(
+                                "containsSensitive", false,
+                                "keepFileIds", new long[]{fileId})))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentVersionNo").value(2))
+                .andExpect(jsonPath("$.check.status").value("CHECKED"))
+                .andExpect(jsonPath("$.check.fields[0].value").value("42"))
+                .andExpect(jsonPath("$.check.issues").isEmpty());
+    }
+
     /** #86: без выбранного типа — «определить автоматически»; без модели это «Другой документ». */
     @Test
     void autoTypeWithoutModelFallsBackToOtherDocumentAndTypeCanBeChanged() throws Exception {

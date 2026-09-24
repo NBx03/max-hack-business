@@ -127,7 +127,12 @@ public class DocumentCommandService {
             }
             throw exception;
         }
-        runCheck(documentId, created.checkAttempt(), request.containsSensitive(), prepared);
+        if (created.previousFields() != null) {
+            runManualCheck(documentId, new DocumentPersistenceService.FieldsUpdateAttempt(
+                    created.checkAttempt(), created.previousFields()), prepared);
+        } else {
+            runCheck(documentId, created.checkAttempt(), request.containsSensitive(), prepared);
+        }
         return viewService.card(documentId, currentUser);
     }
 

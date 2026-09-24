@@ -83,6 +83,10 @@ public class DocxCorrector {
         if (oldValue == null || oldValue.isBlank()) {
             return Failure.NOT_IN_FILE;
         }
+        // Пустое значение вырезало бы текст из документа, например ФИО из подписи (ревью #88).
+        if (replacement.newValue() == null || replacement.newValue().isBlank()) {
+            return Failure.EMPTY_VALUE;
+        }
         if (oldValue.strip().contains("\n")) {
             return Failure.SPANS_PARAGRAPHS;
         }
@@ -271,7 +275,8 @@ public class DocxCorrector {
         NOT_IN_FILE("этого поля нет в файле — допишите его в документ и загрузите исправленный файл"),
         NOT_FOUND("не нашли это значение в тексте файла — исправьте его в самом документе"),
         AMBIGUOUS("значение встречается в файле несколько раз — исправьте его в самом документе"),
-        SPANS_PARAGRAPHS("значение занимает несколько абзацев — исправьте его в самом документе");
+        SPANS_PARAGRAPHS("значение занимает несколько абзацев — исправьте его в самом документе"),
+        EMPTY_VALUE("пустое значение в файл не вписываем — удалить текст можно только в самом документе");
 
         private final String message;
 

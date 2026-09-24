@@ -50,6 +50,17 @@ function fieldsToRecord(check: CheckResult | null): Record<string, string> {
   return Object.fromEntries(check?.fields.map((field) => [field.name, field.value ?? '']) ?? []);
 }
 
+/** Что сейчас написано в файле: после «Сохранить, не меняя файл» это fileValue, а не value (ревью #88). */
+function fileValuesRecord(check: CheckResult | null): Record<string, string> {
+  return Object.fromEntries(check?.fields.map((field) => [field.name, field.fileValue ?? field.value ?? '']) ?? []);
+}
+
+/** Как на экране загрузки: по алфавиту, «Другой документ» последним. */
+function sortTypes(types: DocumentType[]): DocumentType[] {
+  return [...types].sort((left, right) =>
+    Number(left.code === 'GENERIC') - Number(right.code === 'GENERIC') || left.name.localeCompare(right.name, 'ru'));
+}
+
 function fieldDefinitions(type: DocumentType | undefined, check: CheckResult | null): DocumentTypeField[] {
   if (type) return type.fields;
   return check?.fields.map((field) => ({ name: field.name, type: 'STRING', label: field.name, hint: '' })) ?? [];
@@ -91,7 +102,11 @@ function fieldOrigin(field: CheckField, modelAvailable: boolean): string | null 
   return field.page ? `Нашёл ИИ в тексте, стр. ${field.page}` : 'Нашёл ИИ в тексте';
 }
 
-type CorrectionNotice = { versionNo: number; notApplied: { label: string; message: string }[] };
+type CorrectionNotice = {
+  versionNo: number;
+  checked: boolean;
+  notApplied: { field: string; label: string; message: string }[];
+};
 
 /** 10. Результат проверки (docs/SCREENS.md). */
 export function DocumentCheckScreen() {
@@ -159,30 +174,53 @@ export function DocumentCheckScreen() {
     setEditing(false);
   }
 
-  /** Только изменённые поля: неизменённые остаются такими, как их нашёл ИИ, с цитатой. */
-  function changedFields(): Record<string, string> {
-    const original = fieldsToRecord(card?.check ?? null);
-    return Object.fromEntries(Object.entries(fields).filter(([name, value]) => (original[name] ?? '') !== value));
+  function labelOf(name: string): string {
+    return labels.get(name) ?? name;
   }
 
   async function writeIntoFile() {
     if (!card) return;
-    const changed = changedFields();
-    if (Object.keys(changed).length === 0) {
-      setActionError('Вы ничего не изменили');
+    // Сравниваем с тем, что в файле, а не с показанным значением: после «Сохранить, не меняя файл»
+    // поле уже содержит новое значение, и его всё равно можно вписать в файл (ревью #88).
+    const inFile = fileValuesRecord(card.check);
+    const changed = Object.entries(fields).filter(([name, value]) => (inFile[name] ?? '').trim() !== value.trim());
+    if (changed.length === 0) {
+      setActionError('В файле уже такие значения — вписывать нечего');
+      return;
+    }
+    const emptied = changed.filter(([, value]) => !value.trim()).map(([name]) => `«${labelOf(name)}»`);
+    if (emptied.length > 0) {
+      setActionError(`Пустое значение в файл не вписываем: ${emptied.join(', ')}. Удалить текст можно только в самом документе.`);
+      return;
+    }
+    // Поля, которого нет в файле, не заменить — сразу говорим об этом, а не ждём отказа сервера.
+    const missing = changed.filter(([name]) => !(inFile[name] ?? '').trim());
+    const writable = changed.filter(([name]) => (inFile[name] ?? '').trim());
+    const missingHint = card.permissions.canEditFields
+      ? 'Допишите его в документ и загрузите исправленный файл или нажмите «Сохранить, не меняя файл».'
+      : 'Допишите его в документ и загрузите исправленный файл.';
+    if (writable.length === 0) {
+      setActionError(`Этого нет в файле: ${missing.map(([name]) => `«${labelOf(name)}»`).join(', ')} — вписывать некуда. ${missingHint}`);
       return;
     }
     setBusy('file');
     setActionError(null);
     try {
-      const result = await correctFile(card.id, card.currentVersionNo, changed);
+      const result = await correctFile(card.id, card.currentVersionNo, Object.fromEntries(writable));
+      const notApplied = [
+        ...result.notApplied.map((item) => ({ field: item.field, label: labelOf(item.field), message: item.message })),
+        ...missing.map(([name]) => ({ field: name, label: labelOf(name), message: `этого поля нет в файле. ${missingHint}` })),
+      ];
       setCard(result.card);
-      setFields(fieldsToRecord(result.card.check));
+      // Невписанные значения не стираем: их можно сохранить без правки файла, не набирая заново.
+      const kept = Object.fromEntries(notApplied.map((item) => [item.field, fields[item.field] ?? '']));
+      setFields({ ...fieldsToRecord(result.card.check), ...kept });
       setCorrection({
         versionNo: result.card.currentVersionNo,
-        notApplied: result.notApplied.map((item) => ({ label: labels.get(item.field) ?? item.field, message: item.message })),
+        checked: result.card.check?.status === 'CHECKED',
+        notApplied,
       });
-      setEditing(false);
+      setEditing(notApplied.length > 0 && result.card.permissions.canEditFields);
       window.scrollTo({ top: 0 });
     } catch (correctionError) {
       setActionError(errorMessage(correctionError));
@@ -259,7 +297,8 @@ export function DocumentCheckScreen() {
   const modelAvailable = check?.modelAvailable ?? false;
   const manualCount = check?.fields.filter((field) => field.source === 'MANUAL' && field.fileValue).length ?? 0;
   // Сменить тип можно у своего черновика: тем же правом, что и правка полей.
-  const canChangeType = isDraft && card.permissions.canEditFields;
+  // Пока идёт правка полей, смена типа стёрла бы введённое — кнопку прячем (ревью #88).
+  const canChangeType = isDraft && card.permissions.canEditFields && !editing;
 
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
@@ -318,12 +357,14 @@ export function DocumentCheckScreen() {
       </div>
 
       {correction && (
-        <Notice tone="success">
-          Исправления вписаны в файл — это версия {correction.versionNo}, и она проверена заново. Скачать её можно на карточке документа.
+        <Notice tone={correction.checked ? 'success' : 'danger'}>
+          {correction.checked
+            ? `Исправления вписаны в файл — это версия ${correction.versionNo}, и она проверена заново. Скачать её можно на карточке документа.`
+            : `Исправления вписаны в файл — это версия ${correction.versionNo}, но проверить её не удалось. Проверьте поля ниже или загрузите файл ещё раз.`}
           {correction.notApplied.length > 0 && (
             <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
               {correction.notApplied.map((item) => (
-                <li key={item.label}>
+                <li key={item.field}>
                   «{item.label}»: {item.message}
                 </li>
               ))}
@@ -332,7 +373,12 @@ export function DocumentCheckScreen() {
         </Notice>
       )}
 
-      <HowChecked modelAvailable={modelAvailable} sensitive={sensitive} textMissing={Boolean(check?.textMissing)} />
+      <HowChecked
+        modelAvailable={modelAvailable}
+        sensitive={sensitive}
+        textMissing={Boolean(check?.textMissing)}
+        canEdit={card.permissions.canEditFields}
+      />
 
       {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Исправьте поля или загрузите файл ещё раз.</Notice>}
       {mustFix && check?.status !== 'FAILED' && (
@@ -443,7 +489,7 @@ export function DocumentCheckScreen() {
                   </Button>
                   {card.permissions.canCorrectFile && (
                     <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                      Если ИИ прочитал поле неверно, а в файле всё правильно. Согласующие увидят, что поле изменено вручную.
+                      Если ИИ прочитал поле неверно или поля нет в файле. Файл не изменится, а согласующие увидят, что поле заполнено вручную.
                     </span>
                   )}
                 </>
@@ -497,7 +543,7 @@ export function DocumentCheckScreen() {
           value={nextTypeId ?? ''}
           onChange={(event) => setNextTypeId(Number(event.target.value))}
         >
-          {types.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          {sortTypes(types).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <Button stretched variant="primary" loading={busy === 'type'} disabled={busy !== null} onClick={() => void applyType()}>
           Проверить по этому типу
@@ -508,14 +554,28 @@ export function DocumentCheckScreen() {
 }
 
 /** Коротко: что сделал ИИ, что правила и кто решает (тест 23.09: «непонятно, как тут участвует GigaChat»). */
-function HowChecked({ modelAvailable, sensitive, textMissing }: { modelAvailable: boolean; sensitive: boolean; textMissing: boolean }) {
+function HowChecked({
+  modelAvailable,
+  sensitive,
+  textMissing,
+  canEdit,
+}: {
+  modelAvailable: boolean;
+  sensitive: boolean;
+  textMissing: boolean;
+  canEdit: boolean;
+}) {
+  // Кнопка «Изменить» есть только у черновика; у возвращённого документа поля правятся после новой версии.
+  const fill = canEdit
+    ? 'Заполните их кнопкой «Изменить»'
+    : 'Нажмите «Загрузить исправленный файл» — можно и без нового файла, тогда поля станут доступны для правки';
   const text = textMissing
-    ? 'В файле нет текста — похоже, это скан или фотография. ИИ читает только текст, поэтому поля не заполнились сами. Заполните их кнопкой «Изменить» или загрузите DOCX или PDF с текстом — правила проверят так же.'
+    ? `В файле нет текста — похоже, это скан или фотография. ИИ читает только текст, поэтому поля не заполнились сами. ${fill} или загрузите DOCX или PDF с текстом — правила проверят так же.`
     : modelAvailable
     ? 'ИИ (GigaChat) прочитал текст документа и нашёл в нём поля — у каждого видно, откуда оно взято. Затем правила компании и закона проверили эти поля: у каждого замечания есть источник. ИИ ничего не решает — решение принимают согласующие.'
     : sensitive
       ? 'Документ с чувствительными данными: текст не отправлялся в ИИ. Поля заполнены вручную, правила проверили их так же.'
-      : 'ИИ сейчас недоступен, поэтому поля не заполнились сами. Заполните их вручную — правила проверят так же.';
+      : `ИИ сейчас недоступен, поэтому поля не заполнились сами. ${fill} — правила проверят так же.`;
   return (
     <details style={{ ...sectionStyle, gap: 8, padding: '12px 16px' }} open={!modelAvailable}>
       <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Как проверялся документ</summary>

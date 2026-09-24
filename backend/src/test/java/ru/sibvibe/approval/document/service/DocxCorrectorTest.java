@@ -59,6 +59,20 @@ class DocxCorrectorTest {
     }
 
     @Test
+    void emptyValueNeverCutsTextOutOfTheFile() throws IOException {
+        byte[] docx = docx("""
+                <w:p><w:r><w:t>Руководитель отдела А.С. Петрова</w:t></w:r></w:p>
+                """);
+
+        DocxCorrector.Result result = corrector.apply(docx, List.of(
+                new DocxCorrector.Replacement("signer_name", "А.С. Петрова", "  ", null)));
+
+        assertThat(result.applied()).isEmpty();
+        assertThat(result.failed()).containsEntry("signer_name", DocxCorrector.Failure.EMPTY_VALUE);
+        assertThat(result.content()).isSameAs(docx);
+    }
+
+    @Test
     void quoteChoosesTheRightOccurrenceOfShortValue() throws IOException {
         byte[] docx = docx("""
                 <w:p><w:r><w:t>№ 119 от 15.09.2026</w:t></w:r></w:p>

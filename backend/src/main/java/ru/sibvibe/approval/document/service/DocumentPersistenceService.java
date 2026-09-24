@@ -142,11 +142,22 @@ public class DocumentPersistenceService {
         }
         fileRepository.saveAll(copies);
 
+        // Основной файл тот же — поля прежней версии, в том числе ручные правки, переносятся, а правила
+        // перепроверяют их без модели: файл не изменился, перечитывать нечего, а перечитывание стёрло бы
+        // правки автора (тест 23.09, ревью #88). Сменился признак чувствительности или прежняя проверка
+        // не выполнилась — обычная проверка.
+        DocumentRuleService.CheckData previousFields = newMain == null
+                && !containsSensitive
+                && !current.isContainsSensitive()
+                && "CHECKED".equals(current.getCheckStatus())
+                ? readCheckData(current)
+                : null;
+
         document.setCurrentVersionNo(versionNo);
         document.setCurrentStage(null);
         document.setStatus(Document.Status.DRAFT);
         document.setUpdatedAt(now);
-        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken);
+        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken, previousFields);
     }
 
     @Transactional
@@ -390,7 +401,18 @@ public class DocumentPersistenceService {
 
     public record NewFile(String storageKey, String fileName, String mimeType, long size) {}
 
-    public record CreatedVersion(long documentId, long versionId, int versionNo, String checkToken) {
+    /** previousFields — поля прежней версии, если основной файл не менялся: их перепроверяют без модели. */
+    public record CreatedVersion(
+            long documentId,
+            long versionId,
+            int versionNo,
+            String checkToken,
+            DocumentRuleService.CheckData previousFields
+    ) {
+        public CreatedVersion(long documentId, long versionId, int versionNo, String checkToken) {
+            this(documentId, versionId, versionNo, checkToken, null);
+        }
+
         public CheckAttempt checkAttempt() {
             return checkToken == null ? null : new CheckAttempt(versionId, checkToken);
         }
