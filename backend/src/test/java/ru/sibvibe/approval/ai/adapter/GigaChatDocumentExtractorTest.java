@@ -88,6 +88,36 @@ class GigaChatDocumentExtractorTest {
         }
     }
 
+    /** Живой прогон 24.09: случайный некорректный JSON — один повтор, а не потеря всех полей. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void invalidJsonIsRetriedOnceAndThenGivesUp() {
+        ObjectProvider<ChatClient.Builder> provider = mock(ObjectProvider.class);
+        ChatClient.Builder builder = mock(ChatClient.Builder.class, RETURNS_DEEP_STUBS);
+        when(provider.getIfAvailable()).thenReturn(builder);
+        when(builder.build().prompt().system(anyString()).user(anyString()).call().content())
+                .thenReturn("{\"fields\":[{\"fieldName\":\"date\",\"value\":\"ООО \"Ромашка\"\"}]}")
+                .thenReturn("{\"fields\":[{\"fieldName\":\"date\",\"value\":\"01.10.2026\"}]}");
+        var retried = new GigaChatDocumentExtractor(provider, new ObjectMapper(), true, "gigachat", "secret", 5);
+        try {
+            var result = retried.extract(new DocumentExtractor.ExtractionRequest("text", "TYPE", schema));
+
+            assertThat(result.available()).isTrue();
+            assertThat(result.fields().get("date").value()).isEqualTo("01.10.2026");
+        } finally {
+            retried.closeExecutor();
+        }
+
+        when(builder.build().prompt().system(anyString()).user(anyString()).call().content()).thenReturn("не JSON");
+        var failing = new GigaChatDocumentExtractor(provider, new ObjectMapper(), true, "gigachat", "secret", 5);
+        try {
+            assertThat(failing.extract(new DocumentExtractor.ExtractionRequest("text", "TYPE", schema)).available())
+                    .as("после второй неудачи — «модель недоступна», без бесконечных повторов").isFalse();
+        } finally {
+            failing.closeExecutor();
+        }
+    }
+
     @Test
     void acceptsMarkdownUnknownAndMissingFieldsButRejectsInvalidKnownValues() {
         var enabled = new GigaChatDocumentExtractor(
