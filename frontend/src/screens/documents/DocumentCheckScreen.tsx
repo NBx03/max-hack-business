@@ -24,6 +24,7 @@ import { BottomSheet } from '../../components/base/BottomSheet';
 import { scrollScreenToTop } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+import { applyCorrection, changedFields } from './fieldCorrection';
 import {
   DocumentScreen,
   FieldInputs,
@@ -196,10 +197,23 @@ export function DocumentCheckScreen() {
     return labels.get(name) ?? name;
   }
 
-  /** Изменённые относительно показанных значений: пустое и непустое не путаем с «ничего не меняли» (п. 6). */
+  /** Изменённые относительно показанных значений (п. 6); пустое и незаполненное — одно и то же. */
   function changedFromShown(): Record<string, string> {
-    const shown = fieldsToRecord(card?.check ?? null);
-    return Object.fromEntries(Object.entries(fields).filter(([name, value]) => (shown[name] ?? '').trim() !== value.trim()));
+    return Object.fromEntries(changedFields(fields, fieldsToRecord(card?.check ?? null)));
+  }
+
+  /**
+   * После ошибки перечитываем документ: часть шагов могла уже выполниться, и экран должен показывать
+   * фактическую версию, иначе повтор ушёл бы со старым номером версии (ревью #95, п. 1).
+   */
+  async function resyncAfterError(documentId: number) {
+    try {
+      const fresh = await getDocument(documentId);
+      setCard(fresh);
+      return fresh;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -212,7 +226,7 @@ export function DocumentCheckScreen() {
     // Сравниваем с тем, что в файле, а не с показанным значением: после «Сохранить, не меняя файл»
     // поле уже содержит новое значение, и его всё равно можно вписать в файл (ревью #88).
     const inFile = fileValuesRecord(card.check);
-    const changed = Object.entries(fields).filter(([name, value]) => (inFile[name] ?? '').trim() !== value.trim());
+    const changed = changedFields(fields, inFile);
     if (changed.length === 0) {
       setActionError('В файле уже такие значения — исправлять нечего');
       return;
@@ -227,28 +241,16 @@ export function DocumentCheckScreen() {
     setBusy('file');
     setActionError(null);
     try {
-      let target = card;
-      let notApplied: CorrectionNotice['notApplied'] = [];
-      let versionNo: number | null = null;
-      if (writable.length > 0) {
-        const result = await correctFile(card.id, card.currentVersionNo, Object.fromEntries(writable));
-        target = result.card;
-        versionNo = target.currentVersionNo;
-        notApplied = result.notApplied.map((item) => ({ field: item.field, label: labelOf(item.field), message: item.message }));
-      }
-      if (missing.length > 0) {
-        if (!target.permissions.canEditFields) {
-          // Возвращённый документ: поля правятся у новой версии — с теми же файлами.
-          const current = target.versions.find((version) => version.versionNo === target.currentVersionNo);
-          target = await createDocumentVersion(target.id, {
-            containsSensitive: current?.containsSensitive ?? false,
-            keepFileIds: current?.files.map((file) => file.id) ?? [],
-          });
-          versionNo = target.currentVersionNo;
-        }
-        await updateDocumentFields(target.id, target.currentVersionNo, Object.fromEntries(missing));
-        target = await getDocument(target.id);
-      }
+      const outcome = await applyCorrection(
+        { correctFile, createDocumentVersion, updateDocumentFields, getDocument },
+        card,
+        Object.fromEntries(writable),
+        Object.fromEntries(missing),
+        setCard,
+      );
+      const target = outcome.card;
+      const versionNo = outcome.versionNo;
+      const notApplied = outcome.notApplied.map((item) => ({ field: item.field, label: labelOf(item.field), message: item.message }));
       setCard(target);
       // Невписанные значения не стираем: их можно сохранить без правки файла, не набирая заново.
       const kept = Object.fromEntries(notApplied.map((item) => [item.field, fields[item.field] ?? '']));
@@ -263,6 +265,8 @@ export function DocumentCheckScreen() {
       scrollScreenToTop();
     } catch (correctionError) {
       setActionError(errorMessage(correctionError));
+      // Форму не сбрасываем: введённое остаётся, а номер версии берётся уже из свежей карточки.
+      await resyncAfterError(card.id);
     } finally {
       setBusy(null);
     }
@@ -287,6 +291,7 @@ export function DocumentCheckScreen() {
       setEditing(false);
     } catch (saveError) {
       setActionError(errorMessage(saveError));
+      await resyncAfterError(card.id);
     } finally {
       setBusy(null);
     }

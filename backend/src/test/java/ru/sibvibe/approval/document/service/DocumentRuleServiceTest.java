@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -157,5 +158,66 @@ class DocumentRuleServiceTest {
         assertThat(result.fields()).containsExactly(
                 new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
                 new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null, "Из модели"));
+    }
+
+    /** Сервис с двумя полями схемы — «адресат» и «дата» — и правилами, которые ничего не находят. */
+    private static DocumentRuleService manualUpdateService() {
+        RuleEngine engine = mock(RuleEngine.class);
+        when(engine.validate(any(), any(), any())).thenReturn(List.of());
+        return new DocumentRuleService(
+                mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
+                mock(RequirementRuleRepository.class), engine,
+                Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
+    }
+
+    private static DocumentRuleService.PreparedCheck supplied(Map<String, String> values) {
+        DocumentType type = new DocumentType();
+        type.setCode("MEMO");
+        DocumentTypeField addressee = new DocumentTypeField();
+        addressee.setFieldName("addressee");
+        DocumentTypeField date = new DocumentTypeField();
+        date.setFieldName("date");
+        return new DocumentRuleService.PreparedCheck(type, List.of(addressee, date), values, List.of());
+    }
+
+    @Test
+    void fieldTheModelDidNotFindStaysModelWhenSentBackEmpty() {
+        var previous = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("addressee", null, "MODEL", null, null),
+                new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2)), List.of());
+
+        var result = manualUpdateService().executeManualUpdate(
+                supplied(Map.of("addressee", "", "date", "2026-09-22")), previous);
+
+        // Поле открыли и не тронули — оно не становится «указано вручную» (приёмка 24.09, п. 6).
+        assertThat(result.fields()).extracting(DocumentCardResponse.FieldValue::name, DocumentCardResponse.FieldValue::source)
+                .containsExactly(tuple("addressee", "MODEL"), tuple("date", "MODEL"));
+    }
+
+    @Test
+    void fieldMissingInTheFileFilledByTheAuthorIsManualWithEmptyFileValue() {
+        var previous = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("addressee", "  ", "MODEL", null, null),
+                new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2)), List.of());
+
+        var result = manualUpdateService().executeManualUpdate(
+                supplied(Map.of("addressee", "Генеральному директору")), previous);
+
+        // fileValue = "" — модель прочитала файл, и адресата в нём нет: «в файле этого нет».
+        assertThat(result.fields()).contains(new DocumentCardResponse.FieldValue(
+                "addressee", "Генеральному директору", "MANUAL", null, null, ""));
+    }
+
+    @Test
+    void repeatedManualEditKeepsTheKnowledgeThatTheFileHasNoValue() {
+        var previous = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("addressee", "Директору", "MANUAL", null, null, ""),
+                new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2)), List.of());
+
+        var result = manualUpdateService().executeManualUpdate(
+                supplied(Map.of("addressee", "Генеральному директору")), previous);
+
+        assertThat(result.fields()).contains(new DocumentCardResponse.FieldValue(
+                "addressee", "Генеральному директору", "MANUAL", null, null, ""));
     }
 }

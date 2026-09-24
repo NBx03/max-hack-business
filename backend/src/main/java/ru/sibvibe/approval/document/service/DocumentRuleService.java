@@ -175,7 +175,9 @@ public class DocumentRuleService {
         if (!"MANUAL".equals(field.source()) || old == null) {
             return field;
         }
-        String inFile = old.fileValue() != null ? old.fileValue() : "MODEL".equals(old.source()) ? old.value() : null;
+        // Пустая строка из одних пробелов от модели — тоже «не нашла», а не значение в файле (ревью #95).
+        String inFile = old.fileValue() != null ? old.fileValue()
+                : "MODEL".equals(old.source()) ? blankToNull(old.value()) : null;
         if (inFile == null && "MODEL".equals(old.source()) && field.value() != null && !field.value().isBlank()) {
             // Модель прочитала файл и этого поля в нём не нашла, а автор его заполнил: «в файле этого нет»
             // — пустая строка, в отличие от null («что в файле, неизвестно»).

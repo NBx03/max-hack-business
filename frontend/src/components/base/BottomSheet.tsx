@@ -106,6 +106,7 @@ export function ConfirmSheet({
   cancelLabel = 'Отмена',
   destructive,
   busy,
+  error,
   onConfirm,
 }: {
   open: boolean;
@@ -117,11 +118,18 @@ export function ConfirmSheet({
   destructive?: boolean;
   /** Идёт запрос - блокирует обе кнопки, чтобы не отправить действие дважды. */
   busy?: boolean;
+  /** Ошибка действия — внутри листа, рядом с кнопкой: иначе её закрывал бы сам лист (ревью #95). */
+  error?: string | null;
   onConfirm: () => void;
 }) {
   return (
     <BottomSheet open={open} onClose={onClose} title={title} dismissible={!busy}>
       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>{description}</p>
+      {error && (
+        <p role="alert" style={{ margin: 0, fontSize: 14, color: 'var(--status-danger-fg)' }}>
+          {error}
+        </p>
+      )}
       <div style={{ display: 'flex', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <Button stretched variant="secondary" disabled={busy} onClick={onClose}>

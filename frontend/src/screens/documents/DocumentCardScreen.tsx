@@ -164,6 +164,8 @@ export function DocumentCardScreen() {
       query.refresh();
     } catch (err) {
       setWithdrawError(errorMessage(err));
+      // 409 — документ уже решили: карточка должна показать новый статус, а не прежние кнопки.
+      if (err instanceof ApiError && err.status === 409) query.refresh();
     } finally {
       setWithdrawBusy(false);
     }
@@ -381,11 +383,15 @@ export function DocumentCardScreen() {
 
       <ConfirmSheet
         open={withdrawOpen}
-        onClose={() => setWithdrawOpen(false)}
+        onClose={() => {
+          setWithdrawOpen(false);
+          setWithdrawError(null);
+        }}
         title="Отозвать с согласования?"
         description="Согласование остановится, согласующим, чья очередь уже подошла, придёт сообщение. Документ вернётся к вам: исправьте его и отправьте заново — маршрут начнётся с первого этапа."
         confirmLabel="Отозвать"
         busy={withdrawBusy}
+        error={withdrawError}
         onConfirm={() => void withdraw()}
       />
 

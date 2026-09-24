@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
+import ru.sibvibe.approval.approval.event.DocumentWithdrawnEvent;
 import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
 import ru.sibvibe.approval.bot.Notifier;
 import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
@@ -107,6 +108,30 @@ class NotificationListenerTest {
         listener.on(new MemberJoinedByLinkEvent(1L, 42L, 9L, 5L));
 
         verifyNoInteractions(notifier);
+    }
+
+    @Test
+    void withdrawnDocumentNotifiesExactlyThoseWhoseTurnHadComeWithDocumentLink() {
+        when(directory.find(Set.of(11L, 12L))).thenReturn(Map.of(
+                11L, new Recipient(910000011L, "Юрист"),
+                12L, new Recipient(910000012L, "Бухгалтер")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        listener.on(new DocumentWithdrawnEvent(500L, "Закупка ноутбуков", Set.of(11L, 12L)));
+
+        String documentUrl = "https://max.ru/t354_hakaton_max_bot?startapp=d_500";
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000011L), text.capture(), eq("Открыть документ"), eq(documentUrl));
+        verify(notifier).send(eq(910000012L), anyString(), eq("Открыть документ"), eq(documentUrl));
+        verify(notifier, times(2)).send(anyLong(), anyString(), anyString(), any());
+        assertThat(text.getValue()).contains("«Закупка ноутбуков»").contains("отозвал").contains("больше не нужно");
+    }
+
+    @Test
+    void withdrawnDocumentBeforeAnyoneWasAskedNotifiesNobody() {
+        listener.on(new DocumentWithdrawnEvent(500L, "Закупка ноутбуков", Set.of()));
+
+        verify(notifier, never()).send(anyLong(), anyString(), anyString(), any());
     }
 
     @Test

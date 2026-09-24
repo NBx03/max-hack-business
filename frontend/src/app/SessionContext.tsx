@@ -11,7 +11,7 @@ import {
 import { getActingAsId, setActingAsId } from '../api/client';
 import { ApiError, GENERIC_ERROR_MESSAGE } from '../api/errors';
 import { createDemoSandbox, getDemoSandbox, getMe } from '../api/session';
-import { isLaunchHandled } from './launch';
+import { demoActorToResume } from './demo';
 import type { DemoSandboxUser, MeResponse } from '../api/types';
 
 type SessionStatus = 'loading' | 'ready' | 'error';
@@ -109,16 +109,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       let response = await getMeWithDemoRecovery();
       if (!resumeTried.current) {
         resumeTried.current = true;
-        // Открыли по ссылке (приглашение, документ из уведомления) — ведём по ссылке, а не в демонстрацию:
-        // иначе приглашение в компанию молча открывало бы демо-компанию.
-        const byLink = Boolean(response.startParam) && !isLaunchHandled();
-        const saved = !byLink && !response.actingAs && !response.membership && response.sandbox
-          ? readDemoActor(response.user.id)
-          : null;
+        const saved = demoActorToResume(response, readDemoActor(response.user.id));
         if (saved !== null) {
           setActingAsId(saved);
           // Песочницу пересоздали или участника нет — getMeWithDemoRecovery вернёт обычный вход.
           response = await getMeWithDemoRecovery();
+          if (!response.actingAs) {
+            // Запомненный участник больше недействителен — не пробуем его при каждом открытии (ревью #95, п. 7).
+            writeDemoActor(response.user.id, null);
+          }
         }
       }
       // Участники существующей песочницы загружаются до перехода в ready: иначе экран
