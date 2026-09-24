@@ -2,6 +2,7 @@ package ru.sibvibe.approval.document.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.common.api.NotFoundException;
@@ -59,6 +60,33 @@ public class DocumentPersistenceService {
             DocumentRuleService.PreparedCheck prepared,
             NewFile main
     ) {
+        return insert(orgId, authorId, title, visibility, containsSensitive, typeAutoDetected, prepared, main);
+    }
+
+    /** Документ-форма (#59): версия хранит содержимое формы в content, файлов нет. */
+    @Transactional
+    public CreatedVersion createForm(
+            long orgId,
+            long authorId,
+            String title,
+            Document.Visibility visibility,
+            boolean containsSensitive,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        return insert(orgId, authorId, title, visibility, containsSensitive, false, prepared, null);
+    }
+
+    /** main {@code null} — документ-форма: содержимое версии — поля, переданные автором. */
+    private CreatedVersion insert(
+            long orgId,
+            long authorId,
+            String title,
+            Document.Visibility visibility,
+            boolean containsSensitive,
+            boolean typeAutoDetected,
+            DocumentRuleService.PreparedCheck prepared,
+            NewFile main
+    ) {
         Instant now = clock.instant();
         Document document = new Document();
         document.setDocumentTypeId(prepared.type().getId());
@@ -76,9 +104,45 @@ public class DocumentPersistenceService {
         String checkToken = checkToken(prepared);
         DocumentVersion version = newVersion(
                 document.getId(), 1, containsSensitive, authorId, now, prepared, checkToken);
+        if (main == null) {
+            version.setContent(objectMapper.valueToTree(prepared.suppliedFields()));
+        }
         version = versionRepository.save(version);
-        fileRepository.save(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, main, now));
+        if (main != null) {
+            fileRepository.save(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, main, now));
+        }
         return new CreatedVersion(document.getId(), version.getId(), 1, checkToken);
+    }
+
+    /**
+     * Новая версия документа-формы (#59): содержимое формы целиком, файлов нет. Можно только у формы:
+     * документ с файлом исправляют новым файлом или правкой полей, а не заменой на форму.
+     */
+    @Transactional
+    public CreatedVersion createFormVersion(
+            long documentId,
+            long orgId,
+            long authorId,
+            int expectedCurrentVersion,
+            boolean containsSensitive,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        Document document = lockForNewVersion(documentId, orgId, authorId, expectedCurrentVersion, prepared);
+        DocumentVersion current = versionRepository
+                .findByDocumentIdAndVersionNo(documentId, document.getCurrentVersionNo())
+                .orElseThrow();
+        if (!isForm(current)) {
+            throw DocumentApiException.validation("Документ загружен файлом — исправьте поля или замените файл");
+        }
+        int versionNo = document.getCurrentVersionNo() + 1;
+        Instant now = clock.instant();
+        String checkToken = checkToken(prepared);
+        DocumentVersion version = newVersion(
+                documentId, versionNo, containsSensitive, authorId, now, prepared, checkToken);
+        version.setContent(objectMapper.valueToTree(prepared.suppliedFields()));
+        version = versionRepository.save(version);
+        becomeDraft(document, versionNo, now);
+        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken);
     }
 
     @Transactional
@@ -92,19 +156,7 @@ public class DocumentPersistenceService {
             DocumentRuleService.PreparedCheck prepared,
             NewFile newMain
     ) {
-        Document document = documentRepository.findByIdForUpdate(documentId)
-                .orElseThrow(NotFoundException::new);
-        requireAuthor(document, orgId, authorId);
-        if (document.getCurrentVersionNo() != expectedCurrentVersion) {
-            throw DocumentApiException.invalidState("Документ уже был изменён");
-        }
-        if (document.getStatus() != Document.Status.DRAFT
-                && document.getStatus() != Document.Status.RETURNED) {
-            throw DocumentApiException.invalidState("В текущем статусе нельзя создать новую версию");
-        }
-        if (!document.getDocumentTypeId().equals(prepared.type().getId())) {
-            throw DocumentApiException.validation("Тип документа не совпадает");
-        }
+        Document document = lockForNewVersion(documentId, orgId, authorId, expectedCurrentVersion, prepared);
 
         DocumentVersion current = versionRepository
                 .findByDocumentIdAndVersionNo(documentId, document.getCurrentVersionNo())
@@ -132,8 +184,13 @@ public class DocumentPersistenceService {
         int versionNo = document.getCurrentVersionNo() + 1;
         Instant now = clock.instant();
         String checkToken = checkToken(prepared);
-        DocumentVersion version = versionRepository.save(newVersion(
-                documentId, versionNo, containsSensitive, authorId, now, prepared, checkToken));
+        DocumentVersion draft = newVersion(documentId, versionNo, containsSensitive, authorId, now, prepared, checkToken);
+        if (newMain == null && isForm(current)) {
+            // Защита формы (#59, ревью): если новая версия записки всё же пришла сюда, а не в createFormVersion,
+            // содержимое переносится вместе с переданными полями — иначе форма стала бы «документом без файла».
+            draft.setContent(mergedContent(current, prepared));
+        }
+        DocumentVersion version = versionRepository.save(draft);
         List<DocumentFile> copies = new ArrayList<>();
         for (DocumentFile source : kept) {
             NewFile reused = new NewFile(
@@ -156,11 +213,51 @@ public class DocumentPersistenceService {
                 ? readCheckData(current)
                 : null;
 
+        becomeDraft(document, versionNo, now);
+        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken, previousFields);
+    }
+
+    /** Документ под блокировкой, в котором автор может создать новую версию. */
+    private Document lockForNewVersion(
+            long documentId,
+            long orgId,
+            long authorId,
+            int expectedCurrentVersion,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        Document document = documentRepository.findByIdForUpdate(documentId)
+                .orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getCurrentVersionNo() != expectedCurrentVersion) {
+            throw DocumentApiException.invalidState("Документ уже был изменён");
+        }
+        if (document.getStatus() != Document.Status.DRAFT
+                && document.getStatus() != Document.Status.RETURNED) {
+            throw DocumentApiException.invalidState("В текущем статусе нельзя создать новую версию");
+        }
+        if (!document.getDocumentTypeId().equals(prepared.type().getId())) {
+            throw DocumentApiException.validation("Тип документа не совпадает");
+        }
+        return document;
+    }
+
+    /** Версия документа-формы: содержимое заполнено в приложении, а не загружено файлом (#59). */
+    static boolean isForm(DocumentVersion version) {
+        return version.getContent() != null && version.getContent().isObject();
+    }
+
+    /** Форма версии с поверх вписанными полями из запроса. */
+    private static ObjectNode mergedContent(DocumentVersion version, DocumentRuleService.PreparedCheck prepared) {
+        ObjectNode content = version.getContent().deepCopy();
+        prepared.suppliedFields().forEach((name, value) -> content.put(name, value == null ? "" : value));
+        return content;
+    }
+
+    private static void becomeDraft(Document document, int versionNo, Instant now) {
         document.setCurrentVersionNo(versionNo);
         document.setCurrentStage(null);
         document.setStatus(Document.Status.DRAFT);
         document.setUpdatedAt(now);
-        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken, previousFields);
     }
 
     @Transactional
@@ -184,6 +281,10 @@ public class DocumentPersistenceService {
         DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
                 .orElseThrow(NotFoundException::new);
         DocumentRuleService.CheckData previous = readCheckData(version);
+        if (isForm(version)) {
+            // У документа-формы поля и есть содержимое: правка поля — правка самой формы (#59).
+            version.setContent(mergedContent(version, prepared));
+        }
         String checkToken = UUID.randomUUID().toString();
         writePending(version, prepared, checkToken);
         document.setUpdatedAt(clock.instant());
@@ -284,6 +385,10 @@ public class DocumentPersistenceService {
         }
         DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
                 .orElseThrow(NotFoundException::new);
+        if (isForm(version)) {
+            // Тип выбирал сам автор, а поля формы — это поля её типа: у другого типа их схема другая.
+            throw DocumentApiException.validation("У документа, заполненного в приложении, тип не меняется");
+        }
         document.setDocumentTypeId(prepared.type().getId());
         document.setTypeAutoDetected(false);
         document.setUpdatedAt(clock.instant());

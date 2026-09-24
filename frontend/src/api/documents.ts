@@ -31,6 +31,16 @@ export interface CreateVersionInput {
   attachments?: File[];
 }
 
+/** Документ-форма (#59): содержимое заполняется в приложении, файла нет. */
+export interface CreateFormDocumentInput {
+  documentTypeId: number;
+  /** Пусто — по заголовку записки. */
+  title: string;
+  visibility: Visibility;
+  containsSensitive: boolean;
+  content: Record<string, string>;
+}
+
 function jsonPart(value: unknown): Blob {
   return new Blob([JSON.stringify(value)], { type: 'application/json' });
 }
@@ -90,6 +100,28 @@ export function createDocument(input: CreateDocumentInput): Promise<DocumentCard
   form.append('main', input.main);
   appendFiles(form, 'attachments', input.attachments);
   return apiRequest<DocumentCard>('/documents', { method: 'POST', body: form, isFormData: true });
+}
+
+/** Тот же POST /documents, но JSON-телом с content вместо файлов; модель не вызывается. */
+export function createFormDocument(input: CreateFormDocumentInput): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>('/documents', {
+    method: 'POST',
+    body: {
+      documentTypeId: input.documentTypeId,
+      ...(input.title.trim() ? { title: input.title.trim() } : {}),
+      visibility: input.visibility,
+      containsSensitive: input.containsSensitive,
+      content: input.content,
+    },
+  });
+}
+
+/** Новая версия документа-формы: содержимое целиком. Так правится форма после возврата. */
+export function createFormVersion(
+  documentId: number,
+  input: { content: Record<string, string>; containsSensitive: boolean },
+): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>(`/documents/${documentId}/versions`, { method: 'POST', body: input });
 }
 
 export function createDocumentVersion(documentId: number, input: CreateVersionInput): Promise<DocumentCard> {

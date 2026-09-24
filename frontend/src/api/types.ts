@@ -231,6 +231,8 @@ export interface DocumentVersion {
   files: FileRef[];
   /** Автор отозвал эту версию с согласования; null — не отзывалась. */
   withdrawnAt?: string | null;
+  /** Содержимое документа-формы, заполненного в приложении (#59); null — версия с файлом. */
+  content?: Record<string, string> | null;
 }
 
 export type StepOrigin = 'TEMPLATE' | 'ADDED_BY_AUTHOR';

@@ -6,6 +6,7 @@ import {
   correctFile,
   recheckDocument,
   createDocumentVersion,
+  createFormVersion,
   getDocument,
   getDocumentTypes,
   updateDocumentFields,
@@ -25,7 +26,7 @@ import { BottomSheet } from '../../components/base/BottomSheet';
 import { scrollScreenToTop } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
-import { applyCorrection, changedFields, keepingFilesInput, manualValues, sameValue } from './fieldCorrection';
+import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
 import { KIND_LABELS, SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
 import {
@@ -49,6 +50,14 @@ const SEVERITY_LABELS: Record<Severity, string> = RULE_SEVERITY_LABELS;
 const BASIS_LABELS: Record<RuleKind, string> = KIND_LABELS;
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+const correctionApi: CorrectionApi = {
+  correctFile,
+  createDocumentVersion,
+  createFormVersion,
+  updateDocumentFields,
+  getDocument,
+};
 
 function documentIdFrom(value: string | undefined): number | null {
   const result = Number(value);
@@ -248,7 +257,7 @@ export function DocumentCheckScreen() {
     setActionError(null);
     try {
       const outcome = await applyCorrection(
-        { correctFile, createDocumentVersion, updateDocumentFields, getDocument },
+        correctionApi,
         card,
         Object.fromEntries(writable),
         Object.fromEntries(missing),
@@ -289,17 +298,10 @@ export function DocumentCheckScreen() {
     setBusy('fields');
     setActionError(null);
     try {
-      // Возвращённая версия не меняется — она в истории. Поля правятся у новой версии с теми же файлами.
-      let target = card;
-      let payload = changed;
-      if (!card.permissions.canEditFields) {
-        target = await createDocumentVersion(card.id, keepingFilesInput(card));
-        setCard(target);
-        // Ручные значения — заново: бэкенд переносит поля сам, только если прошлая проверка прошла (ревью #96, п. 2).
-        payload = { ...manualValues(card), ...changed };
-      }
-      await updateDocumentFields(target.id, target.currentVersionNo, payload);
-      const refreshed = await getDocument(card.id);
+      // Возвращённая версия не меняется — она в истории: правка идёт новой версией (у формы — новой формой).
+      const refreshed = card.permissions.canEditFields
+        ? await updateDocumentFields(card.id, card.currentVersionNo, changed).then(() => getDocument(card.id))
+        : await saveAsNewVersion(correctionApi, card, changed, setCard);
       setCard(refreshed);
       setFields(fieldsToRecord(refreshed.check));
       setCorrection(null);
@@ -378,6 +380,8 @@ export function DocumentCheckScreen() {
   const currentVersion = card.versions.find((version) => version.versionNo === card.currentVersionNo);
   const mainFile = currentVersion?.files.find((file) => file.kind === 'MAIN');
   const sensitive = currentVersion?.containsSensitive ?? false;
+  // Документ-форма (#59): файла нет — ни «Заменить файл», ни смены типа; «Изменить» правит саму форму.
+  const isForm = formContentOf(card) !== null;
   // Возвращённый документ тоже правится здесь же, кнопкой «Изменить»: сохранение создаёт новую версию
   // (приёмка 24.09, п. 9 — раньше для этого нужно было «Загрузить исправленный файл» без файла).
   const canSaveFields = card.permissions.canEditFields || (isReturned && card.permissions.canUploadVersion);
@@ -394,13 +398,13 @@ export function DocumentCheckScreen() {
         .map(([name]) => labelOf(name))
     : [];
   // Пока идёт правка полей, смена типа стёрла бы введённое — кнопку прячем (ревью #88).
-  const canChangeType = isDraft && card.permissions.canEditFields && !editing;
+  const canChangeType = isDraft && card.permissions.canEditFields && !editing && !isForm;
 
   // Каждое действие — в одном месте (приёмка 24.09, п. 7: «Исправить замечания» внизу и «Изменить» справа
   // делали одно и то же). Поля — «Изменить» у «Данных документа»; файл целиком — «Заменить файл» вверху, рядом
   // с типом, и у чистого черновика тоже; внизу — только куда дальше: к маршруту или сохранить черновик.
   // «Заменить файл», а не «Другой файл»: это новый файл этого же документа, а не другой документ (п. 8).
-  const canReplaceFile = card.permissions.canUploadVersion && !editing;
+  const canReplaceFile = card.permissions.canUploadVersion && !editing && !isForm;
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
       <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>К маршруту</Button>
@@ -466,11 +470,20 @@ export function DocumentCheckScreen() {
         sensitive={sensitive}
         textMissing={Boolean(check?.textMissing)}
         canEdit={canEdit}
+        isForm={isForm}
       />
 
-      {check?.status === 'FAILED' && <Notice tone="danger">Проверка не выполнена. Исправьте поля или загрузите файл ещё раз.</Notice>}
+      {check?.status === 'FAILED' && (
+        <Notice tone="danger">
+          {isForm ? 'Проверка не выполнена. Сохраните записку ещё раз.' : 'Проверка не выполнена. Исправьте поля или загрузите файл ещё раз.'}
+        </Notice>
+      )}
       {mustFix && check?.status !== 'FAILED' && (
-        <Notice tone="danger">Есть критичные замечания — отправить пока нельзя. Исправьте поля кнопкой «Изменить» ниже или замените файл кнопкой вверху.</Notice>
+        <Notice tone="danger">
+          {isForm
+            ? 'Есть критичные замечания — отправить пока нельзя. Исправьте записку кнопкой «Изменить» ниже.'
+            : 'Есть критичные замечания — отправить пока нельзя. Исправьте поля кнопкой «Изменить» ниже или замените файл кнопкой вверху.'}
+        </Notice>
       )}
       {manualCount > 0 && !editing && (
         <Notice>
@@ -569,7 +582,9 @@ export function DocumentCheckScreen() {
             <Typography.Text style={{ color: 'var(--text-secondary)' }}>
               {card.permissions.canCorrectFile
                 ? 'Новые значения впишем в файл Word на место прежних — получится новая версия.'
-                : 'Исправьте значения, распознанные неверно.'}
+                : isForm
+                  ? isReturned ? 'Исправленная записка станет новой версией.' : 'Исправьте записку — правила проверят её заново.'
+                  : 'Исправьте значения, распознанные неверно.'}
             </Typography.Text>
             <FieldInputs
               typeCode={type?.code}
@@ -611,7 +626,7 @@ export function DocumentCheckScreen() {
                   )}
                 </>
               )}
-              {!card.permissions.canCorrectFile && card.permissions.canUploadVersion && (
+              {!card.permissions.canCorrectFile && card.permissions.canUploadVersion && !isForm && (
                 <Button stretched variant="secondary" size="large" disabled={busy !== null} onClick={() => navigate(documentNewVersionPath(card.id))}>
                   Заменить файл
                 </Button>
@@ -676,14 +691,19 @@ function HowChecked({
   sensitive,
   textMissing,
   canEdit,
+  isForm,
 }: {
   modelAvailable: boolean;
   sensitive: boolean;
   textMissing: boolean;
   canEdit: boolean;
+  /** Записка заполнена в приложении (#59): распознавать нечего — это не «распознавание недоступно». */
+  isForm: boolean;
 }) {
   const fill = canEdit ? 'Заполните поля кнопкой «Изменить»' : 'Поля заполняет автор';
-  const text = textMissing
+  const text = isForm
+    ? 'Записка заполнена в приложении — правила проверили её поля.'
+    : textMissing
     ? `Похоже, это скан: в файле нет текста. ${fill} или загрузите файл с текстом.`
     : modelAvailable
     ? 'Реквизиты распознаны по тексту — у каждого поля видно, откуда оно. Замечания находят правила, решение принимают люди.'
@@ -691,7 +711,7 @@ function HowChecked({
       ? 'Чувствительные данные: текст не распознавался автоматически, поля заполнены вручную.'
       : `Распознавание сейчас недоступно. ${fill} — правила проверят так же.`;
   return (
-    <details style={{ ...sectionStyle, gap: 8, padding: '12px 16px' }} open={!modelAvailable}>
+    <details style={{ ...sectionStyle, gap: 8, padding: '12px 16px' }} open={!modelAvailable && !isForm}>
       <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Как проверялся документ</summary>
       <Typography.Text style={{ color: 'var(--text-secondary)' }}>{text}</Typography.Text>
     </details>

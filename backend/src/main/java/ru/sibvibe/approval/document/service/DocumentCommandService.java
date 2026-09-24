@@ -7,6 +7,8 @@ import org.springframework.web.multipart.MultipartFile;
 import ru.sibvibe.approval.common.api.NotFoundException;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
+import ru.sibvibe.approval.document.dto.CreateFormDocumentRequest;
+import ru.sibvibe.approval.document.dto.CreateFormVersionRequest;
 import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.FileCorrectionResponse;
@@ -24,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Service
@@ -95,6 +98,68 @@ public class DocumentCommandService {
         }
         runCheck(created.documentId(), created.checkAttempt(), request.containsSensitive(), prepared);
         return viewService.card(created.documentId(), currentUser);
+    }
+
+    /**
+     * Документ-форма (#59): содержимое заполнено в приложении, файла нет. Поля уже структурированы —
+     * модель не нужна, правила проверяют их так же, как извлечённые из файла.
+     */
+    public DocumentCardResponse createForm(CurrentUser currentUser, CreateFormDocumentRequest request) {
+        Membership membership = requireMembership(currentUser);
+        DocumentRuleService.PreparedCheck prepared =
+                prepareForm(membership.orgId(), request.documentTypeId(), request.content());
+        DocumentPersistenceService.CreatedVersion created = persistenceService.createForm(
+                membership.orgId(),
+                currentUser.userId(),
+                formTitle(request.title(), prepared),
+                request.visibility(),
+                request.containsSensitive(),
+                prepared);
+        checkWithoutModel(created.documentId(), created.checkAttempt(), prepared, () -> ruleService.execute(prepared));
+        return viewService.card(created.documentId(), currentUser);
+    }
+
+    /** Новая версия документа-формы (#59): после возврата правится форма, а не файл. */
+    public DocumentCardResponse createFormVersion(
+            long documentId,
+            CurrentUser currentUser,
+            CreateFormVersionRequest request
+    ) {
+        Membership membership = requireMembership(currentUser);
+        Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
+        DocumentRuleService.PreparedCheck prepared =
+                prepareForm(membership.orgId(), document.getDocumentTypeId(), request.content());
+        DocumentPersistenceService.CreatedVersion created = persistenceService.createFormVersion(
+                documentId,
+                membership.orgId(),
+                currentUser.userId(),
+                document.getCurrentVersionNo(),
+                request.containsSensitive(),
+                prepared);
+        checkWithoutModel(documentId, created.checkAttempt(), prepared, () -> ruleService.execute(prepared));
+        return viewService.card(documentId, currentUser);
+    }
+
+    /**
+     * Форма проверяется по правилам своей компании (#103). «Другой документ» формой не бывает: его поля —
+     * общие реквизиты для чужого файла, а не содержимое документа; старый тип без схемы — тем более.
+     */
+    private DocumentRuleService.PreparedCheck prepareForm(long orgId, long documentTypeId, Map<String, String> content) {
+        DocumentRuleService.PreparedCheck prepared = ruleService.prepare(orgId, documentTypeId, content);
+        if (prepared.type().isGeneric() || DocumentTypeGuessService.OTHER_DOCUMENT.equals(prepared.type().getCode())) {
+            throw DocumentApiException.validation("Заполнить в приложении можно только документ с полями — «Другой документ» загрузите файлом");
+        }
+        return prepared;
+    }
+
+    /** Название формы: указанное автором, иначе заголовок записки, иначе название типа. */
+    static String formTitle(String requested, DocumentRuleService.PreparedCheck prepared) {
+        String title = requested == null ? "" : requested.strip();
+        if (!title.isEmpty()) {
+            return truncate(title);
+        }
+        String subject = prepared.suppliedFields().get("subject");
+        return subject != null && !subject.isBlank() ? truncate(subject.strip()) : prepared.type().getName();
     }
 
     public DocumentCardResponse createVersion(
@@ -364,15 +429,23 @@ public class DocumentCommandService {
             DocumentPersistenceService.FieldsUpdateAttempt update,
             DocumentRuleService.PreparedCheck prepared
     ) {
+        checkWithoutModel(documentId, update.checkAttempt(), prepared,
+                () -> ruleService.executeManualUpdate(prepared, update.previous()));
+    }
+
+    /** Проверка правилами по уже известным полям, без обращения к модели. */
+    private void checkWithoutModel(
+            long documentId,
+            DocumentPersistenceService.CheckAttempt attempt,
+            DocumentRuleService.PreparedCheck prepared,
+            Supplier<DocumentRuleService.CheckData> rules
+    ) {
         DocumentRuleService.CheckData pending = ruleService.pending(prepared);
         try {
-            persistenceService.completeCheck(
-                    documentId,
-                    update.checkAttempt(),
-                    ruleService.executeManualUpdate(prepared, update.previous()));
+            persistenceService.completeCheck(documentId, attempt, rules.get());
         } catch (RuntimeException exception) {
-            LOGGER.error("Не удалось проверить правила для версии {}", update.checkAttempt().versionId(), exception);
-            persistenceService.failCheck(documentId, update.checkAttempt(), pending);
+            LOGGER.error("Не удалось проверить правила для версии {}", attempt.versionId(), exception);
+            persistenceService.failCheck(documentId, attempt, pending);
         }
     }
 

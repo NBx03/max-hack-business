@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DocumentCard } from '../../api/types';
-import { applyCorrection, changedFields, keepingFilesInput, manualValues, sameValue, type CorrectionApi } from './fieldCorrection';
+import {
+  applyCorrection,
+  changedFields,
+  keepingFilesInput,
+  manualValues,
+  sameValue,
+  saveAsNewVersion,
+  type CorrectionApi,
+} from './fieldCorrection';
 
 // «Исправить и проверить» — несколько запросов подряд, не атомарно (ревью #95, п. 1 и 4).
 
@@ -37,6 +45,7 @@ describe('applyCorrection', () => {
     const api: CorrectionApi = {
       correctFile: vi.fn().mockResolvedValue({ card: card(2, true), applied: ['doc_date'], notApplied: [] }),
       createDocumentVersion: vi.fn(),
+      createFormVersion: vi.fn(),
       updateDocumentFields: vi.fn().mockRejectedValue(new Error('сеть')),
       getDocument: vi.fn(),
     };
@@ -54,6 +63,7 @@ describe('applyCorrection', () => {
     const api: CorrectionApi = {
       correctFile: vi.fn(),
       createDocumentVersion: vi.fn().mockResolvedValue(card(2, true)),
+      createFormVersion: vi.fn(),
       updateDocumentFields: vi.fn().mockRejectedValue(new Error('тайм-аут')),
       getDocument: vi.fn(),
     };
@@ -69,6 +79,7 @@ describe('applyCorrection', () => {
     const api: CorrectionApi = {
       correctFile: vi.fn().mockResolvedValue({ card: card(2, true), applied: [], notApplied: [{ field: 'x', message: 'нет' }] }),
       createDocumentVersion: vi.fn(),
+      createFormVersion: vi.fn(),
       updateDocumentFields: vi.fn().mockResolvedValue({}),
       getDocument: vi.fn().mockResolvedValue(card(2, true)),
     };
@@ -104,6 +115,7 @@ describe('новая версия с теми же файлами', () => {
     const api: CorrectionApi = {
       correctFile: vi.fn(),
       createDocumentVersion: vi.fn().mockResolvedValue(card(2, true)),
+      createFormVersion: vi.fn(),
       updateDocumentFields: vi.fn().mockResolvedValue({}),
       getDocument: vi.fn().mockResolvedValue(card(2, true)),
     };
@@ -113,5 +125,37 @@ describe('новая версия с теми же файлами', () => {
     expect(manualValues(withCheck(false))).toEqual({ addressee: 'Директору' });
     expect(api.updateDocumentFields).toHaveBeenCalledWith(7, 2,
       { addressee: 'Директору', signer_position: 'Руководитель отдела' });
+  });
+});
+
+describe('записка-форма после возврата (#59)', () => {
+  const returnedForm = {
+    id: 7,
+    currentVersionNo: 1,
+    permissions: { canEditFields: false },
+    versions: [{ versionNo: 1, containsSensitive: false, files: [], content: { subject: 'О закупке', body: 'Текст' } }],
+    check: { fields: [] },
+  } as unknown as DocumentCard;
+
+  it('новая версия — исправленная форма целиком, а не «те же файлы»: иначе содержимое потерялось бы', async () => {
+    const api: CorrectionApi = {
+      correctFile: vi.fn(),
+      createDocumentVersion: vi.fn(),
+      createFormVersion: vi.fn().mockResolvedValue(card(2, true)),
+      updateDocumentFields: vi.fn(),
+      getDocument: vi.fn(),
+    };
+    const shown: number[] = [];
+
+    const result = await saveAsNewVersion(api, returnedForm, { subject: 'О закупке ноутбуков' }, (next) => shown.push(next.currentVersionNo));
+
+    expect(api.createFormVersion).toHaveBeenCalledWith(7, {
+      content: { subject: 'О закупке ноутбуков', body: 'Текст' },
+      containsSensitive: false,
+    });
+    expect(api.createDocumentVersion).not.toHaveBeenCalled();
+    expect(api.updateDocumentFields).not.toHaveBeenCalled();
+    expect(result.currentVersionNo).toBe(2);
+    expect(shown).toEqual([2]);
   });
 });

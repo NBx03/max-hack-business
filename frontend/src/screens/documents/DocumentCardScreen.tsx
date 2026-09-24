@@ -1,9 +1,17 @@
 import { useState } from 'react';
 import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { createDocumentVersion, decideStep, getDocument, withdrawDocument, type StepDecisionAction } from '../../api/documents';
+import {
+  createDocumentVersion,
+  createFormVersion,
+  decideStep,
+  getDocument,
+  getDocumentTypes,
+  withdrawDocument,
+  type StepDecisionAction,
+} from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
-import type { DocumentCard, FileRef, RouteStage, RouteView, StepView, VersionChanges } from '../../api/types';
+import type { DocumentCard, DocumentTypeField, FileRef, RouteStage, RouteView, StepView, VersionChanges } from '../../api/types';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
@@ -56,6 +64,12 @@ export function DocumentCardScreen() {
   const location = useLocation();
 
   const query = useAsync(() => getDocument(documentId), [documentId]);
+  // Подписи полей нужны только документу-форме (#59): вместо файлов карточка показывает саму записку.
+  const formContent = query.status === 'ready'
+    ? query.data.versions.find((version) => version.versionNo === query.data.currentVersionNo)?.content ?? null
+    : null;
+  const isForm = formContent !== null;
+  const types = useAsync(() => (isForm ? getDocumentTypes() : Promise.resolve([])), [isForm]);
 
   const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialog | null>(null);
@@ -175,11 +189,14 @@ export function DocumentCardScreen() {
     setResendError(null);
     try {
       const sensitive = current?.containsSensitive ?? false;
-      const draft = await createDocumentVersion(doc.id, {
-        containsSensitive: sensitive,
-        keepFileIds: current?.files.map((file) => file.id) ?? [],
-        fields: sensitive ? Object.fromEntries(doc.check?.fields.map((field) => [field.name, field.value ?? '']) ?? []) : undefined,
-      });
+      // Записка-форма (#59) — той же формой: версия «с теми же файлами» потеряла бы её содержимое.
+      const draft = current?.content
+        ? await createFormVersion(doc.id, { content: current.content, containsSensitive: sensitive })
+        : await createDocumentVersion(doc.id, {
+          containsSensitive: sensitive,
+          keepFileIds: current?.files.map((file) => file.id) ?? [],
+          fields: sensitive ? Object.fromEntries(doc.check?.fields.map((field) => [field.name, field.value ?? '']) ?? []) : undefined,
+        });
       navigate(draft.permissions.canSubmit ? routePreviewPath(doc.id) : documentCheckPath(doc.id));
     } catch (err) {
       setResendError(errorMessage(err));
@@ -286,9 +303,16 @@ export function DocumentCardScreen() {
           пропадает из myActiveStepIds вместе с баннером, который был бы вложен туда (#71, ревью). */}
       {decisionError && decisionDialog === null && <ErrorText>{decisionError}</ErrorText>}
 
-      {doc.changes && doc.status !== 'DRAFT' && <ChangesSummary changes={doc.changes} />}
+      {doc.changes && doc.status !== 'DRAFT' && <ChangesSummary changes={doc.changes} isForm={isForm} />}
 
       {doc.route && <RouteStages route={doc.route} />}
+
+      {formContent && (
+        <FormContent
+          content={formContent}
+          definitions={types.status === 'ready' ? types.data.find((type) => type.id === doc.type.id)?.fields ?? [] : []}
+        />
+      )}
 
       {currentVersion && currentVersion.files.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -394,7 +418,7 @@ export function DocumentCardScreen() {
         <BottomActionBar>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <Button stretched variant="primary" disabled={resendBusy} onClick={() => navigate(documentCheckPath(doc.id))}>
-              Исправить документ
+              {formContent ? 'Исправить записку' : 'Исправить документ'}
             </Button>
             <Button stretched variant="secondary" loading={resendBusy} disabled={resendBusy} onClick={() => void resendUnchanged()}>
               Отправить заново без изменений
@@ -482,8 +506,10 @@ const FILE_CHANGE_TEXT = { ADDED: 'добавлено', REMOVED: 'убрано',
  * Что изменилось по сравнению с прошлой версией (приёмка 24.09, п. 1): после возврата документ снова проходит
  * всех, но согласующему не нужно перечитывать его целиком — достаточно посмотреть разницу.
  */
-function ChangesSummary({ changes }: { changes: VersionChanges }) {
+function ChangesSummary({ changes, isForm }: { changes: VersionChanges; isForm: boolean }) {
   const empty = changes.files.length === 0 && changes.fields.length === 0 && !changes.contentChanged;
+  // У записки-формы (#59) содержимое — это и есть поля: «Изменён текст» повторял бы список полей ниже.
+  const showContentChanged = changes.contentChanged && !(isForm && changes.fields.length > 0);
   return (
     <div
       style={{
@@ -499,7 +525,7 @@ function ChangesSummary({ changes }: { changes: VersionChanges }) {
     >
       <strong>Изменения с версии {changes.comparedToVersionNo}</strong>
       {empty && <span style={{ color: 'var(--text-secondary)' }}>Документ не менялся.</span>}
-      {changes.contentChanged && <span>Изменён текст документа</span>}
+      {showContentChanged && <span>Изменён текст документа</span>}
       {changes.files.map((file) => (
         <span key={`${file.change}:${file.fileName}`}>
           {file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'} {FILE_CHANGE_TEXT[file.change]}: {file.fileName}
@@ -510,6 +536,47 @@ function ChangesSummary({ changes }: { changes: VersionChanges }) {
           {field.label}: <s style={{ color: 'var(--text-tertiary)' }}>{field.before ?? 'пусто'}</s> → {field.after ?? 'пусто'}
         </span>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Содержимое документа-формы (#59) — то, что согласующий читает вместо файла. Поля в порядке схемы
+ * типа; пока подписи не загрузились — в порядке сохранения, с техническими именами.
+ */
+function FormContent({ content, definitions }: { content: Record<string, string>; definitions: DocumentTypeField[] }) {
+  const rows = definitions.length > 0
+    ? definitions.map((field) => ({ name: field.name, label: field.label, value: content[field.name] ?? '' }))
+    : Object.entries(content).map(([name, value]) => ({ name, label: name, value }));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Typography.Text>Содержание</Typography.Text>
+      <dl
+        style={{
+          margin: 0,
+          padding: '4px 12px',
+          borderRadius: 8,
+          border: '1px solid var(--divider-primary)',
+          background: 'var(--background-secondary)',
+        }}
+      >
+        {rows.map((row, index) => (
+          <div key={row.name} style={{ padding: '8px 0', borderTop: index > 0 ? '1px solid var(--divider-primary)' : undefined }}>
+            <dt style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{row.label}</dt>
+            <dd
+              style={{
+                margin: '3px 0 0',
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
+                color: row.value.trim() ? 'var(--text-primary)' : 'var(--text-tertiary)',
+              }}
+            >
+              {row.value.trim() || 'Не заполнено'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Заполнено в приложении, без файла</span>
     </div>
   );
 }

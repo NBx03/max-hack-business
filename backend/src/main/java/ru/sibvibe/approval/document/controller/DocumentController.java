@@ -21,6 +21,8 @@ import org.springframework.web.multipart.MultipartFile;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.document.dto.ChangeTypeRequest;
 import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
+import ru.sibvibe.approval.document.dto.CreateFormDocumentRequest;
+import ru.sibvibe.approval.document.dto.CreateFormVersionRequest;
 import ru.sibvibe.approval.document.dto.CreateVersionRequest;
 import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.dto.DocumentListResponse;
@@ -75,6 +77,16 @@ public class DocumentController {
         return commandService.create(currentUser, meta, main);
     }
 
+    /** Документ-форма (#59): тот же адрес JSON-телом с content вместо файлов. */
+    @PostMapping(value = "/documents", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public DocumentCardResponse createForm(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @Valid @org.springframework.web.bind.annotation.RequestBody CreateFormDocumentRequest request
+    ) {
+        return commandService.createForm(currentUser, request);
+    }
+
     @GetMapping("/documents")
     public DocumentListResponse documents(
             @AuthenticationPrincipal CurrentUser currentUser,
@@ -112,6 +124,16 @@ public class DocumentController {
         rejectAttachments(attachments);
         CreateVersionRequest meta = parseMeta(metaJson, CreateVersionRequest.class);
         return commandService.createVersion(id, currentUser, meta, main);
+    }
+
+    /** Новая версия документа-формы (#59): правка формы, файлов нет. */
+    @PostMapping(value = "/documents/{id}/versions", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public DocumentCardResponse createFormVersion(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable long id,
+            @Valid @org.springframework.web.bind.annotation.RequestBody CreateFormVersionRequest request
+    ) {
+        return commandService.createFormVersion(id, currentUser, request);
     }
 
     @PutMapping("/documents/{id}/versions/{versionNo}/fields")

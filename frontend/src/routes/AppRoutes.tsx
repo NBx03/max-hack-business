@@ -19,6 +19,7 @@ import { guardTarget, type GuardKind } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
+import { MemoFormScreen } from '../screens/documents/MemoFormScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
 import { InviteScreen } from '../screens/admin/InviteScreen';
 import { JoinRequestsScreen } from '../screens/admin/JoinRequestsScreen';
@@ -107,6 +108,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
         path={ROUTE_PATTERNS.documentUpload}
         element={companyScreen(<DocumentUploadScreen />)}
       />
+      <Route path={ROUTE_PATTERNS.memoForm} element={companyScreen(<MemoFormScreen />)} />
       <Route
         path={ROUTE_PATTERNS.documentCheck}
         element={companyScreen(<DocumentCheckScreen />)}

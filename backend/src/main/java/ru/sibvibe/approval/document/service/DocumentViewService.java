@@ -45,6 +45,7 @@ public class DocumentViewService {
             new TypeReference<>() {};
     private static final TypeReference<List<DocumentCardResponse.ValidationIssueView>> ISSUE_LIST =
             new TypeReference<>() {};
+    private static final TypeReference<Map<String, String>> CONTENT = new TypeReference<>() {};
 
     private final DocumentRepository documentRepository;
     private final DocumentVersionRepository versionRepository;
@@ -167,7 +168,10 @@ public class DocumentViewService {
                         version.getCreatedAt(),
                         user(users, version.getCreatedBy()),
                         fileViews(files.getOrDefault(version.getId(), List.of()), currentUser.userId()),
-                        version.getWithdrawnAt()))
+                        version.getWithdrawnAt(),
+                        DocumentPersistenceService.isForm(version)
+                                ? objectMapper.convertValue(version.getContent(), CONTENT)
+                                : null))
                 .toList();
         DocumentVersion current = versions.stream()
                 .filter(version -> version.getVersionNo().equals(document.getCurrentVersionNo()))

@@ -206,6 +206,31 @@ class DocumentCommandServiceTest {
         verify(persistence, never()).recheck(anyLong(), org.mockito.ArgumentMatchers.anyInt(), anyLong(), anyLong(), anyLong(), any());
     }
 
+    /** #59: название формы — указанное, иначе заголовок записки, иначе название типа. */
+    @Test
+    void formTitleFallsBackToSubjectThenTypeName() {
+        DocumentType type = prepared().type();
+        var withSubject = new DocumentRuleService.PreparedCheck(type, List.of(), Map.of("subject", " О закупке "), List.of());
+
+        assertThat(DocumentCommandService.formTitle(" Моя записка ", withSubject)).isEqualTo("Моя записка");
+        assertThat(DocumentCommandService.formTitle(null, withSubject)).isEqualTo("О закупке");
+        assertThat(DocumentCommandService.formTitle("", prepared())).isEqualTo("Записка");
+    }
+
+    /** «Другой документ» (GENERIC) с #86 не is_generic, но формой он не бывает (ревью #59). */
+    @Test
+    void formOfOtherDocumentIsRejectedBeforeSaving() {
+        DocumentType other = prepared().type();
+        other.setCode("GENERIC");
+        when(rules.prepare(10L, 5L, Map.of()))
+                .thenReturn(new DocumentRuleService.PreparedCheck(other, List.of(), Map.of(), List.of()));
+
+        assertThatThrownBy(() -> service.createForm(user(), new ru.sibvibe.approval.document.dto.CreateFormDocumentRequest(
+                5L, null, Document.Visibility.PRIVATE, false, Map.of())))
+                .isInstanceOf(DocumentApiException.class);
+        verify(persistence, never()).createForm(anyLong(), anyLong(), any(), any(), anyBoolean(), any());
+    }
+
     private CurrentUser user() {
         var identity = new CurrentUser.UserIdentity(7, "Автор");
         return new CurrentUser(identity, identity, 8L, 10L, Set.of(), false, null);
