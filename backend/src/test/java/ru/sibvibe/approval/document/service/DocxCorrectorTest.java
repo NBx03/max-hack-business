@@ -58,6 +58,25 @@ class DocxCorrectorTest {
         assertThat(result.content()).isSameAs(docx);
     }
 
+    /** Дата документа совпала с датой в тексте: менять обе — значит молча поменять смысл документа. */
+    @Test
+    void repeatedDateIsNotReplacedEverywhereButNameIs() throws IOException {
+        byte[] docx = docx("""
+                <w:p><w:r><w:t>Дата: 15.09.2026. От кого: Анна Петрова</w:t></w:r></w:p>
+                <w:p><w:r><w:t>Прошу согласовать с 15.09.2026. Подпись: Анна Петрова</w:t></w:r></w:p>
+                """);
+
+        DocxCorrector.Result result = corrector.apply(docx, List.of(
+                new DocxCorrector.Replacement("doc_date", "15.09.2026", "16.09.2026", null),
+                new DocxCorrector.Replacement("signer_name", "Анна Петрова", "А.С. Петрова", null)));
+
+        assertThat(result.failed()).containsEntry("doc_date", DocxCorrector.Failure.AMBIGUOUS);
+        assertThat(result.applied()).containsExactly("signer_name");
+        String text = new ru.sibvibe.approval.ai.adapter.PdfDocxTextExtractor()
+                .extract(new java.io.ByteArrayInputStream(result.content()), DocxCorrector.DOCX).orElseThrow().fullText();
+        assertThat(text).contains("15.09.2026").doesNotContain("Анна Петрова").contains("А.С. Петрова");
+    }
+
     @Test
     void emptyValueNeverCutsTextOutOfTheFile() throws IOException {
         byte[] docx = docx("""

@@ -49,7 +49,8 @@ public class DocxCorrector {
     private static final String DOCUMENT_XML = "word/document.xml";
     private static final String W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     private static final int MAX_ENTRIES = 1_000;
-    private static final long MAX_ENTRY_BYTES = 50L * 1024 * 1024;
+    /** Тот же общий лимит распаковки, что при загрузке (DocumentFileValidator): защита от zip-бомбы. */
+    private static final long MAX_UNCOMPRESSED_BYTES = DocumentFileValidator.MAX_DOCX_UNCOMPRESSED_SIZE;
     /** Короткие значения («119», «14») слишком легко совпадают с чужим текстом: только одно вхождение. */
     private static final int MIN_LENGTH_TO_REPLACE_ALL = 6;
 
@@ -108,8 +109,12 @@ public class DocxCorrector {
                 return Failure.AMBIGUOUS;
             }
             if (chosen.isEmpty()) {
-                // Длинное значение встречается несколько раз (подпись и «от кого»): исправляем везде,
-                // иначе документ разошёлся бы сам с собой.
+                // Имя встречается несколько раз (подпись и «от кого») — исправляем везде, иначе документ
+                // разошёлся бы сам с собой. Дату или номер — нет: та же дата в тексте («с 15.09.2026»)
+                // означает другое, и замена молча поменяла бы смысл документа.
+                if (oldValue.codePoints().noneMatch(Character::isLetter)) {
+                    return Failure.AMBIGUOUS;
+                }
                 chosen = matches;
             }
         }
@@ -219,13 +224,16 @@ public class DocxCorrector {
 
     private static Map<String, byte[]> unzip(byte[] docx) {
         Map<String, byte[]> entries = new LinkedHashMap<>();
+        long total = 0;
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(docx))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 if (entries.size() >= MAX_ENTRIES) {
                     throw DocumentApiException.validation("DOCX содержит слишком много записей");
                 }
-                entries.put(entry.getName(), readLimited(zip));
+                byte[] content = readLimited(zip, MAX_UNCOMPRESSED_BYTES - total);
+                total += content.length;
+                entries.put(entry.getName(), content);
             }
         } catch (IOException exception) {
             throw DocumentApiException.validation("Не удалось открыть документ Word");
@@ -233,14 +241,14 @@ public class DocxCorrector {
         return entries;
     }
 
-    private static byte[] readLimited(InputStream input) throws IOException {
+    private static byte[] readLimited(InputStream input, long remaining) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[8192];
         long total = 0;
         int read;
         while ((read = input.read(buffer)) != -1) {
             total += read;
-            if (total > MAX_ENTRY_BYTES) {
+            if (total > remaining) {
                 throw DocumentApiException.validation("Распакованный DOCX слишком большой");
             }
             output.write(buffer, 0, read);

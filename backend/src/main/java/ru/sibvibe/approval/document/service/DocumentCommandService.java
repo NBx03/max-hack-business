@@ -221,9 +221,24 @@ public class DocumentCommandService {
         DocumentPersistenceService.NewFile stored = upload(new DocumentFileValidator.ValidatedFile(
                 result.content(), source.main().getFileName(), DocxCorrector.DOCX));
         // Без чувствительных данных поля заново извлекает модель из нового файла — проверяется файл,
-        // а не наши представления о нём. С чувствительными модель не участвует: берём исправленные значения.
-        DocumentRuleService.PreparedCheck prepared = ruleService.prepare(
-                source.documentTypeId(), source.containsSensitive() ? corrected : null);
+        // а не наши представления о нём. Но поля, которые автор раньше заменил вручную, не меняя файл,
+        // и которые сейчас в файл не вписывались, модель прочитала бы по-старому — их переносим как есть,
+        // вместе с тем, что в файле (иначе правка молча откатывалась). С чувствительными данными модель
+        // не участвует: берём исправленные значения.
+        DocumentRuleService.PreparedCheck prepared;
+        if (source.containsSensitive()) {
+            prepared = ruleService.prepare(source.documentTypeId(), corrected);
+        } else {
+            Map<String, String> carried = new LinkedHashMap<>();
+            Map<String, String> carriedFileValues = new LinkedHashMap<>();
+            current.forEach((name, field) -> {
+                if (!result.applied().contains(name) && "MANUAL".equals(field.source()) && field.fileValue() != null) {
+                    carried.put(name, field.value());
+                    carriedFileValues.put(name, field.fileValue());
+                }
+            });
+            prepared = ruleService.prepare(source.documentTypeId(), carried).withFileValues(carriedFileValues);
+        }
         DocumentPersistenceService.CreatedVersion created;
         try {
             created = persistenceService.createVersion(
