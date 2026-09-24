@@ -226,7 +226,20 @@ type MemberView = {               // участник компании: отве
 | `main` | Основной файл: PDF или DOCX. Обязателен, если это не документ-форма |
 | `attachments` | *SHOULD.* До 10 файлов: PDF, DOCX, XLSX, PNG, JPG |
 
-*SHOULD, документ-форма:* тот же запрос JSON-телом с `content` вместо файлов.
+**Документ-форма (#59)** — тот же адрес JSON-телом (`Content-Type: application/json`) с `content`
+вместо файлов. Служебную записку заполняют прямо в приложении; модель не вызывается — поля уже
+структурированы, правила проверяют их так же, как извлечённые из файла:
+
+```ts
+{ documentTypeId: number;          // обязателен: тип выбран человеком, определять нечего
+  title?: string;                  // пусто — заголовок записки (поле subject), иначе название типа
+  visibility: Visibility; containsSensitive: boolean;
+  content: Record<string,string> } // поля схемы типа; те же ограничения, что у fields
+```
+
+Проверка — по правилам компании автора (#103). Неизвестное поле или «Другой документ» (`GENERIC`) — 400
+`VALIDATION_FAILED`: его поля — общие реквизиты чужого файла, а не содержимое. Версия хранит `content`,
+файлов у неё нет; в карточке — `versions[].content`, `check.fields` совпадают с ним (`source = "MANUAL"`).
 
 Ответ 201 — `DocumentCard`. Проверка правил выполняется **в том же запросе**
 и укладывается в `app.ai.timeout-seconds`; фронтенд показывает индикатор.
@@ -274,7 +287,9 @@ type DocumentCard = {
   status: DocumentStatus; visibility: Visibility;
   author: UserRef; currentVersionNo: number;
   versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[];
-              withdrawnAt: string | null }[];   // автор отозвал эту версию с согласования
+              withdrawnAt: string | null;       // автор отозвал эту версию с согласования
+              content: Record<string,string> | null }[];   // документ-форма (#59): содержимое вместо файлов;
+                                                           // null — версия с файлом
   check: CheckResult | null;     // для текущей версии; null только у типа без схемы (is_generic)
   route: RouteView | null;       // null у черновика, который ещё не отправлялся
   permissions: {                 // вычисляет бэкенд — фронтенд правила не дублирует
@@ -328,6 +343,12 @@ type DocumentCard = {
   Любой другой — 400 `VALIDATION_FAILED` без уточнения, чей это файл.
 - Без нового основного файла в `main` основной файл должен быть в `keepFileIds`.
 
+**Документ-форма (#59)** — тот же адрес JSON-телом `{ content: Record<string,string>, containsSensitive }`:
+новая версия с исправленной формой целиком, проверяется правилами сразу, без модели. Те же статусы
+(`DRAFT`, `RETURNED` → `DRAFT`). Документ с файлом так не правится — 400 `VALIDATION_FAILED`. Фронтенд
+создаёт новую версию формы только так; если же новая версия формы пришла multipart-запросом без нового
+основного файла, `content` переносится в неё вместе с переданными `fields` — форма не теряет содержимое.
+
 Ответ — `DocumentCard`.
 
 ### `PUT /documents/{id}/versions/{versionNo}/fields` — поправить поля
@@ -341,6 +362,8 @@ type DocumentCard = {
 согласующий видел ручную правку (#86). `fileValue = ""` — модель прочитала файл и этого поля в нём нет,
 а автор его заполнил («в файле этого нет»). Пустое и отсутствующее значение равны: поле, которое открыли
 и не изменили, остаётся `MODEL`. Исправить сам документ — `corrections` ниже.
+
+У документа-формы (#59) поля и есть содержимое: правка меняет и `content` текущего черновика.
 
 ### `POST /documents/{id}/versions/{versionNo}/corrections` — исправить в файле (#86)
 
@@ -417,7 +440,8 @@ type RuleSetting = {           // желаемое состояние; хран�
 
 `{ documentTypeId: number }` → `DocumentCard`. Если модель определила вид неверно: текущая
 версия проверяется заново по схеме и правилам нового типа, `type.autoDetected` становится
-`false`. Только автор и только текущий черновик, иначе 409.
+`false`. Только автор и только текущий черновик, иначе 409. У документа-формы тип не меняется — 400
+`VALIDATION_FAILED`: поля формы — это схема её типа.
 
 ### Результат проверки
 

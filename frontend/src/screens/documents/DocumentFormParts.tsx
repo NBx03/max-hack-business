@@ -1,4 +1,4 @@
-import { Button, Input, Spinner, Typography } from '@maxhub/max-ui';
+import { Button, Input, Spinner, Textarea, Typography } from '@maxhub/max-ui';
 import type { CSSProperties, ReactNode } from 'react';
 import type { DocumentTypeField } from '../../api/types';
 import { AppNav } from '../../components/base/AppNav';
@@ -132,19 +132,36 @@ export function FieldInputs({
       {definitions.map((field) => (
         <label style={fieldStyle} key={field.name}>
           <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' }}>{field.label}</span>
-          <Input
-            size="large"
-            inputMode={field.type === 'NUMBER' ? 'numeric' : 'text'}
-            value={values[field.name] ?? ''}
-            onChange={(event) => onChange(field.name, event.target.value)}
-            maxLength={10_000}
-            hint={fieldHint(typeCode, field.name)}
-          />
+          {MULTILINE_FIELDS.has(field.name) ? (
+            <>
+              <Textarea
+                rows={6}
+                value={values[field.name] ?? ''}
+                onChange={(event) => onChange(field.name, event.target.value)}
+                maxLength={10_000}
+              />
+              {fieldHint(typeCode, field.name) && (
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{fieldHint(typeCode, field.name)}</span>
+              )}
+            </>
+          ) : (
+            <Input
+              size="large"
+              inputMode={field.type === 'NUMBER' ? 'numeric' : 'text'}
+              value={values[field.name] ?? ''}
+              onChange={(event) => onChange(field.name, event.target.value)}
+              maxLength={10_000}
+              hint={fieldHint(typeCode, field.name)}
+            />
+          )}
         </label>
       ))}
     </div>
   );
 }
+
+/** Поля с текстом в несколько абзацев: текст служебной записки в одну строку не набрать (#59). */
+const MULTILINE_FIELDS: ReadonlySet<string> = new Set(['body']);
 
 /** `form` — id формы: кнопка стоит в нижней панели, вне самой формы. */
 export function SubmitButton({

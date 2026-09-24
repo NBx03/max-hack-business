@@ -10,6 +10,7 @@ import ru.sibvibe.approval.rules.RuleEngine;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public record DocumentCardResponse(
         long id,
@@ -30,14 +31,18 @@ public record DocumentCardResponse(
     /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
     public record TypeRef(long id, String name, boolean isGeneric, boolean autoDetected) {}
 
-    /** withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась. */
+    /**
+     * withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась.
+     * content — содержимое документа-формы, заполненного в приложении (#59); {@code null} у версии с файлом.
+     */
     public record VersionView(
             int versionNo,
             boolean containsSensitive,
             Instant createdAt,
             UserRef createdBy,
             List<FileRef> files,
-            Instant withdrawnAt
+            Instant withdrawnAt,
+            Map<String, String> content
     ) {}
 
     public record FileRef(

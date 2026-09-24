@@ -1,4 +1,4 @@
-import { Input, Radio, Switch, Typography } from '@maxhub/max-ui';
+import { Button, Input, Radio, Switch, Typography } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
@@ -117,6 +117,19 @@ export function DocumentUploadScreen() {
         </SubmitButton>
       }
     >
+      {types.some((type) => type.code === 'OFFICIAL_MEMO') && (
+        <div style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span style={{ ...stackStyle, gap: 4 }}>
+            <strong>Нет файла?</strong>
+            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Служебную записку можно заполнить прямо здесь.</span>
+          </span>
+          <div style={{ flex: 'none' }}>
+            <Button size="small" variant="secondary" type="button" onClick={() => navigate(ROUTE_PATTERNS.memoForm)}>
+              Заполнить
+            </Button>
+          </div>
+        </div>
+      )}
       <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
         <FilePicker
           label="Документ"

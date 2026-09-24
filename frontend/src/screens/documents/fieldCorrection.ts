@@ -48,14 +48,55 @@ export function manualValues(card: DocumentCard): Record<string, string> {
     .map((field) => [field.name, field.value ?? '']) ?? []);
 }
 
+/** Содержимое документа-формы (#59) текущей версии; null — документ загружен файлом. */
+export function formContentOf(card: DocumentCard): Record<string, string> | null {
+  return card.versions.find((version) => version.versionNo === card.currentVersionNo)?.content ?? null;
+}
+
 export interface CorrectionApi {
   correctFile(documentId: number, versionNo: number, fields: Record<string, string>): Promise<FileCorrectionResult>;
   createDocumentVersion(
     documentId: number,
     input: { containsSensitive: boolean; keepFileIds: number[]; fields?: Record<string, string> },
   ): Promise<DocumentCard>;
+  createFormVersion(
+    documentId: number,
+    input: { content: Record<string, string>; containsSensitive: boolean },
+  ): Promise<DocumentCard>;
   updateDocumentFields(documentId: number, versionNo: number, fields: Record<string, string>): Promise<CheckResult>;
   getDocument(documentId: number): Promise<DocumentCard>;
+}
+
+/**
+ * Изменённые поля возвращённого документа — новой версией: возвращённая версия в истории и не меняется.
+ * Документ с файлом — версия с теми же файлами, потом поля (ручные значения — заново: бэкенд переносит поля
+ * сам, только если прошлая проверка прошла, ревью #96). Документ-форма (#59) — сразу исправленная форма
+ * целиком: версия «с теми же файлами» потеряла бы её содержимое (ревью #59).
+ *
+ * Каждая полученная карточка сразу отдаётся в onCard — см. applyCorrection.
+ */
+export async function saveAsNewVersion(
+  api: Pick<CorrectionApi, 'createDocumentVersion' | 'createFormVersion' | 'updateDocumentFields' | 'getDocument'>,
+  start: DocumentCard,
+  changed: Record<string, string>,
+  onCard: (card: DocumentCard) => void,
+): Promise<DocumentCard> {
+  const content = formContentOf(start);
+  if (content) {
+    const current = start.versions.find((version) => version.versionNo === start.currentVersionNo);
+    const next = await api.createFormVersion(start.id, {
+      content: { ...content, ...changed },
+      containsSensitive: current?.containsSensitive ?? false,
+    });
+    onCard(next);
+    return next;
+  }
+  const next = await api.createDocumentVersion(start.id, keepingFilesInput(start));
+  onCard(next);
+  await api.updateDocumentFields(next.id, next.currentVersionNo, { ...manualValues(start), ...changed });
+  const fresh = await api.getDocument(start.id);
+  onCard(fresh);
+  return fresh;
 }
 
 export interface CorrectionOutcome {
@@ -91,17 +132,14 @@ export async function applyCorrection(
     onCard(card);
   }
   if (Object.keys(missing).length > 0) {
-    let payload = missing;
-    if (!card.permissions.canEditFields) {
-      const previous = card;
-      card = await api.createDocumentVersion(card.id, keepingFilesInput(previous));
-      versionNo = card.currentVersionNo;
+    if (card.permissions.canEditFields) {
+      await api.updateDocumentFields(card.id, card.currentVersionNo, missing);
+      card = await api.getDocument(card.id);
       onCard(card);
-      payload = { ...manualValues(previous), ...missing };
+    } else {
+      card = await saveAsNewVersion(api, card, missing, onCard);
+      versionNo = card.currentVersionNo;
     }
-    await api.updateDocumentFields(card.id, card.currentVersionNo, payload);
-    card = await api.getDocument(card.id);
-    onCard(card);
   }
   return { card, versionNo, notApplied };
 }

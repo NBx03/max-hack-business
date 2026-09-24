@@ -96,6 +96,7 @@ describe('parentRoute — куда ведут «назад» и ссылки «�
     expect(parentRoute('/documents/5/new-version', '/documents')).toBe('/documents/5');
     expect(parentRoute('/documents/5', '/documents')).toBe('/documents');
     expect(parentRoute('/documents/new', '/documents')).toBe('/documents');
+    expect(parentRoute('/documents/new/memo', '/documents')).toBe('/documents/new');
   });
 
   it('администрирование - к разделу «Компания», подключение - к приветствию', () => {

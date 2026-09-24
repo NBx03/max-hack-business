@@ -15,6 +15,8 @@ export const ROUTE_PATTERNS = {
   /** «Правила проверки» (#91): внутри раздела «Компания». */
   companyRules: '/company/rules',
   documentUpload: '/documents/new',
+  /** Служебная записка, заполненная прямо в приложении, без файла (#59). */
+  memoForm: '/documents/new/memo',
   documentCheck: '/documents/:id/check',
   /** Загрузка исправленного файла после RETURNED - docs/SCREENS.md, "Правки документов". */
   documentNewVersion: '/documents/:id/new-version',

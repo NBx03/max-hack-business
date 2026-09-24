@@ -19,6 +19,9 @@ export function parentRoute(pathname: string, entryRoute: string): string {
   if (pathname === ROUTE_PATTERNS.documentUpload) {
     return ROUTE_PATTERNS.documents;
   }
+  if (pathname === ROUTE_PATTERNS.memoForm) {
+    return ROUTE_PATTERNS.documentUpload;
+  }
   const documentSubPath = pathname.match(/^(\/documents\/\d+)\/.+$/);
   if (documentSubPath) {
     return documentSubPath[1];

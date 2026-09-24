@@ -283,6 +283,81 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    /**
+     * #59: документ-форма без единого файла — создать, получить замечание, исправить в форме,
+     * после возврата исправить новой версией формы. Модель не участвует.
+     */
+    @Test
+    void formDocumentIsCheckedFixedAndRevisedWithoutFiles() throws Exception {
+        JsonNode created = json(mvc.perform(post("/api/v1/documents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "documentTypeId", typeId,
+                                "visibility", "PRIVATE",
+                                "containsSensitive", false,
+                                "content", Map.of("number", ""))))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.title").value("Приказ"))
+                .andExpect(jsonPath("$.versions[0].files").isEmpty())
+                .andExpect(jsonPath("$.versions[0].content.number").value(""))
+                .andExpect(jsonPath("$.check.status").value("CHECKED"))
+                .andExpect(jsonPath("$.check.issues[0].message").value("Укажите номер"))
+                .andExpect(jsonPath("$.permissions.canSubmit").value(false))
+                .andExpect(jsonPath("$.permissions.canCorrectFile").value(false))
+                .andReturn().getResponse().getContentAsString());
+        long documentId = created.path("id").asLong();
+
+        mvc.perform(put("/api/v1/documents/{id}/versions/1/fields", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("fields", Map.of("number", "42"))))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.issues").isEmpty());
+        mvc.perform(get("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versions[0].content.number").value("42"))
+                .andExpect(jsonPath("$.permissions.canSubmit").value(true));
+
+        // Тип формы выбирал автор: сменить его нельзя, у другого типа другая схема полей.
+        mvc.perform(put("/api/v1/documents/{id}/versions/1/type", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("documentTypeId", typeId)))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isBadRequest());
+
+        jdbc.update("update document set status = 'RETURNED' where id = ?", documentId);
+        mvc.perform(post("/api/v1/documents/{id}/versions", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "containsSensitive", false,
+                                "content", Map.of("number", "43"))))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.currentVersionNo").value(2))
+                .andExpect(jsonPath("$.versions[0].content.number").value("42"))
+                .andExpect(jsonPath("$.versions[1].content.number").value("43"))
+                .andExpect(jsonPath("$.versions[1].files").isEmpty())
+                .andExpect(jsonPath("$.check.issues").isEmpty())
+                .andExpect(jsonPath("$.check.fields[0].value").value("43"))
+                .andExpect(jsonPath("$.changes.fields[0].before").value("42"))
+                .andExpect(jsonPath("$.changes.fields[0].after").value("43"))
+                .andExpect(jsonPath("$.changes.contentChanged").value(true));
+        assertThat(storage.putCount()).isZero();
+
+        // Документ с файлом формой не заменяется.
+        long withFile = createPrivateDocument(pdf()).path("id").asLong();
+        mvc.perform(post("/api/v1/documents/{id}/versions", withFile)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of(
+                                "containsSensitive", false,
+                                "content", Map.of("number", "43"))))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
     @Test
     void foreignCompanyCannotDownloadWithOtherwiseValidToken() throws Exception {
         JsonNode created = createPrivateDocument(pdf());

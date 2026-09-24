@@ -163,8 +163,7 @@ class DocumentPersistenceServiceTest {
                 .isEqualTo(update.checkAttempt().checkToken());
     }
 
-    // ============ «Проверить заново» (ревью #103, п. 2 и 3) ============
-
+    // ============ «Проверить заново» (ревью #103, п. 2 и 3) =====
     @Test
     void recheckOfDraftRewritesTheSameVersionWithTheRulesResult() {
         current.setExtractedFields(storedFields("Директору", null));
@@ -256,6 +255,82 @@ class DocumentPersistenceServiceTest {
 
     private static DocumentCardResponse.FieldValue field(String value) {
         return new DocumentCardResponse.FieldValue("addressee", value, "MODEL", null, null);
+=======
+    /** #59: у документа-формы версия хранит содержимое формы, а файлов нет вовсе. */
+    @Test
+    void formDocumentStoresContentWithoutFiles() {
+        when(documents.save(any())).thenAnswer(invocation -> {
+            Document saved = invocation.getArgument(0);
+            saved.setId(1L);
+            return saved;
+        });
+
+        service.createForm(10L, 7L, "О закупке", Document.Visibility.PRIVATE, false,
+                prepared(Map.of("subject", "О закупке")));
+
+        ArgumentCaptor<DocumentVersion> captor = ArgumentCaptor.forClass(DocumentVersion.class);
+        verify(versions).save(captor.capture());
+        assertThat(captor.getValue().getContent().path("subject").asText()).isEqualTo("О закупке");
+        verify(files, never()).save(any());
+    }
+
+    /** #59: правка формы после возврата — новая версия с новым содержимым, прежняя не меняется. */
+    @Test
+    void formVersionReplacesContentAndReturnedFormBecomesDraft() {
+        document.setStatus(Document.Status.RETURNED);
+        current.setContent(new ObjectMapper().createObjectNode().put("subject", "О закупке"));
+
+        var created = service.createFormVersion(1L, 10L, 7L, 1, false, prepared(Map.of("subject", "О закупке ноутбуков")));
+
+        ArgumentCaptor<DocumentVersion> captor = ArgumentCaptor.forClass(DocumentVersion.class);
+        verify(versions).save(captor.capture());
+        assertThat(created.versionNo()).isEqualTo(2);
+        assertThat(captor.getValue().getContent().path("subject").asText()).isEqualTo("О закупке ноутбуков");
+        assertThat(current.getContent().path("subject").asText()).isEqualTo("О закупке");
+        assertThat(document.getStatus()).isEqualTo(Document.Status.DRAFT);
+        verify(files, never()).saveAll(any());
+    }
+
+    /** Ревью #59: новая версия формы через multipart без файла не теряет содержимое. */
+    @Test
+    void multipartVersionOfFormKeepsContent() {
+        when(files.findByVersionIdOrderByPosition(101L)).thenReturn(List.of());
+        current.setContent(new ObjectMapper().createObjectNode().put("subject", "О закупке").put("body", "Текст"));
+
+        service.createVersion(1L, 10L, 7L, 1, false, List.of(), prepared(Map.of("subject", "О закупке ноутбуков")), null);
+
+        ArgumentCaptor<DocumentVersion> captor = ArgumentCaptor.forClass(DocumentVersion.class);
+        verify(versions).save(captor.capture());
+        assertThat(captor.getValue().getContent().path("subject").asText()).isEqualTo("О закупке ноутбуков");
+        assertThat(captor.getValue().getContent().path("body").asText()).isEqualTo("Текст");
+    }
+
+    @Test
+    void formVersionIsRejectedForDocumentWithFile() {
+        assertThatThrownBy(() -> service.createFormVersion(1L, 10L, 7L, 1, false, prepared(Map.of("subject", "О"))))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessageContaining("загружен файлом");
+    }
+
+    /** #59: у формы поля и есть содержимое — правка поля меняет саму форму. */
+    @Test
+    void fieldsUpdateOfFormChangesItsContent() {
+        current.setContent(new ObjectMapper().createObjectNode().put("subject", "О закупке").put("body", "Текст"));
+
+        service.beginFieldsUpdate(1L, 1, 10L, 7L, prepared(Map.of("subject", "О закупке ноутбуков")));
+
+        assertThat(current.getContent().path("subject").asText()).isEqualTo("О закупке ноутбуков");
+        assertThat(current.getContent().path("body").asText()).isEqualTo("Текст");
+    }
+
+    @Test
+    void formTypeCannotBeChanged() {
+        current.setContent(new ObjectMapper().createObjectNode().put("subject", "О закупке"));
+
+        assertThatThrownBy(() -> service.beginRetype(1L, 1, 10L, 7L, prepared()))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessageContaining("тип не меняется");
+        assertThat(document.getDocumentTypeId()).isEqualTo(5L);
     }
 
     private Document document(Document.Status status) {
@@ -273,11 +348,15 @@ class DocumentPersistenceServiceTest {
     }
 
     private DocumentRuleService.PreparedCheck prepared() {
+        return prepared(Map.of());
+    }
+
+    private DocumentRuleService.PreparedCheck prepared(Map<String, String> fields) {
         DocumentType type = new DocumentType();
         type.setId(5L);
         type.setCode("MEMO");
         type.setName("Записка");
         type.setGeneric(false);
-        return new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of());
+        return new DocumentRuleService.PreparedCheck(type, List.of(), fields, List.of());
     }
 }
