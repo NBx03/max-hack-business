@@ -163,9 +163,9 @@ type MemberView = {               // участник компании: отве
 | `GET /orgs/current/colleagues` | Участник | → `MemberView[]` — только активные сотрудники своей компании, для раздела «Компания» (приёмка 24.09). Не участник — 403 |
 | `GET /orgs/current/routes` | Участник | → `RouteOverview[]`: `{ documentTypeId, stages: { stageOrder, participants: { role: RoleRef, mandatory }[] }[] }` — маршруты компании по типам, только чтение (раздел «Компания»). Недостающие маршруты по умолчанию создаются при обращении, как и при отправке |
 | *SHOULD* `GET /orgs/current/roles/{id}/members` | Участник | → `UserRef[]` — активные носители роли, для добавления согласующего |
-| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView`. Снятая роль действует сразу: документы, где человек ещё не решил в этой роли, возвращаются авторам (приёмка 24.09, п. 15). 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
+| `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView & { returnedDocuments: number }`. Снятая роль действует сразу: документы, где человек ещё не решил в этой роли, возвращаются авторам (приёмка 24.09, п. 15); `returnedDocuments` — сколько, администратор видит это в сообщении. 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
-| *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView`; сразу, повторный вызов ничего не меняет. Документы, где человек ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` |
+| *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView & { returnedDocuments: number }`; сразу, повторный вызов ничего не меняет (`returnedDocuments: 0`). Документы, где человек ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` |
 
 Заявка, участник, роль и приглашение ищутся **в компании администратора**: чужой id — 404, в том
 числе роль другой компании в `roleIds`.

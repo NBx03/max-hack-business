@@ -383,6 +383,8 @@ class OnboardingIntegrationTest {
         // снять роль можно сразу (приёмка 24.09, п. 15): документ, где Боб юрист, вернулся автору
         Resp removeRole = call(alice, "PUT", base + "/roles", Map.of("roleIds", List.of(roles.get("ACCOUNTANT"))));
         assertThat(removeRole.status()).as(removeRole.body()).isEqualTo(200);
+        assertThat(removeRole.json().path("returnedDocuments").asInt()).as("администратор видит, что задел документ").isEqualTo(1);
+        assertThat(removeRole.json().path("memberId").asLong()).as("участник в том же ответе").isEqualTo(bobMember);
         assertThat(stepState(lawyerStep)).isEqualTo("SKIPPED/MEMBER_REMOVED/RETURNED");
         assertThat(stepState(accountantStep)).as("шаг в оставшейся роли не тронут").isEqualTo("PENDING/null/IN_APPROVAL");
 
@@ -390,6 +392,9 @@ class OnboardingIntegrationTest {
         Resp disabled = call(alice, "POST", base + "/disable", null);
         assertThat(disabled.status()).as(disabled.body()).isEqualTo(200);
         assertThat(disabled.json().path("status").asText()).isEqualTo("DISABLED");
+        assertThat(disabled.json().path("returnedDocuments").asInt()).isEqualTo(1);
+        // повторное исключение ничего не меняет и ничего не возвращает
+        assertThat(ok(call(alice, "POST", base + "/disable", null)).path("returnedDocuments").asInt()).isZero();
         assertThat(stepState(accountantStep)).isEqualTo("SKIPPED/MEMBER_REMOVED/RETURNED");
         assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").isNull()).isTrue();
     }
