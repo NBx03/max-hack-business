@@ -125,8 +125,9 @@ class DocumentRuleServiceTest {
         var result = service.executeManualUpdate(prepared, previous);
 
         assertThat(result.modelAvailable()).isTrue();
+        // Изменённое поле помнит, что в файле: согласующий видит ручную правку (#86).
         assertThat(result.fields()).containsExactly(
                 new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
-                new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null));
+                new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null, "Из модели"));
     }
 }

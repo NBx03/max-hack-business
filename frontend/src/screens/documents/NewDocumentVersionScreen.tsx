@@ -67,6 +67,12 @@ export function NewDocumentVersionScreen() {
   );
   const currentMain = currentVersion?.files.find((file) => file.kind === 'MAIN');
   const attachments = currentVersion?.files.filter((file) => file.kind === 'ATTACHMENT') ?? [];
+  const attachmentsChanged = attachments.some((file) => !keptAttachments.has(file.id));
+  const isReturned = card?.status === 'RETURNED';
+  // Без нового файла версия переносит поля прежней (бэкенд их не перечитывает, ревью #88): так можно
+  // убрать приложение, не меняя основной файл, а у возвращённого документа — перейти к правке полей.
+  // С «чувствительными данными» файл в модель не уходит вовсе: поля этой формы и есть данные версии.
+  const canSubmit = Boolean(newMain) || containsSensitive || attachmentsChanged || isReturned;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -105,7 +111,9 @@ export function NewDocumentVersionScreen() {
       title="Исправленная версия"
       footer={
         <div style={{ ...stackStyle, gap: 8 }}>
-          <SubmitButton form={FORM_ID} busy={submitting}>Загрузить и проверить</SubmitButton>
+          <SubmitButton form={FORM_ID} busy={submitting} disabled={!canSubmit}>
+            Загрузить и проверить
+          </SubmitButton>
           <Button stretched type="button" variant="secondary" size="large" disabled={submitting} onClick={() => navigate(documentCheckPath(card.id))}>
             Отмена
           </Button>
@@ -122,8 +130,12 @@ export function NewDocumentVersionScreen() {
           </small>
         </div>
         <FilePicker
-          label="Новый основной файл"
-          hint="Не выбирайте файл, если исправляете только поля"
+          label="Исправленный файл"
+          hint={
+            isReturned
+              ? 'PDF или DOCX, до 10 МБ. Файл верный, а ИИ прочитал поле неправильно? Отправьте без нового файла — поля сохранятся, и на экране проверки их можно будет исправить.'
+              : 'PDF или DOCX, до 10 МБ. Чтобы поправить только поля, вернитесь к проверке документа — там кнопка «Изменить».'
+          }
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           file={newMain}
           onSelect={setNewMain}
@@ -153,7 +165,9 @@ export function NewDocumentVersionScreen() {
           <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
-            <small style={{ color: 'var(--text-tertiary)' }}>Файл не будет отправлен на автоматический разбор, поля заполните вручную.</small>
+            <small style={{ color: 'var(--text-tertiary)' }}>
+              Файл не будет отправлен на автоматический разбор. Поля ниже заполняете вы — они и будут данными новой версии.
+            </small>
           </span>
         </label>
 
@@ -165,7 +179,13 @@ export function NewDocumentVersionScreen() {
         )}
 
         {submitError && <Notice tone="danger">{submitError}</Notice>}
-        {submitting && <Typography.Text>Проверяем документ</Typography.Text>}
+        {submitting && (
+          <Notice>
+            {newMain && !containsSensitive
+              ? 'ИИ читает новый файл, затем правила проверяют найденные поля. Это займёт до минуты.'
+              : 'Проверяем документ по правилам…'}
+          </Notice>
+        )}
       </form>
     </DocumentScreen>
   );

@@ -55,12 +55,14 @@ public class DocumentPersistenceService {
             String title,
             Document.Visibility visibility,
             boolean containsSensitive,
+            boolean typeAutoDetected,
             DocumentRuleService.PreparedCheck prepared,
             NewFile main
     ) {
         Instant now = clock.instant();
         Document document = new Document();
         document.setDocumentTypeId(prepared.type().getId());
+        document.setTypeAutoDetected(typeAutoDetected);
         document.setAuthorId(authorId);
         document.setOrgId(orgId);
         document.setTitle(title.trim());
@@ -140,11 +142,22 @@ public class DocumentPersistenceService {
         }
         fileRepository.saveAll(copies);
 
+        // Основной файл тот же — поля прежней версии, в том числе ручные правки, переносятся, а правила
+        // перепроверяют их без модели: файл не изменился, перечитывать нечего, а перечитывание стёрло бы
+        // правки автора (тест 23.09, ревью #88). Сменился признак чувствительности или прежняя проверка
+        // не выполнилась — обычная проверка.
+        DocumentRuleService.CheckData previousFields = newMain == null
+                && !containsSensitive
+                && !current.isContainsSensitive()
+                && "CHECKED".equals(current.getCheckStatus())
+                ? readCheckData(current)
+                : null;
+
         document.setCurrentVersionNo(versionNo);
         document.setCurrentStage(null);
         document.setStatus(Document.Status.DRAFT);
         document.setUpdatedAt(now);
-        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken);
+        return new CreatedVersion(documentId, version.getId(), versionNo, checkToken, previousFields);
     }
 
     @Transactional
@@ -172,6 +185,64 @@ public class DocumentPersistenceService {
         writePending(version, prepared, checkToken);
         document.setUpdatedAt(clock.instant());
         return new FieldsUpdateAttempt(new CheckAttempt(version.getId(), checkToken), previous);
+    }
+
+    /**
+     * Смена типа черновика (#86): модель могла определить вид неверно. Текущая версия
+     * перепроверяется по схеме нового типа — новая попытка проверки со своим токеном.
+     */
+    @Transactional
+    public RetypeAttempt beginRetype(
+            long documentId,
+            int versionNo,
+            long orgId,
+            long authorId,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        Document document = documentRepository.findByIdForUpdate(documentId)
+                .orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getStatus() != Document.Status.DRAFT || document.getCurrentVersionNo() != versionNo) {
+            throw DocumentApiException.invalidState("Тип можно сменить только у текущего черновика");
+        }
+        DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
+                .orElseThrow(NotFoundException::new);
+        document.setDocumentTypeId(prepared.type().getId());
+        document.setTypeAutoDetected(false);
+        document.setUpdatedAt(clock.instant());
+        String checkToken = UUID.randomUUID().toString();
+        writePending(version, prepared, checkToken);
+        return new RetypeAttempt(new CheckAttempt(version.getId(), checkToken), version.isContainsSensitive());
+    }
+
+    /**
+     * Что нужно, чтобы вписать исправления в файл текущей версии: основной файл, приложения
+     * (переходят в новую версию как есть) и значения полей, найденные в файле.
+     */
+    @Transactional(readOnly = true)
+    public CorrectionSource correctionSource(long documentId, int versionNo, long orgId, long authorId) {
+        Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getCurrentVersionNo() != versionNo) {
+            throw DocumentApiException.invalidState("Документ уже был изменён — обновите экран");
+        }
+        if (document.getStatus() != Document.Status.DRAFT && document.getStatus() != Document.Status.RETURNED) {
+            throw DocumentApiException.invalidState("Исправлять можно черновик или возвращённый документ");
+        }
+        DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
+                .orElseThrow(NotFoundException::new);
+        List<DocumentFile> files = fileRepository.findByVersionIdOrderByPosition(version.getId());
+        DocumentFile main = files.stream()
+                .filter(file -> file.getKind() == DocumentFile.Kind.MAIN)
+                .findFirst()
+                .orElseThrow(() -> DocumentApiException.validation("У документа нет основного файла"));
+        List<Long> attachments = files.stream()
+                .filter(file -> file.getKind() == DocumentFile.Kind.ATTACHMENT)
+                .map(DocumentFile::getId)
+                .toList();
+        return new CorrectionSource(
+                document.getDocumentTypeId(), version.isContainsSensitive(), main, attachments,
+                readCheckData(version).fields());
     }
 
     @Transactional
@@ -251,7 +322,8 @@ public class DocumentPersistenceService {
     }
 
     private JsonNode fieldsJson(DocumentRuleService.CheckData data, String checkToken) {
-        return objectMapper.valueToTree(new StoredFields(data.modelAvailable(), data.fields(), checkToken));
+        return objectMapper.valueToTree(
+                new StoredFields(data.modelAvailable(), data.fields(), checkToken, data.textMissing()));
     }
 
     private DocumentRuleService.CheckData readCheckData(DocumentVersion version) {
@@ -262,7 +334,8 @@ public class DocumentPersistenceService {
         return new DocumentRuleService.CheckData(
                 stored.modelAvailable(),
                 stored.fields() == null ? List.of() : List.copyOf(stored.fields()),
-                List.of());
+                List.of(),
+                stored.textMissing());
     }
 
     private DocumentVersion currentAttempt(long documentId, CheckAttempt attempt) {
@@ -328,7 +401,18 @@ public class DocumentPersistenceService {
 
     public record NewFile(String storageKey, String fileName, String mimeType, long size) {}
 
-    public record CreatedVersion(long documentId, long versionId, int versionNo, String checkToken) {
+    /** previousFields — поля прежней версии, если основной файл не менялся: их перепроверяют без модели. */
+    public record CreatedVersion(
+            long documentId,
+            long versionId,
+            int versionNo,
+            String checkToken,
+            DocumentRuleService.CheckData previousFields
+    ) {
+        public CreatedVersion(long documentId, long versionId, int versionNo, String checkToken) {
+            this(documentId, versionId, versionNo, checkToken, null);
+        }
+
         public CheckAttempt checkAttempt() {
             return checkToken == null ? null : new CheckAttempt(versionId, checkToken);
         }
@@ -338,9 +422,25 @@ public class DocumentPersistenceService {
 
     public record FieldsUpdateAttempt(CheckAttempt checkAttempt, DocumentRuleService.CheckData previous) {}
 
+    public record RetypeAttempt(CheckAttempt checkAttempt, boolean containsSensitive) {}
+
+    public record CorrectionSource(
+            long documentTypeId,
+            boolean containsSensitive,
+            DocumentFile main,
+            List<Long> attachmentIds,
+            List<DocumentCardResponse.FieldValue> fields
+    ) {}
+
+    /** textMissing отсутствует в версиях, сохранённых до #86, — тогда false. */
     public record StoredFields(
             boolean modelAvailable,
             List<DocumentCardResponse.FieldValue> fields,
-            String checkToken
-    ) {}
+            String checkToken,
+            boolean textMissing
+    ) {
+        public StoredFields(boolean modelAvailable, List<DocumentCardResponse.FieldValue> fields, String checkToken) {
+            this(modelAvailable, fields, checkToken, false);
+        }
+    }
 }

@@ -65,7 +65,25 @@ class DocumentExtractionServiceTest {
         assertThat(result.fields().get("inn").page()).isNull();
     }
 
+    /** Скан без текстового слоя: в модель ничего не уходит, иначе «не найдено» по каждому полю. */
+    @Test
+    void scannedPdfWithoutTextIsNotSentToModelAndIsMarkedAsTextMissing() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(List.of(" ", "1", "2 "), true));
+        DocumentExtractor model = request -> {
+            throw new AssertionError("модель не должна вызываться для файла без текста");
+        };
+
+        var result = service(text, model).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+
+        assertThat(result.available()).isFalse();
+        assertThat(result.textMissing()).isTrue();
+        assertThat(result.fields()).isEmpty();
+    }
+
     private DocumentExtractionService service(TextExtractor text, DocumentExtractor model) {
-        return new DocumentExtractionService(text, model, new TextMinimizer(), new SensitiveDataMasker());
+        return new DocumentExtractionService(text, model,
+                request -> new ru.sibvibe.approval.ai.DocumentClassifier.Classification(null, null, false),
+                new TextMinimizer(), new SensitiveDataMasker());
     }
 }

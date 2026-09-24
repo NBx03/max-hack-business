@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import ru.sibvibe.approval.storage.FileStorage;
 import ru.sibvibe.approval.storage.StoredFileNotFoundException;
+import ru.sibvibe.approval.document.service.DocxCorrector;
 import ru.sibvibe.approval.document.service.DownloadTokenService;
 
 import java.io.ByteArrayInputStream;
@@ -40,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -186,6 +188,99 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
 
         createPrivateDocument(pdf);
+    }
+
+    /** #86: исправленное значение попадает в сам DOCX новой версией, а не только в карточку. */
+    @Test
+    void correctionIsWrittenIntoDocxAsNewVersion() throws Exception {
+        JsonNode created = json(mvc.perform(multipart("/api/v1/documents")
+                        .file(textJsonPart("meta", Map.of(
+                                "documentTypeId", typeId,
+                                "title", "Приказ",
+                                "visibility", "PRIVATE",
+                                "containsSensitive", true,
+                                "fields", Map.of("number", "42"))))
+                        .file(new MockMultipartFile("main", "order.docx", DocxCorrector.DOCX, docx("Номер: 42")))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.permissions.canCorrectFile").value(true))
+                .andReturn().getResponse().getContentAsString());
+        long documentId = created.path("id").asLong();
+
+        JsonNode corrected = json(mvc.perform(post("/api/v1/documents/{id}/versions/1/corrections", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("fields", Map.of("number", "43"))))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applied[0]").value("number"))
+                .andExpect(jsonPath("$.card.currentVersionNo").value(2))
+                .andExpect(jsonPath("$.card.status").value("DRAFT"))
+                .andReturn().getResponse().getContentAsString());
+        long fileId = corrected.path("card").path("versions").get(1).path("files").get(0).path("id").asLong();
+        byte[] file = mvc.perform(get(tokenService.issue(fileId, authorId).url()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        String text = new ru.sibvibe.approval.ai.adapter.PdfDocxTextExtractor()
+                .extract(new java.io.ByteArrayInputStream(file), DocxCorrector.DOCX).orElseThrow().fullText();
+        assertThat(text).isEqualTo("Номер: 43");
+        assertThat(corrected.path("card").path("check").path("fields").get(0).path("value").asText()).isEqualTo("43");
+    }
+
+    /**
+     * Ревью #88: новая версия с тем же основным файлом (убрали приложение, возвращённый документ без правки
+     * файла) переносит поля прежней версии, а не перечитывает файл и не стирает правки автора.
+     */
+    @Test
+    void newVersionWithSameMainFileKeepsFieldsOfPreviousVersion() throws Exception {
+        JsonNode created = createPrivateDocument(pdf());
+        long documentId = created.path("id").asLong();
+        long fileId = created.path("versions").get(0).path("files").get(0).path("id").asLong();
+
+        mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
+                        .file(textJsonPart("meta", Map.of(
+                                "containsSensitive", false,
+                                "keepFileIds", new long[]{fileId})))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentVersionNo").value(2))
+                .andExpect(jsonPath("$.check.status").value("CHECKED"))
+                .andExpect(jsonPath("$.check.fields[0].value").value("42"))
+                .andExpect(jsonPath("$.check.issues").isEmpty());
+    }
+
+    /** #86: без выбранного типа — «определить автоматически»; без модели это «Другой документ». */
+    @Test
+    void autoTypeWithoutModelFallsBackToOtherDocumentAndTypeCanBeChanged() throws Exception {
+        JsonNode created = json(mvc.perform(multipart("/api/v1/documents")
+                        .file(textJsonPart("meta", Map.of("visibility", "PRIVATE", "containsSensitive", false)))
+                        .file(new MockMultipartFile("main", "Приказ_о_премии.pdf", "application/pdf", pdf()))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.title").value("Приказ о премии"))
+                .andExpect(jsonPath("$.type.name").value("Другой документ"))
+                .andExpect(jsonPath("$.type.autoDetected").value(true))
+                // Проверка общих реквизитов — только предупреждения: отправлять можно.
+                .andExpect(jsonPath("$.permissions.canSubmit").value(true))
+                .andExpect(jsonPath("$.permissions.canCorrectFile").value(false))
+                .andReturn().getResponse().getContentAsString());
+        long documentId = created.path("id").asLong();
+
+        mvc.perform(put("/api/v1/documents/{id}/versions/1/type", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("documentTypeId", typeId)))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type.id").value(typeId))
+                .andExpect(jsonPath("$.type.autoDetected").value(false))
+                .andExpect(jsonPath("$.check.issues[0].message").value("Укажите номер"));
+
+        // PDF автоматически не исправить — внятная ошибка, а не молчание.
+        mvc.perform(post("/api/v1/documents/{id}/versions/1/corrections", documentId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsBytes(Map.of("fields", Map.of("number", "43"))))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
     @Test
@@ -556,6 +651,28 @@ class DocumentIntegrationTest {
                 insert into organization_member(org_id, user_id, status, is_admin, joined_at, is_demo)
                 values (?, ?, 'ACTIVE', true, current_timestamp, false)
                 """, orgId, userId);
+    }
+
+    /** Минимальный DOCX: один абзац текста — валидатор проверяет, что это zip с word/document.xml. */
+    private byte[] docx(String paragraph) throws IOException {
+        String contentTypes = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument"
+                + ".wordprocessingml.document.main+xml\"/></Types>";
+        String document = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>"
+                + "<w:p><w:r><w:t>" + paragraph + "</w:t></w:r></w:p></w:body></w:document>";
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(output)) {
+            zip.putNextEntry(new java.util.zip.ZipEntry("[Content_Types].xml"));
+            zip.write(contentTypes.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new java.util.zip.ZipEntry("word/document.xml"));
+            zip.write(document.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return output.toByteArray();
     }
 
     private byte[] pdf() throws IOException {
