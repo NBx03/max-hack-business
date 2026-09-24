@@ -15,7 +15,7 @@
       "url": null
     },
     "TRIP_POLICY": {
-      "title": "Положение о служебных командировках Демо-компании (вымышленный локальный акт демо-компании)",
+      "title": "Типовые правила оформления заявок на командировку (шаблон сервиса; компания настраивает под своё положение)",
       "url": null
     },
     "PRODUCT": {
@@ -122,15 +122,15 @@
         { "name": "days_count", "type": "NUMBER", "label": "Календарных дней", "hint": "Срок командировки в календарных днях точно как в документе: цифрами или словами." }
       ],
       "rules": [
-        { "code": "T1", "field": "employee_name", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": "п. 2.1",
+        { "code": "T1", "field": "employee_name", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": null,
           "description": "Укажите ФИО сотрудника, которого направляют в командировку." },
-        { "code": "T2", "field": "destination", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": "п. 2.2",
+        { "code": "T2", "field": "destination", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": null,
           "description": "Укажите место командировки — город и, если известно, организацию: по нему бухгалтерия считает расходы." },
-        { "code": "T3", "field": "purpose", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": "п. 2.3",
+        { "code": "T3", "field": "purpose", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": null,
           "description": "Укажите цель командировки: по ней директор решает, нужна ли поездка." },
-        { "code": "T4", "field": "start_date", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": "п. 2.4",
+        { "code": "T4", "field": "start_date", "check": "REQUIRED", "expected": null, "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": null,
           "description": "Укажите дату начала командировки." },
-        { "code": "T5", "field": "start_date", "check": "DATE_FORMAT", "expected": "RU_DATE", "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": "п. 2.4",
+        { "code": "T5", "field": "start_date", "check": "DATE_FORMAT", "expected": "RU_DATE", "kind": "INTERNAL_POLICY", "severity": "BLOCKER", "source": "TRIP_POLICY", "sourceRef": null,
           "description": "Дату начала командировки пишут полностью, с годом: 05.10.2026 или 5 октября 2026 г. — без года не понять, о каком годе речь." },
         { "code": "T6", "field": "days_count", "check": "MATCHES_PATTERN", "expected": "[1-9][0-9]*", "kind": "PRODUCT_RULE", "severity": "BLOCKER", "source": "PRODUCT", "sourceRef": null,
           "description": "Срок командировки — целым положительным числом календарных дней, цифрами, например 5: число прописью проверить нельзя." }

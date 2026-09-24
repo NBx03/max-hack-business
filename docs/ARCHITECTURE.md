@@ -341,7 +341,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 единого нового класса и без правки конвейера; проверка и маршрут берут всё из справочника:
 1. `testdata/rules.json` — поля и правила типа, `python testdata/generate.py` — тестовые документы, `expected.json`
    и `docs/RULES.md`;
-2. миграция справочника (`011-business-trip-request.sql`): строка в `document_type`, поля, правила; текст в ней
+2. миграция справочника (`013-business-trip-request.sql`): строка в `document_type`, поля, правила; текст в ней
    совпадает с `rules.json`, это построчно проверяет `DatabaseSchemaTest`;
 3. маршрут по умолчанию — одна запись в `DefaultRouteTemplates`; существующим компаниям он добирается сам (см.
    выше), новым — при создании;
