@@ -204,6 +204,8 @@ class DocumentCommandServiceTest {
 
         assertThatThrownBy(() -> service.recheck(2L, 1, user())).isInstanceOf(NotFoundException.class);
         verify(persistence, never()).recheck(anyLong(), org.mockito.ArgumentMatchers.anyInt(), anyLong(), anyLong(), anyLong(), any());
+    }
+
     /** #59: название формы — указанное, иначе заголовок записки, иначе название типа. */
     @Test
     void formTitleFallsBackToSubjectThenTypeName() {

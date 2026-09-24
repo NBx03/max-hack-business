@@ -255,7 +255,8 @@ class DocumentPersistenceServiceTest {
 
     private static DocumentCardResponse.FieldValue field(String value) {
         return new DocumentCardResponse.FieldValue("addressee", value, "MODEL", null, null);
-=======
+    }
+
     /** #59: у документа-формы версия хранит содержимое формы, а файлов нет вовсе. */
     @Test
     void formDocumentStoresContentWithoutFiles() {
