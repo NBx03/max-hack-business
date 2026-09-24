@@ -15,9 +15,15 @@ export const SEVERITY_HINTS: Record<Severity, string> = {
   INFO: 'Мягкая подсказка',
 };
 
+/**
+ * Вид правила — одними словами на экране правил и на экране проверки документа (ревью #103, п. 6). Словарь #91,
+ * кроме «Правила продукта»: пользователь не знает, что такое «продукт», а это наше допущение без документа-
+ * основания — «Рекомендация сервиса». Рекомендация, которой компания указала свой документ, становится
+ * «Правилом компании» — так пользователь и видит главное изменение #90.
+ */
 export const KIND_LABELS: Record<RuleKind, string> = {
-  LEGAL: 'Требование закона',
-  INTERNAL_POLICY: 'Правило оформления',
+  LEGAL: 'Закон',
+  INTERNAL_POLICY: 'Правило компании',
   PRODUCT_RULE: 'Рекомендация сервиса',
 };
 
@@ -42,16 +48,22 @@ export function ruleTitle(rule: Pick<CompanyRule, 'check' | 'fieldLabel' | 'minL
 
 /**
  * Основание правила одной строкой; у рекомендации сервиса источника нет — это наше допущение. short — для
- * карточки: без пояснения в скобках («утв. приказом…», «вымышленный локальный акт…»), полностью — в настройке.
+ * карточки: у источника шаблона без пояснения в скобках («утв. приказом…», «шаблон сервиса…»), полностью — в
+ * настройке. Название, которое ввела компания, не сокращается никогда: «Положение об отпусках (редакция 2026)»
+ * — это название, а не пояснение (ревью #103, п. 8).
  */
-export function ruleBasis(rule: Pick<CompanyRule, 'kind' | 'sourceTitle' | 'sourceRef'>, short = false): string {
+export function ruleBasis(
+  rule: Pick<CompanyRule, 'kind' | 'sourceTitle' | 'sourceRef'> & { template?: { sourceTitle: string } },
+  short = false,
+): string {
   if (rule.kind === 'PRODUCT_RULE') return KIND_LABELS.PRODUCT_RULE;
-  const title = short ? shortTitle(rule.sourceTitle) : rule.sourceTitle;
+  const fromTemplate = rule.template !== undefined && rule.template.sourceTitle === rule.sourceTitle;
+  const title = short && fromTemplate ? shortTitle(rule.sourceTitle) : rule.sourceTitle;
   const ref = rule.sourceRef ? `, ${rule.sourceRef}` : '';
   return `${KIND_LABELS[rule.kind]}: ${title}${ref}`;
 }
 
-export function shortTitle(title: string): string {
+function shortTitle(title: string): string {
   const cut = title.indexOf(' (');
   return cut > 0 ? title.slice(0, cut) : title;
 }

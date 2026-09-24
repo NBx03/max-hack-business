@@ -104,9 +104,8 @@ public class RuleCatalogService {
         String description = requiredText(change.description(), MAX_DESCRIPTION, "Текст замечания");
         String sourceTitle = optionalText(change.sourceTitle(), MAX_SOURCE_TITLE, "Название документа-основания");
         String sourceRef = optionalText(change.sourceRef(), MAX_SOURCE_REF, "Пункт");
-        if (sourceTitle == null && sourceRef != null && !Objects.equals(sourceRef, rule.getSourceRef())) {
-            throw validation("Пункт указывается вместе с названием своего документа-основания");
-        }
+        // Пустое название — источник шаблона, что бы ни осталось в поле пункта (ревью #103, п. 1): администратор
+        // стёр название своего документа, а пункт в форме остался — это возврат к шаблону, а не ошибка.
         String expected = expected(rule, change);
 
         OrganizationRuleSetting setting = settingRepository.findByOrgIdAndRuleId(orgId, ruleId)

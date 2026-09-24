@@ -175,6 +175,37 @@ class DocumentCommandServiceTest {
         return new CreateDocumentRequest(5L, "Записка", Document.Visibility.PRIVATE, false, Map.of());
     }
 
+    /** Ревью #103: «Проверить заново» — только правила по сохранённым полям, модель и файл не трогаются. */
+    @Test
+    void recheckRunsRulesOnStoredFieldsWithoutTheModel() {
+        Document document = new Document();
+        document.setId(1L);
+        document.setOrgId(10L);
+        document.setAuthorId(7L);
+        document.setDocumentTypeId(5L);
+        when(documents.findById(1L)).thenReturn(Optional.of(document));
+        when(rules.prepare(10L, 5L, Map.of())).thenReturn(prepared());
+
+        service.recheck(1L, 1, user());
+
+        verify(persistence).recheck(eq(1L), eq(1), eq(10L), eq(7L), eq(5L), any());
+        verify(analysis, never()).analyze(anyLong(), anyBoolean(), any());
+        verify(storage, never()).get(any());
+    }
+
+    @Test
+    void recheckOfAForeignCompanysDocumentIsNotFound() {
+        Document foreign = new Document();
+        foreign.setId(2L);
+        foreign.setOrgId(99L);
+        foreign.setAuthorId(7L);
+        foreign.setDocumentTypeId(5L);
+        when(documents.findById(2L)).thenReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> service.recheck(2L, 1, user())).isInstanceOf(NotFoundException.class);
+        verify(persistence, never()).recheck(anyLong(), org.mockito.ArgumentMatchers.anyInt(), anyLong(), anyLong(), anyLong(), any());
+    }
+
     private CurrentUser user() {
         var identity = new CurrentUser.UserIdentity(7, "Автор");
         return new CurrentUser(identity, identity, 8L, 10L, Set.of(), false, null);

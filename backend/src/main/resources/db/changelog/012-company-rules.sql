@@ -31,8 +31,9 @@ SET source_title = 'Типовые правила оформления служ�
 FROM document_type type
 WHERE type.id = rule.document_type_id
   AND type.code = 'OFFICIAL_MEMO'
-  AND rule.field_name IN ('reg_number', 'signer_position')
-  AND rule.source_title LIKE 'Инструкция по делопроизводству Демо-компании%';
+  AND (rule.field_name, rule.check_type) IN (('reg_number', 'MATCHES_PATTERN'), ('signer_position', 'REQUIRED'))
+  -- Точное прежнее название (007-reference-data.sql), не префикс: чужую или будущую строку не трогаем (ревью #103).
+  AND rule.source_title = 'Инструкция по делопроизводству Демо-компании (вымышленный локальный акт демо-компании на основе ГОСТ Р 7.0.97-2016)';
 
 UPDATE requirement_rule rule
 SET source_title = 'Типовые правила оформления заявлений на отпуск (шаблон сервиса; компания настраивает под своё положение)',
@@ -40,4 +41,6 @@ SET source_title = 'Типовые правила оформления заяв�
 FROM document_type type
 WHERE type.id = rule.document_type_id
   AND type.code = 'VACATION_REQUEST'
-  AND rule.source_title LIKE 'Положение об оформлении отпусков Демо-компании%';
+  AND (rule.field_name, rule.check_type) IN (('employee_name', 'REQUIRED'), ('vacation_type', 'ONE_OF'),
+                                             ('start_date', 'REQUIRED'), ('start_date', 'DATE_FORMAT'))
+  AND rule.source_title = 'Положение об оформлении отпусков Демо-компании (вымышленный локальный акт демо-компании)';

@@ -629,6 +629,46 @@ class ApprovalIntegrationTest {
         assertThat(reset.path("severity").asText()).isEqualTo("WARNING");
     }
 
+    /** Ревью #103, п. 2 и 5: RETURNED — новой версией, IN_APPROVAL — нельзя, чужой компании документ не виден. */
+    @Test
+    void recheckWorksForDraftAndReturnedOnlyAndOnlyForTheAuthor() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        String recheck = "/api/v1/documents/" + memo + "/versions/1/recheck";
+        String addressee = issueFreeValue(card(company.frank, memo), "addressee");
+
+        Company other = newCompany("Одуванчик");
+        assertThat(call(other.alice, "POST", recheck, null).status()).as("администратор чужой компании").isEqualTo(404);
+        assertThat(call(company.alice, "POST", recheck, null).status()).as("не автор, документ не виден").isEqualTo(404);
+
+        jdbc.update("update document set status = 'IN_APPROVAL' where id = ?", memo);
+        Resp inApproval = call(company.frank, "POST", recheck, null);
+        assertThat(inApproval.status()).isEqualTo(409);
+        assertThat(inApproval.code()).isEqualTo("INVALID_STATE");
+
+        jdbc.update("update document set status = 'RETURNED' where id = ?", memo);
+        JsonNode returned = ok(call(company.frank, "POST", recheck, null));
+        assertThat(returned.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(returned.path("currentVersionNo").asInt()).isEqualTo(2);
+        assertThat(returned.path("versions")).hasSize(2);
+        assertThat(returned.path("versions").get(1).path("files").get(0).path("fileName").asText())
+                .isEqualTo(returned.path("versions").get(0).path("files").get(0).path("fileName").asText());
+        assertThat(issueFreeValue(returned, "addressee")).as("поля не потерялись").isEqualTo(addressee);
+
+        // повторная перепроверка черновика тоже ничего не теряет
+        JsonNode again = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/versions/2/recheck", null));
+        assertThat(again.path("currentVersionNo").asInt()).isEqualTo(2);
+        assertThat(issueFreeValue(again, "addressee")).isEqualTo(addressee);
+    }
+
+    private static String issueFreeValue(JsonNode card, String fieldName) {
+        for (JsonNode field : card.path("check").path("fields")) {
+            if (fieldName.equals(field.path("name").asText())) {
+                return field.path("value").asText();
+            }
+        }
+        throw new AssertionError("нет поля " + fieldName);
+    }
+
     @Test
     void lawCannotBeChangedAndOnlySimpleExpectedValuesAreEditable() throws Exception {
         long smbCategory = ruleId("SUPPORT_MEASURE_REQUEST", "smb_category", "ONE_OF");

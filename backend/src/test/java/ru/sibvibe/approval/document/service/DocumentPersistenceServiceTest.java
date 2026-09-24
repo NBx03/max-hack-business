@@ -1,11 +1,14 @@
 package ru.sibvibe.approval.document.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
+import ru.sibvibe.approval.document.dto.DocumentCardResponse;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.entity.DocumentFile;
 import ru.sibvibe.approval.document.entity.DocumentType;
@@ -157,6 +160,101 @@ class DocumentPersistenceServiceTest {
         });
         assertThat(current.getExtractedFields().path("checkToken").asText())
                 .isEqualTo(update.checkAttempt().checkToken());
+    }
+
+    // ============ «Проверить заново» (ревью #103, п. 2 и 3) ============
+
+    @Test
+    void recheckOfDraftRewritesTheSameVersionWithTheRulesResult() {
+        current.setExtractedFields(storedFields("Директору", null));
+        var result = new DocumentRuleService.CheckData(true, List.of(field("Директору")), List.of());
+
+        int checked = service.recheck(1L, 1, 10L, 7L, 5L, previous -> {
+            assertThat(previous.fields()).extracting(DocumentCardResponse.FieldValue::value).containsExactly("Директору");
+            return result;
+        });
+
+        assertThat(checked).isEqualTo(1);
+        assertThat(current.getCheckStatus()).isEqualTo("CHECKED");
+        assertThat(current.getExtractedFields().path("fields").get(0).path("value").asText()).isEqualTo("Директору");
+        assertThat(current.getExtractedFields().path("checkToken").isNull()).isTrue();
+        verify(versions, never()).save(any());
+    }
+
+    @Test
+    void recheckOfReturnedChecksANewDraftVersionAndLeavesTheReturnedOneInHistory() {
+        document.setStatus(Document.Status.RETURNED);
+        current.setExtractedFields(storedFields("Директору", null));
+        current.setValidationIssues(new ObjectMapper().createArrayNode());
+        current.setCheckStatus("CHECKED");
+        JsonNode before = current.getExtractedFields().deepCopy();
+
+        int checked = service.recheck(1L, 1, 10L, 7L, 5L,
+                previous -> new DocumentRuleService.CheckData(true, previous.fields(), List.of()));
+
+        assertThat(checked).isEqualTo(2);
+        assertThat(document.getStatus()).isEqualTo(Document.Status.DRAFT);
+        assertThat(document.getCurrentVersionNo()).isEqualTo(2);
+        assertThat(current.getExtractedFields()).as("возвращённая версия не меняется").isEqualTo(before);
+        ArgumentCaptor<DocumentVersion> captor = ArgumentCaptor.forClass(DocumentVersion.class);
+        verify(versions).save(captor.capture());
+        assertThat(captor.getValue().getVersionNo()).isEqualTo(2);
+        assertThat(captor.getValue().getCheckStatus()).isEqualTo("CHECKED");
+        assertThat(captor.getValue().getExtractedFields().path("fields").get(0).path("value").asText()).isEqualTo("Директору");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<DocumentFile>> copies = ArgumentCaptor.forClass(List.class);
+        verify(files).saveAll(copies.capture());
+        assertThat(copies.getValue()).singleElement().extracting(DocumentFile::getStorageKey).isEqualTo("old-key");
+    }
+
+    @Test
+    void failedRulesLeaveTheStoredFieldsAsTheyWere() {
+        current.setExtractedFields(storedFields("Директору", null));
+        current.setCheckStatus("CHECKED");
+        JsonNode before = current.getExtractedFields().deepCopy();
+
+        assertThatThrownBy(() -> service.recheck(1L, 1, 10L, 7L, 5L, previous -> {
+            throw new IllegalStateException("правила упали");
+        })).isInstanceOf(IllegalStateException.class);
+
+        // До результата правил ничего не записано: транзакция откатится, а поля и так не тронуты.
+        assertThat(current.getExtractedFields()).isEqualTo(before);
+        assertThat(current.getCheckStatus()).isEqualTo("CHECKED");
+    }
+
+    @Test
+    void recheckWaitsForARunningCheckAndRefusesOtherStatusesAndOtherPeople() {
+        current.setExtractedFields(storedFields("Директору", "идёт-проверка"));
+        assertThatThrownBy(() -> service.recheck(1L, 1, 10L, 7L, 5L, previous -> previous))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessageContaining("Проверка ещё идёт");
+
+        current.setExtractedFields(storedFields("Директору", null));
+        document.setStatus(Document.Status.IN_APPROVAL);
+        assertThatThrownBy(() -> service.recheck(1L, 1, 10L, 7L, 5L, previous -> previous))
+                .isInstanceOf(DocumentApiException.class);
+        document.setStatus(Document.Status.DRAFT);
+        assertThatThrownBy(() -> service.recheck(1L, 1, 10L, 8L, 5L, previous -> previous))
+                .as("не автор").isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> service.recheck(1L, 1, 11L, 7L, 5L, previous -> previous))
+                .as("чужая компания").isInstanceOf(RuntimeException.class);
+    }
+
+    private static JsonNode storedFields(String addressee, String checkToken) {
+        ObjectNode stored = new ObjectMapper().createObjectNode();
+        stored.put("modelAvailable", true);
+        stored.putArray("fields").addObject()
+                .put("name", "addressee").put("value", addressee).put("source", "MODEL");
+        if (checkToken != null) {
+            stored.put("checkToken", checkToken);
+        } else {
+            stored.putNull("checkToken");
+        }
+        return stored;
+    }
+
+    private static DocumentCardResponse.FieldValue field(String value) {
+        return new DocumentCardResponse.FieldValue("addressee", value, "MODEL", null, null);
     }
 
     private Document document(Document.Status status) {

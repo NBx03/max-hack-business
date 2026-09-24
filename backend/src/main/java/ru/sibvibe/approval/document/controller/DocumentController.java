@@ -125,8 +125,8 @@ public class DocumentController {
     }
 
     /**
-     * «Проверить заново» (#90): черновик перепроверяется по текущим правилам компании по сохранённым полям,
-     * без обращения к модели. Уже проверенные версии сами не пересчитываются — это явное действие автора.
+     * «Проверить заново» (#90): черновик или возвращённый документ перепроверяется по текущим правилам компании
+     * по сохранённым полям, без обращения к модели. Сами версии не пересчитываются — это явное действие автора.
      */
     @PostMapping("/documents/{id}/versions/{versionNo}/recheck")
     public DocumentCardResponse recheck(
@@ -134,8 +134,7 @@ public class DocumentController {
             @PathVariable long id,
             @PathVariable int versionNo
     ) {
-        commandService.updateFields(id, versionNo, currentUser, new UpdateFieldsRequest(java.util.Map.of()));
-        return viewService.card(id, currentUser);
+        return commandService.recheck(id, versionNo, currentUser);
     }
 
     /** Сменить тип черновика и перепроверить текущую версию по его правилам (#86). */

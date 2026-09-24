@@ -156,6 +156,23 @@ public class DocumentCommandService {
         return viewService.card(documentId, currentUser).check();
     }
 
+    /**
+     * «Проверить заново» (#90): сохранённые поля — по текущим правилам компании. Модель не вызывается и файл
+     * не перечитывается: изменились правила, а не документ. У возвращённого документа — новой версией-черновиком.
+     */
+    public DocumentCardResponse recheck(long documentId, int versionNo, CurrentUser currentUser) {
+        Membership membership = requireMembership(currentUser);
+        Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
+        DocumentRuleService.PreparedCheck prepared =
+                ruleService.prepare(membership.orgId(), document.getDocumentTypeId(), Map.of());
+        if (prepared.type().isGeneric()) {
+            throw DocumentApiException.validation("У этого документа нет проверяемых полей");
+        }
+        persistenceService.recheck(documentId, versionNo, membership.orgId(), currentUser.userId(),
+                prepared.type().getId(), previous -> ruleService.executeManualUpdate(prepared, previous));
+        return viewService.card(documentId, currentUser);
+    }
+
     /** «Сменить тип» у черновика: вид, определённый моделью, оказался неверным (#86). */
     public DocumentCardResponse changeType(long documentId, int versionNo, CurrentUser currentUser, long documentTypeId) {
         Membership membership = requireMembership(currentUser);

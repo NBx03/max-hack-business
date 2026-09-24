@@ -67,6 +67,45 @@ class RuleCatalogServiceTest {
         verify(settings).deleteById(new OrganizationRuleSetting.Key(ORG, 10L));
     }
 
+    /** Ревью #103, п. 1: свой источник — другое название ИЛИ другой пункт. */
+    @Test
+    void sameTitleWithAnotherPointIsTheCompanysOwnSource() {
+        RequirementRule rule = rule(10L, CheckType.REQUIRED, RuleKind.INTERNAL_POLICY, null);
+        rule.setSourceRef("п. 1");
+        when(rules.findById(10L)).thenReturn(Optional.of(rule));
+        when(settings.findByOrgIdAndRuleId(ORG, 10L)).thenReturn(Optional.empty());
+        when(settings.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = service.update(ORG, 10L, ADMIN, new RuleCatalogService.Change(
+                true, rule.getSeverity(), rule.getDescription(), rule.getSourceTitle(), "п. 2", null, null));
+
+        assertThat(result.customized()).isTrue();
+        assertThat(result.sourceRef()).isEqualTo("п. 2");
+    }
+
+    /** Ревью #103, п. 1: стёрли название своего документа, пункт в форме остался — это источник шаблона. */
+    @Test
+    void emptyTitleMeansTheTemplateSourceWhateverThePoint() {
+        RequirementRule rule = rule(10L, CheckType.REQUIRED, RuleKind.INTERNAL_POLICY, null);
+        rule.setSourceRef("п. 1");
+        when(rules.findById(10L)).thenReturn(Optional.of(rule));
+        OrganizationRuleSetting own = new OrganizationRuleSetting();
+        own.setOrgId(ORG);
+        own.setRuleId(10L);
+        own.setSourceTitle("Инструкция ООО «Ромашка»");
+        own.setSourceRef("п. 4.2");
+        when(settings.findByOrgIdAndRuleId(ORG, 10L)).thenReturn(Optional.of(own));
+        when(settings.existsById(any())).thenReturn(true);
+
+        var result = service.update(ORG, 10L, ADMIN, new RuleCatalogService.Change(
+                true, rule.getSeverity(), rule.getDescription(), "  ", "п. 4.2", null, null));
+
+        assertThat(result.customized()).isFalse();
+        assertThat(result.sourceTitle()).isEqualTo(rule.getSourceTitle());
+        assertThat(result.sourceRef()).isEqualTo("п. 1");
+        verify(settings).deleteById(new OrganizationRuleSetting.Key(ORG, 10L));
+    }
+
     @Test
     void expectedValueIsValidated() {
         RequirementRule length = rule(10L, CheckType.MIN_LENGTH, RuleKind.PRODUCT_RULE, "50");

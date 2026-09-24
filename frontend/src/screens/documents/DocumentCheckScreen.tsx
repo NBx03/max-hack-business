@@ -27,7 +27,7 @@ import { ErrorState } from '../../components/base/StateCard';
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, keepingFilesInput, manualValues, sameValue } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
-import { SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
+import { KIND_LABELS, SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
 import {
   DocumentScreen,
   FieldInputs,
@@ -43,14 +43,10 @@ import {
 const SEVERITY_LABELS: Record<Severity, string> = RULE_SEVERITY_LABELS;
 
 /**
- * Подпись к источнику замечания. «Регламент компании» у правил со ссылкой на ГОСТ путал: ГОСТ — не
- * регламент самой компании (приёмка 24.09). Поэтому показываем основание, а вид — только у закона.
+ * Подпись к источнику замечания — тот же словарь, что на экране «Правила проверки» (ревью #103, п. 6):
+ * «Закон», «Правило компании» (ГОСТ, принятый в компании, или её свой документ), «Рекомендация сервиса».
  */
-const BASIS_LABELS: Record<RuleKind, string> = {
-  LEGAL: 'Требование закона',
-  INTERNAL_POLICY: 'Основание',
-  PRODUCT_RULE: 'Рекомендация сервиса',
-};
+const BASIS_LABELS: Record<RuleKind, string> = KIND_LABELS;
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -341,6 +337,7 @@ export function DocumentCheckScreen() {
   /**
    * «Проверить заново» (#90): по текущим правилам компании, по тем же полям, без повторного чтения файла.
    * Нужна, когда администратор поменял правила после проверки: замечания — снимок на момент проверки.
+   * У возвращённого документа бэкенд создаёт новую версию-черновик с теми же файлами и полями.
    */
   async function recheck() {
     if (!card) return;
@@ -485,7 +482,8 @@ export function DocumentCheckScreen() {
       <section style={sectionStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <Typography.Headline variant="medium">Замечания</Typography.Headline>
-          {isDraft && card.permissions.canUploadVersion && !editing && (
+          {/* У возвращённого — тоже (ревью #103, п. 2): проверяется новая версия-черновик, возвращённая остаётся в истории. */}
+          {(isDraft || isReturned) && card.permissions.canUploadVersion && !editing && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
               <Button size="small" variant="secondary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void recheck()}>
                 Проверить заново
