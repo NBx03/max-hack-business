@@ -544,6 +544,32 @@ class ApprovalIntegrationTest {
     // ============ демо-режим: проверяющий один проходит всю цепочку ============
 
     @Test
+    void returnedDemoDocumentWithoutFilesCanBeResentUnchanged() throws Exception {
+        Person reviewer = newUser();
+        JsonNode sandbox = ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null));
+        long demoAuthor = demoUser(sandbox, "DEPARTMENT_HEAD");
+        long returned = jdbc.queryForObject(
+                "select id from document where title = 'Служебная записка на доработке' and author_id = ?",
+                Long.class, demoAuthor);
+
+        // у демо-документов файлов нет: новая версия без файлов, поля прежние — иначе возвращённый демо-документ
+        // был тупиком (приёмка 24.09)
+        Map<String, Object> meta = Map.of("containsSensitive", false, "keepFileIds", List.of());
+        MvcResult result = mvc.perform(multipart("/api/v1/documents/" + returned + "/versions")
+                .file(new MockMultipartFile("meta", "", "application/json", MAPPER.writeValueAsBytes(meta)))
+                .header("Authorization", reviewer.auth())
+                .header("X-Demo-Act-As", demoAuthor)).andReturn();
+        assertThat(result.getResponse().getStatus()).as(result.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .isEqualTo(200);
+        JsonNode draft = MAPPER.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        assertThat(draft.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(draft.path("permissions").path("canSubmit").asBoolean()).isTrue();
+        assertThat(draft.path("changes").path("fields")).isEmpty();
+        assertThat(ok(callAs(reviewer, demoAuthor, "POST", "/api/v1/documents/" + returned + "/submit", null))
+                .path("status").asText()).isEqualTo("IN_APPROVAL");
+    }
+
+    @Test
     void reviewerActingAsDemoParticipantsPassesTheWholeChainAlone() throws Exception {
         Person reviewer = newUser();
         JsonNode sandbox = ok(call(reviewer, "POST", "/api/v1/demo/sandbox", null));

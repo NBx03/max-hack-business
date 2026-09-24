@@ -7,7 +7,11 @@
 
 export type DocumentStatus = 'DRAFT' | 'IN_APPROVAL' | 'APPROVED' | 'RETURNED' | 'REJECTED';
 export type StepDecision = 'PENDING' | 'APPROVED' | 'RETURNED' | 'REJECTED' | 'SKIPPED';
-export type AutoReason = 'AUTHOR_HOLDS_ROLE' | null;
+/**
+ * AUTHOR_HOLDS_ROLE — согласовано автоматически: роль только у автора. CARRIED_OVER — одобрение прошлой версии
+ * сохранилось: документ не менялся. MEMBER_REMOVED — согласующего исключили или сняли роль, документ вернулся автору.
+ */
+export type AutoReason = 'AUTHOR_HOLDS_ROLE' | 'CARRIED_OVER' | 'MEMBER_REMOVED' | null;
 
 /** Тон задаёт цвет через переменные темы (theme/tokens.css) - не конкретный HEX. */
 export type StatusTone = 'neutral' | 'progress' | 'warning' | 'danger' | 'success';
@@ -44,6 +48,12 @@ export function documentStatusMeta(status: DocumentStatus): StatusMeta {
 export function stepDecisionMeta(decision: StepDecision, autoReason?: AutoReason): StatusMeta {
   if (decision === 'APPROVED' && autoReason === 'AUTHOR_HOLDS_ROLE') {
     return { text: 'Согласовано автором', tone: 'success' };
+  }
+  if (decision === 'APPROVED' && autoReason === 'CARRIED_OVER') {
+    return { text: 'Согласовано ранее', tone: 'success' };
+  }
+  if (autoReason === 'MEMBER_REMOVED') {
+    return { text: 'Выбыл', tone: 'warning' };
   }
   return STEP_DECISION_META[decision];
 }
