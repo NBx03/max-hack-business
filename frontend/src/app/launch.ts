@@ -59,10 +59,28 @@ export function launchDataFromHash(hash: string): string | null {
   }
 }
 
-/** В хэше адреса новые данные запуска, а мост MAX всё ещё работает со старыми. */
-function hasNewerLaunchData(): boolean {
-  const next = launchDataFromHash(window.location.hash);
-  return Boolean(next) && next !== getWebApp()?.initData;
+const RELOADED_FOR_KEY = 'approval.reloadedFor';
+
+/**
+ * Данные запуска из хэша, ради которых стоит перезагрузить страницу, или null. Только внутри MAX (есть мост) и
+ * не больше одного раза для одной и той же строки: если мост и хэш по-разному декодируют «+» или «%XX» и строки
+ * никогда не совпадут, иначе каждая загрузка вызывала бы новую — приложение не открылось бы вовсе (ревью #96).
+ */
+export function launchDataToReloadFor(hash: string, bridgeInitData: string | undefined, reloadedFor: string | null): string | null {
+  if (bridgeInitData === undefined) return null;
+  const next = launchDataFromHash(hash);
+  if (!next || next === bridgeInitData) return null;
+  const mark = fingerprint(next);
+  return mark === reloadedFor ? null : mark;
+}
+
+function readReloadedFor(): string | null {
+  try {
+    return sessionStorage.getItem(RELOADED_FOR_KEY);
+  } catch {
+    // Без sessionStorage не помним, что уже перезагружали, — поэтому и не перезагружаем.
+    return 'unknown';
+  }
 }
 
 /**
@@ -79,10 +97,16 @@ function hasNewerLaunchData(): boolean {
  */
 export function watchRelaunch(): void {
   const check = (reason: string) => {
-    if (hasNewerLaunchData()) {
-      console.debug('[approval] новый запуск мини-приложения:', reason);
-      window.location.reload();
+    const webApp = getWebApp();
+    const mark = launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, readReloadedFor());
+    if (mark === null) return;
+    try {
+      sessionStorage.setItem(RELOADED_FOR_KEY, mark);
+    } catch {
+      return;
     }
+    console.debug('[approval] новый запуск мини-приложения:', reason);
+    window.location.reload();
   };
   window.addEventListener('hashchange', () => check('hashchange'));
   window.addEventListener('popstate', () => check('popstate'));

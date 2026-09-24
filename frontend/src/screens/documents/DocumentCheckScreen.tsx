@@ -24,7 +24,7 @@ import { BottomSheet } from '../../components/base/BottomSheet';
 import { scrollScreenToTop } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
 import { documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
-import { applyCorrection, changedFields } from './fieldCorrection';
+import { applyCorrection, changedFields, keepingFilesInput, manualValues, sameValue } from './fieldCorrection';
 import {
   DocumentScreen,
   FieldInputs,
@@ -127,14 +127,6 @@ type CorrectionNotice = {
   notApplied: { field: string; label: string; message: string }[];
 };
 
-/** Новая версия с теми же файлами: так правятся поля возвращённого документа. */
-function newVersionKeepingFiles(card: DocumentCard): Promise<DocumentCard> {
-  const current = card.versions.find((version) => version.versionNo === card.currentVersionNo);
-  return createDocumentVersion(card.id, {
-    containsSensitive: current?.containsSensitive ?? false,
-    keepFileIds: current?.files.map((file) => file.id) ?? [],
-  });
-}
 
 /** 10. Результат проверки (docs/SCREENS.md). */
 export function DocumentCheckScreen() {
@@ -245,8 +237,15 @@ export function DocumentCheckScreen() {
       setActionError(`Пустое значение в файл не вписываем: ${emptied.join(', ')}. Удалить текст можно только в самом документе.`);
       return;
     }
-    const missing = changed.filter(([name]) => !(inFile[name] ?? '').trim());
+    // Поле, которого в файле нет, — «изменено», только если отличается от уже сохранённого: иначе «Исправить и
+    // проверить» без правок у возвращённого документа создавало бы пустую новую версию (ревью #96, п. 4).
+    const shown = fieldsToRecord(card.check);
+    const missing = changed.filter(([name, value]) => !(inFile[name] ?? '').trim() && !sameValue(shown[name], value));
     const writable = changed.filter(([name]) => (inFile[name] ?? '').trim());
+    if (missing.length === 0 && writable.length === 0) {
+      setActionError('Вы ничего не изменили — исправлять нечего');
+      return;
+    }
     setBusy('file');
     setActionError(null);
     try {
@@ -293,8 +292,15 @@ export function DocumentCheckScreen() {
     setActionError(null);
     try {
       // Возвращённая версия не меняется — она в истории. Поля правятся у новой версии с теми же файлами.
-      const target = card.permissions.canEditFields ? card : await newVersionKeepingFiles(card);
-      await updateDocumentFields(target.id, target.currentVersionNo, changed);
+      let target = card;
+      let payload = changed;
+      if (!card.permissions.canEditFields) {
+        target = await createDocumentVersion(card.id, keepingFilesInput(card));
+        setCard(target);
+        // Ручные значения — заново: бэкенд переносит поля сам, только если прошлая проверка прошла (ревью #96, п. 2).
+        payload = { ...manualValues(card), ...changed };
+      }
+      await updateDocumentFields(target.id, target.currentVersionNo, payload);
       const refreshed = await getDocument(card.id);
       setCard(refreshed);
       setFields(fieldsToRecord(refreshed.check));
