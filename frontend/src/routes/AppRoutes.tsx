@@ -16,7 +16,6 @@ import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
 import { guardTarget, type GuardKind } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
-import { useTrackVisited } from './backNavigation';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { NewDocumentVersionScreen } from '../screens/documents/NewDocumentVersionScreen';
@@ -32,7 +31,6 @@ import { useMaxBackButton } from './useMaxBackButton';
 export function AppRoutes({ me }: { me: MeResponse }) {
   const location = useLocation();
   const navigate = useNavigate();
-  useTrackVisited();
 
   // startParam действует один раз за запуск (app/launch.ts): он приходит в каждом /me, и без
   // этой отметки любой переход на "/" (выход из демо, отмена заявки) снова открывал бы документ

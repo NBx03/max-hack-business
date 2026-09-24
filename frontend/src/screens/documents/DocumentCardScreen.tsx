@@ -13,7 +13,7 @@ import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
 import { BackLink } from '../../components/base/BackLink';
-import { ROUTE_PATTERNS, documentCheckPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+import { ROUTE_PATTERNS, documentCheckPath, routePreviewPath } from '../../routes/paths';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -221,7 +221,7 @@ export function DocumentCardScreen() {
         >
           <span style={{ fontSize: 13, fontWeight: 600 }}>Отозван автором с согласования</span>
           <span style={{ fontSize: 13 }}>
-            {formatDateTime(withdrawnAt)}. Исправьте документ и отправьте заново — маршрут начнётся с первого этапа.
+            {formatDateTime(withdrawnAt)}. После правки отправьте заново.
           </span>
         </div>
       )}
@@ -332,10 +332,12 @@ export function DocumentCardScreen() {
         </BottomActionBar>
       )}
 
+      {/* Исправление — на экране проверки: там замечания, «Изменить» и «Заменить файл» (приёмка 24.09, п. 9).
+          Раньше отсюда вела «Загрузить исправленную версию», хотя чаще нужно поправить поле, а не файл. */}
       {doc.status === 'RETURNED' && doc.permissions.canUploadVersion && (
         <BottomActionBar>
-          <Button stretched variant="primary" onClick={() => navigate(documentNewVersionPath(doc.id))}>
-            Загрузить исправленную версию
+          <Button stretched variant="primary" onClick={() => navigate(documentCheckPath(doc.id))}>
+            Исправить документ
           </Button>
         </BottomActionBar>
       )}
@@ -388,7 +390,7 @@ export function DocumentCardScreen() {
           setWithdrawError(null);
         }}
         title="Отозвать с согласования?"
-        description="Согласование остановится, согласующим, чья очередь уже подошла, придёт сообщение. Документ вернётся к вам: исправьте его и отправьте заново — маршрут начнётся с первого этапа."
+        description="Согласование остановится, а тем, чья очередь уже подошла, придёт сообщение. Документ вернётся к вам."
         confirmLabel="Отозвать"
         busy={withdrawBusy}
         error={withdrawError}

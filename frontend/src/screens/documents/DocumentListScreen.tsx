@@ -12,6 +12,7 @@ import { Tabs, type TabItem } from '../../components/base/Tabs';
 import { EmptyState, ErrorState } from '../../components/base/StateCard';
 import { documentStatusMeta } from '../../theme/status';
 import { useAsync } from '../../hooks/useAsync';
+import { useSession } from '../../app/SessionContext';
 import { ROUTE_PATTERNS, documentCardPath } from '../../routes/paths';
 
 const STATUS_OPTIONS: DocumentStatus[] = ['DRAFT', 'IN_APPROVAL', 'RETURNED', 'REJECTED', 'APPROVED'];
@@ -46,13 +47,51 @@ function waitingText(iso: string): string {
 }
 
 /**
+ * Вкладка и фильтры запоминаются на время работы с приложением (приёмка 24.09, п. 3): вернувшись
+ * из карточки, человек видит тот же список, откуда ушёл. Раньше список всегда открывался на «Ждут меня»,
+ * и автор, листавший «Мои», каждый раз переключался заново. «Ждут меня» — только при первом открытии.
+ */
+const TAB_KEY = 'approval.documentsTab';
+const TABS: DocumentTab[] = ['WAITING_ME', 'MINE', 'AVAILABLE'];
+// Фильтры — по тому, от чьего имени работа: у демо-компании свои авторы и типы.
+let rememberedFilters: { actor: string; filters: DocumentListFilters } | null = null;
+
+function readTab(): DocumentTab {
+  try {
+    const saved = sessionStorage.getItem(TAB_KEY);
+    return TABS.find((tab) => tab === saved) ?? 'WAITING_ME';
+  } catch {
+    return 'WAITING_ME';
+  }
+}
+
+function writeTab(tab: DocumentTab): void {
+  try {
+    sessionStorage.setItem(TAB_KEY, tab);
+  } catch {
+    // Без sessionStorage вкладка просто не запомнится.
+  }
+}
+
+/**
  * 8. Список документов - главный экран (docs/SCREENS.md). Администрирование переехало
  * в раздел «Компания» нижнего меню (AppNav).
  */
 export function DocumentListScreen() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<DocumentTab>('WAITING_ME');
-  const [filters, setFilters] = useState<DocumentListFilters>({});
+  const [tab, setTabState] = useState<DocumentTab>(readTab);
+  const { me } = useSession();
+  const actor = me?.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me?.user.id ?? 0}`;
+  const [filters, setFiltersState] = useState<DocumentListFilters>(() =>
+    rememberedFilters?.actor === actor ? rememberedFilters.filters : {});
+  const setTab = (next: DocumentTab) => {
+    writeTab(next);
+    setTabState(next);
+  };
+  const setFilters = (next: DocumentListFilters) => {
+    rememberedFilters = { actor, filters: next };
+    setFiltersState(next);
+  };
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Известные авторы - накапливаются из уже загруженных документов, отдельного
   // эндпоинта "все авторы" для не-админа нет (GET /orgs/current/members - только ADMIN).

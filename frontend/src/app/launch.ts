@@ -59,16 +59,41 @@ export function launchDataFromHash(hash: string): string | null {
   }
 }
 
+/** В хэше адреса новые данные запуска, а мост MAX всё ещё работает со старыми. */
+function hasNewerLaunchData(): boolean {
+  const next = launchDataFromHash(window.location.hash);
+  return Boolean(next) && next !== getWebApp()?.initData;
+}
+
 /**
- * Следит за повторным открытием уже открытого мини-приложения. Если MAX поменял только хэш
- * (новые данные запуска без перезагрузки), перезагружаем страницу: мост MAX читает initData
- * лишь при загрузке, и без перезагрузки все запросы ушли бы со старыми данными запуска.
+ * Следит за повторным открытием уже открытого мини-приложения (приёмка 24.09, п. 6). Если MAX поменял
+ * только хэш (новые данные запуска без перезагрузки), перезагружаем страницу: мост MAX читает initData
+ * лишь при загрузке, и без перезагрузки все запросы ушли бы со старыми данными запуска, а переход
+ * по ссылке из уведомления не случился бы. Проверяем не только hashchange: смену адреса фрейма
+ * браузер может сообщить и как popstate, а возвращение к открытому приложению — как focus или
+ * visibilitychange.
+ *
+ * Как именно MAX передаёт повторное открытие, в документации моста не описано (сверено с
+ * dev.max.ru/docs/webapps/bridge 24.09). Поэтому сообщения моста и смена хэша пишутся в консоль
+ * с меткой [approval] (уровень debug): так поведение конкретного клиента MAX можно проверить.
  */
 export function watchRelaunch(): void {
-  window.addEventListener('hashchange', () => {
-    const next = launchDataFromHash(window.location.hash);
-    if (next && next !== getWebApp()?.initData) {
+  const check = (reason: string) => {
+    if (hasNewerLaunchData()) {
+      console.debug('[approval] новый запуск мини-приложения:', reason);
       window.location.reload();
+    }
+  };
+  window.addEventListener('hashchange', () => check('hashchange'));
+  window.addEventListener('popstate', () => check('popstate'));
+  window.addEventListener('pageshow', () => check('pageshow'));
+  window.addEventListener('focus', () => check('focus'));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') check('visibilitychange');
+  });
+  window.addEventListener('message', (event) => {
+    if (typeof event.data === 'string' && event.data.includes('"type":"WebApp')) {
+      console.debug('[approval] сообщение моста MAX:', event.data.slice(0, 120));
     }
   });
 }

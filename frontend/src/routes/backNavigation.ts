@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from 'react';
-import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ROUTE_PATTERNS } from './paths';
 
 // Возврат «назад» — один для системной кнопки MAX (useMaxBackButton) и для ссылок «‹ …»
@@ -7,9 +7,8 @@ import { ROUTE_PATTERNS } from './paths';
 // не было вовсе: из «Приглашения» или карточки нельзя было уйти без кнопки MAX.
 //
 // Правило: «назад» — это всегда логический родитель экрана (карточка для проверки,
-// список для карточки, «Компания» для экранов администрирования). Если родитель — это и
-// есть предыдущий экран в истории, делаем шаг назад по истории; иначе заменяем текущий
-// экран родителем. Так не бывает петель, когда «назад» после ссылки «‹ Документы»
+// список для карточки, «Компания» для экранов администрирования), и переход к нему заменяет
+// текущий экран. Так не бывает петель, когда «назад» после ссылки «‹ Документы»
 // возвращал бы на ту же карточку.
 
 /**
@@ -36,44 +35,14 @@ export function parentRoute(pathname: string, entryRoute: string): string {
   return entryRoute;
 }
 
-// Пути внутри приложения в порядке переходов. Живёт на уровне модуля, а не в состоянии:
-// роутер пересоздаётся при refresh() сессии, а история переходов при этом остаётся.
-const visited: string[] = [];
-
-/** Ведёт стек переходов — вызывается один раз, в AppRoutes. */
-export function useTrackVisited(): void {
-  const location = useLocation();
-  const navigationType = useNavigationType();
-  useEffect(() => {
-    const path = location.pathname;
-    if (navigationType === 'PUSH') {
-      visited.push(path);
-    } else if (navigationType === 'REPLACE' && visited.length > 0) {
-      visited[visited.length - 1] = path;
-    } else {
-      // POP — шаг по истории или первая загрузка страницы.
-      const index = visited.lastIndexOf(path);
-      if (index >= 0) {
-        visited.length = index + 1;
-      } else {
-        visited.length = 0;
-        visited.push(path);
-      }
-    }
-  }, [location.key, location.pathname, navigationType]);
-}
-
-/** Функция «вернуться к target»: шаг назад по истории, если target — предыдущий экран. */
+/**
+ * Функция «вернуться к target». Всегда прямой переход с заменой текущего экрана, а не шаг назад
+ * по истории браузера (приёмка 24.09, п. 6 и 11). Внутри веб-версии MAX приложение живёт во фрейме,
+ * а у фрейма и страницы MAX общая история: history.back() отменял последний переход самого MAX
+ * (открытый чат с ботом), а не наш экран, и «‹ Документы» переставала работать. Замена вместо
+ * шага назад ещё и не зависит от того, как экран был открыт — из списка, из уведомления или по ссылке.
+ */
 export function useGoBack(): (target: string) => void {
   const navigate = useNavigate();
-  return useCallback(
-    (target: string) => {
-      if (visited.length >= 2 && visited[visited.length - 2] === target) {
-        navigate(-1);
-      } else {
-        navigate(target, { replace: true });
-      }
-    },
-    [navigate],
-  );
+  return useCallback((target: string) => navigate(target, { replace: true }), [navigate]);
 }

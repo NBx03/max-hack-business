@@ -92,7 +92,7 @@ export function RoutePreviewScreen() {
         <BackLink to={documentCardPath(documentId)} label="К документу" />
         <Typography.Headline variant="large-strong">Предпросмотр маршрута</Typography.Headline>
         <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-          Кто и в каком порядке согласует документ. Этапы идут по очереди, участники одного этапа — параллельно.
+          Этапы идут по очереди, участники одного этапа — одновременно.
         </Typography.Text>
 
         {data.problems.map((problem) => (
