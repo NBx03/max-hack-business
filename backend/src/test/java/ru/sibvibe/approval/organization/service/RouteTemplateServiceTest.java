@@ -75,6 +75,18 @@ class RouteTemplateServiceTest {
     }
 
     @Test
+    void businessTripRequestHasThreeSequentialStagesWithOptionalHeadAndAccountantBeforeDirector() {
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of(DefaultRouteTemplates.BUSINESS_TRIP_REQUEST, 500L));
+
+        service.createDefaultRoutes(ORG, roleIds());
+
+        List<InsertedRoute> routes = savedRoutes(3);
+        assertRoute(routes, 500, 1, DefaultRoles.DEPARTMENT_HEAD, false);
+        assertRoute(routes, 500, 2, DefaultRoles.ACCOUNTANT, false);
+        assertRoute(routes, 500, 3, DefaultRoles.DIRECTOR, true);
+    }
+
+    @Test
     void everyTemplateEndsWithMandatoryDirector() {
         DefaultRouteTemplates.TEMPLATES.forEach((type, rows) -> {
             int lastStage = rows.stream().mapToInt(DefaultRouteTemplates.Row::stageOrder).max().orElseThrow();
