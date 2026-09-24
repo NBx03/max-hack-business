@@ -72,18 +72,19 @@ export function NewDocumentVersionScreen() {
   // Без нового файла версия переносит поля прежней (бэкенд их не перечитывает, ревью #88): так можно
   // убрать приложение, не меняя основной файл, а у возвращённого документа — перейти к правке полей.
   // С «чувствительными данными» файл в модель не уходит вовсе: поля этой формы и есть данные версии.
-  const canSubmit = Boolean(newMain) || containsSensitive || attachmentsChanged || isReturned;
+  // У документов демо-песочницы файла нет: тогда без нового файла отправлять нечего.
+  const canSubmit = Boolean(newMain) || (Boolean(currentMain) && (containsSensitive || attachmentsChanged || isReturned));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!card || !currentMain) return;
+    if (!card) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const updated = await createDocumentVersion(card.id, {
         containsSensitive,
         keepFileIds: [
-          ...(newMain ? [] : [currentMain.id]),
+          ...(newMain || !currentMain ? [] : [currentMain.id]),
           ...Array.from(keptAttachments),
         ],
         main: newMain ?? undefined,
@@ -98,10 +99,10 @@ export function NewDocumentVersionScreen() {
   }
 
   if (loading) return <LoadingState />;
-  if (error || !card || !currentVersion || !currentMain) {
+  if (error || !card || !currentVersion) {
     return (
       <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }} title="Замена файла">
-        <ErrorState message={error ?? 'В текущей версии нет основного файла'} onRetry={() => void load()} />
+        <ErrorState message={error ?? 'Документ не найден'} onRetry={() => void load()} />
       </DocumentScreen>
     );
   }
@@ -122,13 +123,15 @@ export function NewDocumentVersionScreen() {
     >
       <Typography.Text>{card.title}</Typography.Text>
       <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
-        <div style={sectionStyle}>
-          <strong>Текущий основной файл</strong>
-          <span>{currentMain.fileName} · {formatFileSize(currentMain.size)}</span>
-          <small style={{ color: 'var(--text-tertiary)' }}>
-            {newMain ? 'Будет заменён новым файлом' : 'Будет использован в новой версии'}
-          </small>
-        </div>
+        {currentMain && (
+          <div style={sectionStyle}>
+            <strong>Текущий основной файл</strong>
+            <span>{currentMain.fileName} · {formatFileSize(currentMain.size)}</span>
+            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+              {newMain ? 'Будет заменён новым файлом' : 'Останется в новой версии'}
+            </span>
+          </div>
+        )}
         <FilePicker
           label="Новый файл"
           hint="PDF или DOCX, до 10 МБ"

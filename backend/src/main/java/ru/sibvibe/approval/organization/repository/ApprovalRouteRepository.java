@@ -13,6 +13,8 @@ public interface ApprovalRouteRepository extends JpaRepository<ApprovalRoute, Lo
 
     List<ApprovalRoute> findByOrgIdAndDocumentTypeIdOrderByStageOrderAscIdAsc(Long orgId, Long documentTypeId);
 
+    List<ApprovalRoute> findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(Long orgId);
+
     /**
      * Строка шаблона по умолчанию, вставляемая атомарно: если её параллельно создала другая транзакция, вставка
      * дожидается её и ничего не делает, а не падает на {@code uq_route_stage_role}.

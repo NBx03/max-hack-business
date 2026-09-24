@@ -58,7 +58,7 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(10);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(11);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
                     .isEqualTo(18);
             assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(16);

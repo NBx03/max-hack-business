@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { MemberView, OrganizationMetrics } from './types';
+import type { MemberView, OrganizationMetrics, RouteOverview } from './types';
 
 export interface MetricsPeriod {
   from?: string;
@@ -22,4 +22,9 @@ export function getPendingJoinRequestsCount(): Promise<number> {
 /** Сотрудники своей компании — любому участнику (раздел «Компания»); управление — api/admin.ts. */
 export function getColleagues(): Promise<MemberView[]> {
   return apiRequest<MemberView[]>('/orgs/current/colleagues');
+}
+
+/** Маршруты согласования своей компании по типам документов — любому участнику. */
+export function getRoutes(): Promise<RouteOverview[]> {
+  return apiRequest<RouteOverview[]>('/orgs/current/routes');
 }

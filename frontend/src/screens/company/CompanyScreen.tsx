@@ -2,7 +2,8 @@ import { Button, CellList, CellSimple, Typography } from '@maxhub/max-ui';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
-import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount } from '../../api/organization';
+import { getDocumentTypes } from '../../api/documents';
+import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount, getRoutes } from '../../api/organization';
 import type { MemberView } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
@@ -13,6 +14,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 import { DocumentScreen, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
 import { MetricsCard } from './MetricsCard';
+import { RoutesCard } from './RoutesCard';
 
 function roleLine(roles: { name: string }[], isAdmin: boolean): string {
   const names = roles.map((role) => role.name);
@@ -39,6 +41,7 @@ export function CompanyScreen() {
   const pending = pendingQuery.status === 'ready' ? pendingQuery.data : 0;
   const colleaguesQuery = useAsync(() => getColleagues(), []);
   const metricsQuery = useAsync(() => getOrganizationMetrics(), []);
+  const routesQuery = useAsync(() => Promise.all([getRoutes(), getDocumentTypes()]), []);
 
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
@@ -118,7 +121,9 @@ export function CompanyScreen() {
         </div>
       )}
 
-      {/* Второстепенный блок: при ошибке просто не показываем, раздел не должен выглядеть сломанным. */}
+      {/* Второстепенные блоки: при ошибке просто не показываем, раздел не должен выглядеть сломанным. */}
+      {routesQuery.status === 'ready' && <RoutesCard routes={routesQuery.data[0]} types={routesQuery.data[1]} />}
+
       {metricsQuery.status === 'ready' && <MetricsCard metrics={metricsQuery.data} />}
 
       <section style={sectionStyle}>

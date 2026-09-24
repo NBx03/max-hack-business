@@ -163,6 +163,8 @@ export interface RouteSelection {
   stageOrder: number;
   roleId: number;
   userId: number;
+  /** Только у добавленных: отдельный этап перед этапом stageOrder (или последним — после всех). */
+  newStage?: boolean;
 }
 
 export interface SubmitDocumentInput {

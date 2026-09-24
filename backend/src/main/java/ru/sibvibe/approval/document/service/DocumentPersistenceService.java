@@ -121,7 +121,10 @@ public class DocumentPersistenceService {
             throw DocumentApiException.validation("Некорректный список сохраняемых файлов");
         }
         long keptMain = kept.stream().filter(file -> file.getKind() == DocumentFile.Kind.MAIN).count();
-        if ((newMain == null && keptMain != 1) || (newMain != null && keptMain != 0)) {
+        // У документов демо-песочницы файлов нет вовсе (DemoDocumentSeedService): новая версия без файла —
+        // та же, что и у них, иначе возвращённый демо-документ нельзя было бы ни исправить, ни отправить заново.
+        boolean fileless = currentFiles.isEmpty() && newMain == null;
+        if (!fileless && ((newMain == null && keptMain != 1) || (newMain != null && keptMain != 0))) {
             throw DocumentApiException.validation("Для версии должен быть указан один основной файл");
         }
         validateVersionFiles(kept, newMain);
@@ -149,7 +152,7 @@ public class DocumentPersistenceService {
         DocumentRuleService.CheckData previousFields = newMain == null
                 && !containsSensitive
                 && !current.isContainsSensitive()
-                && "CHECKED".equals(current.getCheckStatus())
+                && ("CHECKED".equals(current.getCheckStatus()) || fileless)
                 ? readCheckData(current)
                 : null;
 

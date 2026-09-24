@@ -366,40 +366,37 @@ class OnboardingIntegrationTest {
     }
 
     @Test
-    void roleCannotBeRemovedAndMemberCannotBeDisabledWhileApprovalIsPending() {
+    void removingARoleOrTheMemberReturnsTheAwaitedDocumentToItsAuthorAtOnce() {
         long alice = newUser();
         long bob = newUser();
         createCompany(alice, "Ромашка");
         Map<String, Long> roles = roleIds(alice);
         long bobRequest = submit(bob, inviteCode(alice));
         long bobMember = ok(call(alice, "POST", "/api/v1/orgs/current/join-requests/" + bobRequest + "/approve",
-                Map.of("roleIds", List.of(roles.get("LAWYER"))))).path("memberId").asLong();
+                Map.of("roleIds", List.of(roles.get("LAWYER"), roles.get("ACCOUNTANT"))))).path("memberId").asLong();
         long bobUserId = ok(call(bob, "GET", "/api/v1/me", null)).path("user").path("id").asLong();
         long aliceUserId = ok(call(alice, "GET", "/api/v1/me", null)).path("user").path("id").asLong();
-        long stepId = insertPendingStep(aliceUserId, bobUserId, roles.get("LAWYER"));
-
+        long lawyerStep = insertPendingStep(aliceUserId, bobUserId, roles.get("LAWYER"));
+        long accountantStep = insertPendingStep(aliceUserId, bobUserId, roles.get("ACCOUNTANT"));
         String base = "/api/v1/orgs/current/members/" + bobMember;
-        Resp removeRole = call(alice, "PUT", base + "/roles", Map.of("roleIds", List.of()));
-        assertThat(removeRole.status()).isEqualTo(409);
-        assertThat(removeRole.code()).isEqualTo("MEMBER_HAS_PENDING_STEPS");
-        Resp disable = call(alice, "POST", base + "/disable", null);
-        assertThat(disable.status()).isEqualTo(409);
-        assertThat(disable.code()).isEqualTo("MEMBER_HAS_PENDING_STEPS");
 
-        // добавить роль можно: она не отнимает ничего у уже начатых согласований
-        Resp addRole = call(alice, "PUT", base + "/roles",
-                Map.of("roleIds", List.of(roles.get("LAWYER"), roles.get("ACCOUNTANT"))));
-        assertThat(addRole.status()).as(addRole.body()).isEqualTo(200);
-        assertThat(codes(addRole.json().path("roles"))).containsExactlyInAnyOrder("LAWYER", "ACCOUNTANT");
+        // снять роль можно сразу (приёмка 24.09, п. 15): документ, где Боб юрист, вернулся автору
+        Resp removeRole = call(alice, "PUT", base + "/roles", Map.of("roleIds", List.of(roles.get("ACCOUNTANT"))));
+        assertThat(removeRole.status()).as(removeRole.body()).isEqualTo(200);
+        assertThat(stepState(lawyerStep)).isEqualTo("SKIPPED/MEMBER_REMOVED/RETURNED");
+        assertThat(stepState(accountantStep)).as("шаг в оставшейся роли не тронут").isEqualTo("PENDING/null/IN_APPROVAL");
 
-        // шаг закрыт — теперь роль можно снять, а участника отключить
-        jdbc.update("update approval_step set decision = 'APPROVED', decided_at = now() where id = ?", stepId);
-        assertThat(call(alice, "PUT", base + "/roles", Map.of("roleIds", List.of(roles.get("ACCOUNTANT"))))
-                .status()).isEqualTo(200);
+        // исключить тоже сразу: и этот документ возвращается автору
         Resp disabled = call(alice, "POST", base + "/disable", null);
         assertThat(disabled.status()).as(disabled.body()).isEqualTo(200);
         assertThat(disabled.json().path("status").asText()).isEqualTo("DISABLED");
+        assertThat(stepState(accountantStep)).isEqualTo("SKIPPED/MEMBER_REMOVED/RETURNED");
         assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").isNull()).isTrue();
+    }
+
+    private String stepState(long stepId) {
+        return jdbc.queryForObject("select s.decision || '/' || coalesce(s.auto_reason, 'null') || '/' || d.status"
+                + " from approval_step s join document d on d.id = s.document_id where s.id = ?", String.class, stepId);
     }
 
     @Test

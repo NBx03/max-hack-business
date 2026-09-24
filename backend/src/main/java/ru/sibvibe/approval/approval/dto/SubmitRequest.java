@@ -24,6 +24,20 @@ public record SubmitRequest(
         return extraApprovers == null ? List.of() : extraApprovers;
     }
 
-    public record Choice(@NotNull Integer stageOrder, @NotNull Long roleId, @NotNull Long userId) {
+    /**
+     * {@code newStage} — только у добавленных согласующих (приёмка 24.09, п. 12): {@code true} — отдельный новый
+     * этап <b>перед</b> этапом шаблона {@code stageOrder}; {@code stageOrder} на единицу больше последнего этапа —
+     * новый последний этап. Несколько добавленных с одним и тем же местом согласуют одновременно.
+     * {@code false} или нет — вместе с этапом {@code stageOrder}. Этапы шаблона не убираются и не меняются местами.
+     */
+    public record Choice(@NotNull Integer stageOrder, @NotNull Long roleId, @NotNull Long userId, Boolean newStage) {
+
+        public Choice(Integer stageOrder, Long roleId, Long userId) {
+            this(stageOrder, roleId, userId, null);
+        }
+
+        public boolean isNewStage() {
+            return Boolean.TRUE.equals(newStage);
+        }
     }
 }

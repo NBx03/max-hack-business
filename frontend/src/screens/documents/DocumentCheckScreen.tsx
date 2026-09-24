@@ -384,7 +384,7 @@ export function DocumentCheckScreen() {
   const canReplaceFile = card.permissions.canUploadVersion && !editing;
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
-      <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id))}>К маршруту</Button>
+      <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>К маршруту</Button>
       <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
     </div>
   ) : isDraft && canEdit ? (

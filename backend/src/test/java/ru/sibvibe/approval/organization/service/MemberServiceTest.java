@@ -98,18 +98,15 @@ class MemberServiceTest {
     }
 
     @Test
-    void memberWithPendingStepsCannotBeDisabled() {
+    void disablingIsImmediateAndReturnsDocumentsAwaitingTheMember() {
         givenLockedOrganization();
         OrganizationMember member = member(TARGET_USER, false);
         when(memberRepository.findByIdAndOrgIdForUpdate(MEMBER_ID, ORG)).thenReturn(Optional.of(member));
-        when(guard.hasPendingSteps(TARGET_USER)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.disable(adminActor(), MEMBER_ID))
-                .isInstanceOfSatisfying(DomainException.class, e -> {
-                    assertThat(e.code()).isEqualTo("MEMBER_HAS_PENDING_STEPS");
-                    assertThat(e.httpStatus().value()).isEqualTo(409);
-                });
-        assertThat(member.getStatus()).isEqualTo(OrganizationMember.Status.ACTIVE);
+        service.disable(adminActor(), MEMBER_ID);
+
+        assertThat(member.getStatus()).isEqualTo(OrganizationMember.Status.DISABLED);
+        verify(guard).releaseSteps(ORG, TARGET_USER, null);
     }
 
     @Test
@@ -124,14 +121,13 @@ class MemberServiceTest {
     }
 
     @Test
-    void roleWithPendingStepsCannotBeRemoved() {
+    void removingARoleReturnsDocumentsAwaitingTheMemberInThatRole() {
         givenMemberWithRole(5L);
-        when(guard.hasPendingSteps(TARGET_USER, Set.of(5L))).thenReturn(true);
 
-        assertThatThrownBy(() -> service.setRoles(adminActor(), MEMBER_ID, List.of()))
-                .isInstanceOfSatisfying(DomainException.class,
-                        e -> assertThat(e.code()).isEqualTo("MEMBER_HAS_PENDING_STEPS"));
-        verify(memberRoleRepository, never()).deleteByMemberIdAndRoleIdIn(anyLong(), anyCollection());
+        service.setRoles(adminActor(), MEMBER_ID, List.of());
+
+        verify(memberRoleRepository).deleteByMemberIdAndRoleIdIn(MEMBER_ID, Set.of(5L));
+        verify(guard).releaseSteps(ORG, TARGET_USER, Set.of(5L));
     }
 
     @Test
@@ -141,7 +137,7 @@ class MemberServiceTest {
 
         service.setRoles(adminActor(), MEMBER_ID, List.of(5L, 6L));
 
-        verify(guard, never()).hasPendingSteps(anyLong(), anyCollection());
+        verify(guard, never()).releaseSteps(anyLong(), anyLong(), any());
         verify(memberRoleRepository).save(any(MemberRole.class));
     }
 

@@ -63,10 +63,12 @@ public class BotWebhookController {
         if (expectedSecret.isBlank() || !secretMatches(secret)) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
+        // Тип события без содержимого: по логу видно, доходят ли сообщения боту (приёмка 24.09, п. 13).
+        LOGGER.info("Webhook бота: событие {}", update == null ? "без тела" : update.path("update_type").asText("?"));
         try {
             handler.handle(update);
         } catch (RuntimeException exception) {
-            LOGGER.warn("Ошибка обработки webhook-события бота: {}", exception.getMessage());
+            LOGGER.warn("Ошибка обработки webhook-события бота", exception);
         }
         return ResponseEntity.ok().build();
     }

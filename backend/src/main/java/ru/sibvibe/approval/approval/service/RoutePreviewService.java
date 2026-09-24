@@ -17,10 +17,12 @@ public class RoutePreviewService {
 
     private final DocumentStateService documents;
     private final RoutePlanner planner;
+    private final CarriedApprovals carriedApprovals;
 
-    public RoutePreviewService(DocumentStateService documents, RoutePlanner planner) {
+    public RoutePreviewService(DocumentStateService documents, RoutePlanner planner, CarriedApprovals carriedApprovals) {
         this.documents = documents;
         this.planner = planner;
+        this.carriedApprovals = carriedApprovals;
     }
 
     /**
@@ -48,6 +50,11 @@ public class RoutePreviewService {
                 problems.add(new RoutePreviewResponse.Problem(problem.code(), problem.message())));
         documents.submissionBlocker(documentId, document.currentVersionNo()).ifPresent(reason ->
                 problems.add(new RoutePreviewResponse.Problem("BLOCKING_ISSUES", reason.message())));
-        return new RoutePreviewResponse(stages, problems);
+        RoutePreviewResponse.CarryOver carryOver = carriedApprovals.of(documentId, document.currentVersionNo())
+                .map(carried -> new RoutePreviewResponse.CarryOver(carried.fromVersionNo(), carried.approvals().stream()
+                        .map(key -> new RoutePreviewResponse.Approval(key.roleId(), key.userId()))
+                        .toList()))
+                .orElse(null);
+        return new RoutePreviewResponse(stages, problems, carryOver);
     }
 }
