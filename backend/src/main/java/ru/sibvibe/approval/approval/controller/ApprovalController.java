@@ -58,6 +58,13 @@ public class ApprovalController {
         return viewService.card(id, currentUser);
     }
 
+    /** Автор отзывает документ с согласования: документ возвращается к нему, маршрут начнётся заново. */
+    @PostMapping("/documents/{id}/withdraw")
+    public DocumentCardResponse withdraw(@AuthenticationPrincipal CurrentUser currentUser, @PathVariable long id) {
+        decisionService.withdraw(currentUser, id);
+        return viewService.card(id, currentUser);
+    }
+
     @PostMapping("/approval-steps/{stepId}/decision")
     public DocumentCardResponse decision(
             @AuthenticationPrincipal CurrentUser currentUser,

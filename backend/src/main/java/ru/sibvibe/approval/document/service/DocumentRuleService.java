@@ -142,9 +142,11 @@ public class DocumentRuleService {
             String value = supplied
                     ? prepared.suppliedFields().get(name)
                     : old == null ? null : old.value();
+            // Пустое и отсутствующее — одно и то же: поле, которое открыли и не тронули, остаётся
+            // «из текста документа», а не «указано вручную» (приёмка 24.09).
             boolean unchangedModel = old != null
                     && "MODEL".equals(old.source())
-                    && Objects.equals(old.value(), value);
+                    && Objects.equals(blankToNull(old.value()), blankToNull(value));
             if (unchangedModel) {
                 extracted.put(name, new DocumentExtractor.ExtractedField(value, old.quote(), old.page()));
             } else {
@@ -173,12 +175,23 @@ public class DocumentRuleService {
         if (!"MANUAL".equals(field.source()) || old == null) {
             return field;
         }
-        String inFile = old.fileValue() != null ? old.fileValue() : "MODEL".equals(old.source()) ? old.value() : null;
+        // Пустая строка из одних пробелов от модели — тоже «не нашла», а не значение в файле (ревью #95).
+        String inFile = old.fileValue() != null ? old.fileValue()
+                : "MODEL".equals(old.source()) ? blankToNull(old.value()) : null;
+        if (inFile == null && "MODEL".equals(old.source()) && field.value() != null && !field.value().isBlank()) {
+            // Модель прочитала файл и этого поля в нём не нашла, а автор его заполнил: «в файле этого нет»
+            // — пустая строка, в отличие от null («что в файле, неизвестно»).
+            inFile = "";
+        }
         if (inFile == null || Objects.equals(inFile, field.value())) {
             return field;
         }
         return new DocumentCardResponse.FieldValue(
                 field.name(), field.value(), field.source(), field.quote(), field.page(), inFile);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     public CheckData pending(PreparedCheck prepared) {

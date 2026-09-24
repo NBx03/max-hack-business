@@ -63,6 +63,19 @@ public class MemberService {
     }
 
     /**
+     * Сотрудники своей компании для любого участника (раздел «Компания», приёмка 24.09): кто есть
+     * и с какими ролями — видно всем, как в любом рабочем чате. Только активные: отключённых видит
+     * администратор в {@link #list}. Менять по-прежнему может только администратор.
+     */
+    @Transactional(readOnly = true)
+    public List<MemberView> colleagues(CurrentUser actor) {
+        long orgId = OrganizationAccess.requireMemberOrg(actor);
+        return assembler.assemble(memberRepository.findByOrgIdOrderById(orgId).stream()
+                .filter(member -> member.getStatus() == OrganizationMember.Status.ACTIVE)
+                .toList());
+    }
+
+    /**
      * Заменяет набор ролей участника. Роль, по которой у человека есть незавершённые шаги,
      * снять нельзя: иначе документ зависнет навсегда (CLAUDE.md, проверка №7).
      */

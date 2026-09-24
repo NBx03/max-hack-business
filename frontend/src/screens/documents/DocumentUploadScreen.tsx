@@ -30,7 +30,7 @@ const AUTO = 'auto';
  * реквизитам (тест 23.09, #86: раньше по умолчанию стоял «Любой файл» без проверки вовсе).
  */
 const TYPE_HINTS: Record<string, string> = {
-  [AUTO]: 'ИИ прочитает документ и сам определит его вид. Служебную записку, заявление на отпуск и заявку на меру поддержки проверим подробно по правилам, любой другой документ — по общим реквизитам: дата, номер, заголовок, подпись.',
+  [AUTO]: 'Вид документа определится автоматически по тексту. Служебную записку, заявление на отпуск и заявку на меру поддержки проверим подробно по правилам, любой другой документ — по общим реквизитам: дата, номер, заголовок, подпись.',
   OFFICIAL_MEMO: 'Проверим по ГОСТ Р 7.0.97-2016 и инструкции компании: адресат, дата, номер, заголовок, текст, подпись.',
   VACATION_REQUEST: 'Проверим по положению об отпусках: сотрудник, вид отпуска, дата начала, число дней.',
   SUPPORT_MEASURE_REQUEST: 'Проверим заявителя, ИНН, категорию субъекта МСП (по 209-ФЗ) и вид поддержки.',
@@ -170,17 +170,17 @@ export function DocumentUploadScreen() {
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
             <small style={{ color: 'var(--text-tertiary)' }}>
-              Текст не будет отправлен в ИИ: тип выберите сами, поля заполните вручную — правила проверят их так же.
+              Текст не отправляется на автоматическое распознавание: тип выберите сами, поля заполните вручную — правила проверят их так же.
             </small>
           </span>
         </label>
 
-        {needsExplicitType && <Notice tone="danger">Выберите тип документа: с чувствительными данными ИИ не используется.</Notice>}
+        {needsExplicitType && <Notice tone="danger">Выберите тип документа: с чувствительными данными автоматическое распознавание не используется.</Notice>}
 
         {containsSensitive && selectedType && (
           <section style={sectionStyle}>
             <Typography.Headline variant="medium">Данные документа</Typography.Headline>
-            <FieldInputs definitions={selectedType.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
+            <FieldInputs typeCode={selectedType.code} definitions={selectedType.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
           </section>
         )}
 
@@ -189,7 +189,7 @@ export function DocumentUploadScreen() {
           <Notice>
             {containsSensitive
               ? 'Проверяем документ по правилам…'
-              : 'ИИ читает документ, затем правила проверяют найденные поля. Это займёт до минуты.'}
+              : 'Распознаём реквизиты документа и проверяем их по правилам. Это займёт до минуты.'}
           </Notice>
         )}
       </form>

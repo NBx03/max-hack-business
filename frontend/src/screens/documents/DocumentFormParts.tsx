@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import type { DocumentTypeField } from '../../api/types';
 import { AppNav } from '../../components/base/AppNav';
 import { BackLink } from '../../components/base/BackLink';
+import { fieldHint } from './fieldHints';
 import { BottomActionBar, CenteredColumn, FullscreenCenter, ScreenShell } from '../../components/base/Layout';
 
 export const stackStyle: CSSProperties = {
@@ -115,10 +116,13 @@ export function FieldInputs({
   definitions,
   values,
   onChange,
+  typeCode,
 }: {
   definitions: DocumentTypeField[];
   values: Record<string, string>;
   onChange: (name: string, value: string) => void;
+  /** Код типа — для подсказок-примеров (fieldHints.ts); подсказки справочника — для модели, не для людей. */
+  typeCode?: string;
 }) {
   if (definitions.length === 0) {
     return <Typography.Text>Для этого типа нет полей для ручного ввода.</Typography.Text>;
@@ -134,7 +138,7 @@ export function FieldInputs({
             value={values[field.name] ?? ''}
             onChange={(event) => onChange(field.name, event.target.value)}
             maxLength={10_000}
-            hint={field.hint || undefined}
+            hint={fieldHint(typeCode, field.name)}
           />
         </label>
       ))}

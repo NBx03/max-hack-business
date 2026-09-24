@@ -150,6 +150,11 @@ export function changeDocumentType(documentId: number, versionNo: number, docume
   });
 }
 
+/** Автор отзывает документ с согласования: документ возвращается к нему, маршрут начнётся заново. */
+export function withdrawDocument(documentId: number): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>(`/documents/${documentId}/withdraw`, { method: 'POST' });
+}
+
 export function getRoutePreview(documentId: number): Promise<RoutePreview> {
   return apiRequest<RoutePreview>(`/documents/${documentId}/route-preview`);
 }

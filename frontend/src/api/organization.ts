@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { OrganizationMetrics } from './types';
+import type { MemberView, OrganizationMetrics } from './types';
 
 export interface MetricsPeriod {
   from?: string;
@@ -17,4 +17,9 @@ export function getOrganizationMetrics(period: MetricsPeriod = {}): Promise<Orga
 /** Только счётчик для бейджа на вкладке "Админ" - список заявок делает #54. */
 export function getPendingJoinRequestsCount(): Promise<number> {
   return apiRequest<{ id: number }[]>('/orgs/current/join-requests?status=PENDING').then((items) => items.length);
+}
+
+/** Сотрудники своей компании — любому участнику (раздел «Компания»); управление — api/admin.ts. */
+export function getColleagues(): Promise<MemberView[]> {
+  return apiRequest<MemberView[]>('/orgs/current/colleagues');
 }

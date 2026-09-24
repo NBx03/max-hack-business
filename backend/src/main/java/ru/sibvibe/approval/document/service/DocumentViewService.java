@@ -163,7 +163,8 @@ public class DocumentViewService {
                         version.isContainsSensitive(),
                         version.getCreatedAt(),
                         user(users, version.getCreatedBy()),
-                        fileViews(files.getOrDefault(version.getId(), List.of()), currentUser.userId())))
+                        fileViews(files.getOrDefault(version.getId(), List.of()), currentUser.userId()),
+                        version.getWithdrawnAt()))
                 .toList();
         DocumentVersion current = versions.stream()
                 .filter(version -> version.getVersionNo().equals(document.getCurrentVersionNo()))
@@ -186,7 +187,8 @@ public class DocumentViewService {
                 author && draft && !submissionBlocked,
                 // добавить согласующего можно до отправки: он выбирается в предпросмотре маршрута
                 author && draft,
-                author && editable && !type.isGeneric() && mainIsDocx);
+                author && editable && !type.isGeneric() && mainIsDocx,
+                author && document.getStatus() == Document.Status.IN_APPROVAL);
         List<Long> activeStepIds = steps.stream()
                 .filter(step -> step.versionNo() == document.getCurrentVersionNo())
                 .filter(step -> step.approverId() == currentUser.userId())

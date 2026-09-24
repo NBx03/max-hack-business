@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { decideStep, getDocument, type StepDecisionAction } from '../../api/documents';
+import { decideStep, getDocument, withdrawDocument, type StepDecisionAction } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentCard, FileRef, RouteStage, RouteView, StepView } from '../../api/types';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
@@ -56,6 +56,9 @@ export function DocumentCardScreen() {
   const [comment, setComment] = useState('');
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
   /**
    * Ссылка на скачивание живёт 15 минут (downloadExpiresAt). Если карточка открыта дольше,
@@ -147,8 +150,26 @@ export function DocumentCardScreen() {
   }
 
   const doc = query.data;
-  const returnReason = doc.status === 'RETURNED' ? findReturnReason(doc.route) : null;
   const currentVersion = doc.versions.find((v) => v.versionNo === doc.currentVersionNo);
+  const withdrawnAt = doc.status === 'RETURNED' ? currentVersion?.withdrawnAt ?? null : null;
+  const returnReason = doc.status === 'RETURNED' && !withdrawnAt ? findReturnReason(doc.route) : null;
+
+  async function withdraw() {
+    setWithdrawBusy(true);
+    setWithdrawError(null);
+    try {
+      await withdrawDocument(doc.id);
+      setWithdrawOpen(false);
+      setToast('Документ отозван с согласования');
+      query.refresh();
+    } catch (err) {
+      setWithdrawError(errorMessage(err));
+      // 409 — документ уже решили: карточка должна показать новый статус, а не прежние кнопки.
+      if (err instanceof ApiError && err.status === 409) query.refresh();
+    } finally {
+      setWithdrawBusy(false);
+    }
+  }
   const activeSteps = doc.myActiveStepIds.map((stepId) => findStep(doc.route, stepId)).filter((s): s is StepView => s !== null);
 
   return (
@@ -186,6 +207,26 @@ export function DocumentCardScreen() {
         </div>
       )}
 
+      {withdrawnAt && (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            background: 'var(--status-neutral-bg)',
+            color: 'var(--status-neutral-fg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Отозван автором с согласования</span>
+          <span style={{ fontSize: 13 }}>
+            {formatDateTime(withdrawnAt)}. Исправьте документ и отправьте заново — маршрут начнётся с первого этапа.
+          </span>
+        </div>
+      )}
+      {withdrawError && !withdrawOpen && <ErrorText>{withdrawError}</ErrorText>}
+
       {/* Не внутри блока activeSteps ("Согласовать" у него своего диалога нет) - иначе
           409 STEP_NOT_ACTIVE после query.refresh() был бы виден максимум на миг: шаг
           пропадает из myActiveStepIds вместе с баннером, который был бы вложен туда (#71, ревью). */}
@@ -216,7 +257,7 @@ export function DocumentCardScreen() {
         <CheckSummary
           status={doc.check.status}
           issueCount={doc.check.issues.length}
-          manualCount={doc.check.fields.filter((field) => field.source === 'MANUAL' && field.fileValue).length}
+          manualCount={doc.check.fields.filter((field) => field.source === 'MANUAL' && field.fileValue != null).length}
           onOpen={() => navigate(documentCheckPath(doc.id))}
         />
       )}
@@ -261,6 +302,14 @@ export function DocumentCardScreen() {
               </div>
             ))}
           </div>
+        </BottomActionBar>
+      )}
+
+      {doc.permissions.canWithdraw && activeSteps.length === 0 && (
+        <BottomActionBar>
+          <Button stretched variant="secondary" onClick={() => setWithdrawOpen(true)}>
+            Отозвать с согласования
+          </Button>
         </BottomActionBar>
       )}
 
@@ -331,6 +380,20 @@ export function DocumentCardScreen() {
           </div>
         </div>
       </BottomSheet>
+
+      <ConfirmSheet
+        open={withdrawOpen}
+        onClose={() => {
+          setWithdrawOpen(false);
+          setWithdrawError(null);
+        }}
+        title="Отозвать с согласования?"
+        description="Согласование остановится, согласующим, чья очередь уже подошла, придёт сообщение. Документ вернётся к вам: исправьте его и отправьте заново — маршрут начнётся с первого этапа."
+        confirmLabel="Отозвать"
+        busy={withdrawBusy}
+        error={withdrawError}
+        onConfirm={() => void withdraw()}
+      />
 
       <ConfirmSheet
         open={decisionDialog !== null && rejectStep2}
@@ -426,10 +489,10 @@ function CheckSummary({
         subtitle={
           manualCount > 0 ? (
             <span style={{ color: 'var(--status-warning-fg)' }}>
-              Автор изменил вручную полей: {manualCount} — в файле значения другие
+              Полей, указанных вручную: {manualCount} — в самом файле этого нет или написано иначе
             </span>
           ) : (
-            'Что нашёл ИИ и что проверили правила'
+            'Данные документа и замечания'
           )
         }
         title={

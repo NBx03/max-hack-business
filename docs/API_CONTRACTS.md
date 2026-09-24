@@ -160,6 +160,7 @@ type MemberView = {               // участник компании: отве
 | `POST /orgs/current/join-requests/{id}/approve` | ADMIN | `{ roleIds: number[], isAdmin?: boolean }` → `MemberView`. 409 `INVALID_STATE`; 400 `VALIDATION_FAILED`, если нет ни одной роли и не выдан `isAdmin`; роль другой компании — 404 |
 | `POST /orgs/current/join-requests/{id}/reject` | ADMIN | → 200 |
 | `GET /orgs/current/members` | ADMIN | → `MemberView[]` |
+| `GET /orgs/current/colleagues` | Участник | → `MemberView[]` — только активные сотрудники своей компании, для раздела «Компания» (приёмка 24.09). Не участник — 403 |
 | *SHOULD* `GET /orgs/current/roles/{id}/members` | Участник | → `UserRef[]` — активные носители роли, для добавления согласующего |
 | `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView`. 409 `MEMBER_HAS_PENDING_STEPS` (снять можно только роль без незавершённых шагов), 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
@@ -271,13 +272,15 @@ type DocumentCard = {
           autoDetected: boolean };   // тип выбрала модель при загрузке
   status: DocumentStatus; visibility: Visibility;
   author: UserRef; currentVersionNo: number;
-  versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[] }[];
+  versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[];
+              withdrawnAt: string | null }[];   // автор отозвал эту версию с согласования
   check: CheckResult | null;     // для текущей версии; null только у типа без схемы (is_generic)
   route: RouteView | null;       // null у черновика, который ещё не отправлялся
   permissions: {                 // вычисляет бэкенд — фронтенд правила не дублирует
     canEditFields: boolean; canUploadVersion: boolean; canSubmit: boolean;
     canAddApprover: boolean;
     canCorrectFile: boolean;     // автор, DRAFT или RETURNED, основной файл — DOCX (#86)
+    canWithdraw: boolean;        // автор, IN_APPROVAL — «Отозвать с согласования»
   };
   myActiveStepIds: number[];     // шаги, по которым текущий пользователь может решить сейчас
 };
@@ -326,7 +329,9 @@ type DocumentCard = {
 
 Файл при этом **не меняется**: это «ИИ прочитал поле неверно, а в файле всё правильно».
 Изменённое поле получает `source = "MANUAL"` и `fileValue` — что написано в файле, чтобы
-согласующий видел ручную правку (#86). Исправить сам документ — `corrections` ниже.
+согласующий видел ручную правку (#86). `fileValue = ""` — модель прочитала файл и этого поля в нём нет,
+а автор его заполнил («в файле этого нет»). Пустое и отсутствующее значение равны: поле, которое открыли
+и не изменили, остаётся `MODEL`. Исправить сам документ — `corrections` ниже.
 
 ### `POST /documents/{id}/versions/{versionNo}/corrections` — исправить в файле (#86)
 
@@ -407,6 +412,13 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
 не черновик — 409 `INVALID_STATE`. Предпросмотр не создаёт шагов согласования и не меняет документ и показывает ровно то, что сделает
 отправка. Единственное, что он может записать, — шаблон маршрута компании: если для типа документа
 маршрута ещё нет, он создаётся по умолчанию при первом обращении (при отправке — так же).
+
+### `POST /documents/{id}/withdraw` — отозвать с согласования (приёмка 24.09)
+
+Только **автор** и только `IN_APPROVAL` → карточка. Ожидающие шаги версии получают `SKIPPED`, документ —
+`RETURNED`, версия — `withdrawnAt`. Тем, чья очередь уже подошла, бот сообщает, что решение больше не нужно.
+Дальше — как после возврата: новая версия и отправка заново с первого этапа. Не автор — 403, не на
+согласовании — 409 `INVALID_STATE`; решение по шагу отозванного документа — 409 `STEP_NOT_ACTIVE`.
 
 ### `POST /documents/{id}/submit` — отправить
 

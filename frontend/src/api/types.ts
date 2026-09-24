@@ -229,6 +229,8 @@ export interface DocumentVersion {
   createdAt: string;
   createdBy: UserRef;
   files: FileRef[];
+  /** Автор отозвал эту версию с согласования; null — не отзывалась. */
+  withdrawnAt?: string | null;
 }
 
 export type StepOrigin = 'TEMPLATE' | 'ADDED_BY_AUTHOR';
@@ -268,6 +270,8 @@ export interface DocumentPermissions {
   canAddApprover: boolean;
   /** Исправления полей можно вписать прямо в основной файл (DOCX) новой версией (#86). */
   canCorrectFile: boolean;
+  /** Автор может отозвать документ с согласования (приёмка 24.09). */
+  canWithdraw: boolean;
 }
 
 export interface DocumentCard {

@@ -6,6 +6,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
+import ru.sibvibe.approval.approval.event.DocumentWithdrawnEvent;
 import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
 import ru.sibvibe.approval.bot.Notifier;
 import ru.sibvibe.approval.bot.config.BotConfiguration;
@@ -106,6 +107,15 @@ public class NotificationListener {
      * У auto-approve при отправке ({@code deciderUserId == null}, CLAUDE.md, «Решение A», один сотрудник
      * держит единственную обязательную роль) решившего человека нет - суффикс просто не добавляется.
      */
+    /** Автор отозвал документ: тем, чья очередь уже подошла, решение больше не нужно (приёмка 24.09). */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void on(DocumentWithdrawnEvent event) {
+        String text = "Автор отозвал документ «" + event.documentTitle() + "» с согласования. Решение по нему больше не нужно.";
+        directory.find(event.waitingApproverIds()).values()
+                .forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId())));
+    }
+
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(DocumentDecidedEvent event) {

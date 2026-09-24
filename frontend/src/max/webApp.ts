@@ -31,6 +31,8 @@ export interface MaxWebApp {
   /** Нативный экран шеринга ОС - iOS и Android; в веб-версии MAX не поддерживается. */
   shareContent?(payload: { text?: string; link?: string }): void;
   BackButton: MaxBackButton;
+  /** Доступная область мини-приложения, строки в пикселях (dev.max.ru/docs/webapps/bridge). */
+  getViewportSize?(): Promise<{ height: string; width: string }> | { height: string; width: string };
 }
 
 declare global {

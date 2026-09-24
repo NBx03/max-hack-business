@@ -27,12 +27,14 @@ public record DocumentCardResponse(
     /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
     public record TypeRef(long id, String name, boolean isGeneric, boolean autoDetected) {}
 
+    /** withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась. */
     public record VersionView(
             int versionNo,
             boolean containsSensitive,
             Instant createdAt,
             UserRef createdBy,
-            List<FileRef> files
+            List<FileRef> files,
+            Instant withdrawnAt
     ) {}
 
     public record FileRef(
@@ -123,6 +125,7 @@ public record DocumentCardResponse(
             boolean canUploadVersion,
             boolean canSubmit,
             boolean canAddApprover,
-            boolean canCorrectFile
+            boolean canCorrectFile,
+            boolean canWithdraw
     ) {}
 }
