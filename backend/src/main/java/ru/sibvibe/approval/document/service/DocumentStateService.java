@@ -84,6 +84,17 @@ public class DocumentStateService {
         return snapshot(document);
     }
 
+    /**
+     * Как {@link #lockInOrg}, но документ чужой компании — пусто, а не исключение: вызывающий (исключение
+     * согласующего из компании) продолжает свою транзакцию, и она не помечается к откату.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<DocumentSnapshot> lockIfInOrg(long documentId, long orgId) {
+        return documentRepository.findByIdForUpdate(documentId)
+                .filter(document -> document.getOrgId().equals(orgId))
+                .map(DocumentStateService::snapshot);
+    }
+
     /** Причина, по которой версию нельзя отправить; пусто — можно. */
     @Transactional(readOnly = true)
     public Optional<DocumentCheckRules.Reason> submissionBlocker(long documentId, int versionNo) {

@@ -128,7 +128,7 @@ export function MembersScreen() {
       applyUpdate(updated);
       setConfirmDisable(false);
       closeEdit();
-      setToast('Участник отключён');
+      setToast('Сотрудник исключён');
     } catch (error) {
       setConfirmDisable(false);
       setEditError(errorMessage(error));
@@ -141,6 +141,10 @@ export function MembersScreen() {
     () => members?.slice().sort((left, right) => left.user.fullName.localeCompare(right.user.fullName, 'ru')) ?? [],
     [members],
   );
+  // Исключённые — отдельно и внизу (приёмка 24.09, п. 15): запись остаётся ради истории решений и чтобы
+  // вернувшийся по заявке человек занял прежнее место, но в общем списке она путала.
+  const activeMembers = sortedMembers.filter((member) => member.status !== 'DISABLED');
+  const excludedMembers = sortedMembers.filter((member) => member.status === 'DISABLED');
 
   if (loading) return <LoadingState />;
   if (loadError !== null || !members) {
@@ -158,7 +162,7 @@ export function MembersScreen() {
       </div>
 
       <div style={stackStyle}>
-        {sortedMembers.map((member) => {
+        {activeMembers.map((member) => {
           const disabledMember = member.status === 'DISABLED';
           const isSelf = member.user.id === selfUserId;
           const editable = !disabledMember && !isSelf;
@@ -198,11 +202,29 @@ export function MembersScreen() {
                   )}
                 </div>
               </div>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{roleNames(member.roles)}</span>
+              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{roleNames(member.roles)}</span>
             </button>
           );
         })}
       </div>
+
+      {excludedMembers.length > 0 && (
+        <details style={{ marginTop: 20 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 14 }}>
+            Исключённые · {excludedMembers.length}
+          </summary>
+          <div style={{ ...stackStyle, gap: 6, marginTop: 10 }}>
+            {excludedMembers.map((member) => (
+              <span key={member.memberId} style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
+                {member.user.fullName}
+              </span>
+            ))}
+            <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+              Вернуться может по коду компании или личной ссылке — займёт прежнее место.
+            </span>
+          </div>
+        </details>
+      )}
 
       <BottomSheet
         open={editing !== null}
@@ -221,7 +243,7 @@ export function MembersScreen() {
             Сохранить
           </Button>
           <Button stretched variant="destructive" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
-            Отключить участника
+            Исключить из компании
           </Button>
         </div>
       </BottomSheet>
@@ -229,9 +251,9 @@ export function MembersScreen() {
       <ConfirmSheet
         open={confirmDisable}
         onClose={() => setConfirmDisable(false)}
-        title={`Отключить «${editing?.user.fullName ?? ''}»?`}
-        description="Он потеряет доступ к документам компании. Вернуть доступ можно будет только новым приглашением."
-        confirmLabel="Отключить"
+        title={`Исключить «${editing?.user.fullName ?? ''}»?`}
+        description="Доступ к документам компании закроется сразу. Документы, которые ждут его решения, вернутся авторам — их можно отправить заново."
+        confirmLabel="Исключить"
         destructive
         busy={disabling}
         onConfirm={() => void disable()}

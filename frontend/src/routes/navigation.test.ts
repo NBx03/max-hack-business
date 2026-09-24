@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
-import { launchDataFromHash } from '../app/launch';
+import { launchDataFromHash, launchDataToReloadFor } from '../app/launch';
 import { parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
@@ -116,5 +116,25 @@ describe('launchDataFromHash — данные повторного запуск�
     expect(launchDataFromHash('#WebAppData=query_id%3D1&WebAppPlatform=web')).toBe('query_id=1');
     expect(launchDataFromHash('')).toBeNull();
     expect(launchDataFromHash('#section')).toBeNull();
+  });
+});
+
+describe('launchDataToReloadFor', () => {
+  // Повторное открытие из бота: перезагрузка — только ради новых данных запуска и только один раз (ревью #96).
+  const hash = '#WebAppData=new-launch';
+
+  it('перезагружает ради новых данных запуска', () => {
+    expect(launchDataToReloadFor(hash, 'old-launch', null)).not.toBeNull();
+  });
+
+  it('не перезагружает второй раз ради той же строки — даже если мост её так и не принял', () => {
+    const mark = launchDataToReloadFor(hash, 'old-launch', null);
+    expect(launchDataToReloadFor(hash, 'old-launch', mark)).toBeNull();
+  });
+
+  it('ничего не делает без моста MAX и без данных в хэше', () => {
+    expect(launchDataToReloadFor(hash, undefined, null)).toBeNull();
+    expect(launchDataToReloadFor('', 'old-launch', null)).toBeNull();
+    expect(launchDataToReloadFor('#WebAppData=same', 'same', null)).toBeNull();
   });
 });

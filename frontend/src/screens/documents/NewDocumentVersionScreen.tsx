@@ -72,18 +72,19 @@ export function NewDocumentVersionScreen() {
   // Без нового файла версия переносит поля прежней (бэкенд их не перечитывает, ревью #88): так можно
   // убрать приложение, не меняя основной файл, а у возвращённого документа — перейти к правке полей.
   // С «чувствительными данными» файл в модель не уходит вовсе: поля этой формы и есть данные версии.
-  const canSubmit = Boolean(newMain) || containsSensitive || attachmentsChanged || isReturned;
+  // У документов демо-песочницы файла нет: тогда без нового файла отправлять нечего.
+  const canSubmit = Boolean(newMain) || (Boolean(currentMain) && (containsSensitive || attachmentsChanged || isReturned));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!card || !currentMain) return;
+    if (!card) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
       const updated = await createDocumentVersion(card.id, {
         containsSensitive,
         keepFileIds: [
-          ...(newMain ? [] : [currentMain.id]),
+          ...(newMain || !currentMain ? [] : [currentMain.id]),
           ...Array.from(keptAttachments),
         ],
         main: newMain ?? undefined,
@@ -98,17 +99,17 @@ export function NewDocumentVersionScreen() {
   }
 
   if (loading) return <LoadingState />;
-  if (error || !card || !currentVersion || !currentMain) {
+  if (error || !card || !currentVersion) {
     return (
-      <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }} title="Исправленная версия">
-        <ErrorState message={error ?? 'В текущей версии нет основного файла'} onRetry={() => void load()} />
+      <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }} title="Замена файла">
+        <ErrorState message={error ?? 'Документ не найден'} onRetry={() => void load()} />
       </DocumentScreen>
     );
   }
 
   return (
     <DocumentScreen back={documentId === null ? undefined : { to: documentCardPath(documentId), label: 'К документу' }}
-      title="Исправленная версия"
+      title="Замена файла"
       footer={
         <div style={{ ...stackStyle, gap: 8 }}>
           <SubmitButton form={FORM_ID} busy={submitting} disabled={!canSubmit}>
@@ -122,20 +123,18 @@ export function NewDocumentVersionScreen() {
     >
       <Typography.Text>{card.title}</Typography.Text>
       <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
-        <div style={sectionStyle}>
-          <strong>Текущий основной файл</strong>
-          <span>{currentMain.fileName} · {formatFileSize(currentMain.size)}</span>
-          <small style={{ color: 'var(--text-tertiary)' }}>
-            {newMain ? 'Будет заменён новым файлом' : 'Будет использован в новой версии'}
-          </small>
-        </div>
+        {currentMain && (
+          <div style={sectionStyle}>
+            <strong>Текущий основной файл</strong>
+            <span>{currentMain.fileName} · {formatFileSize(currentMain.size)}</span>
+            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+              {newMain ? 'Будет заменён новым файлом' : 'Останется в новой версии'}
+            </span>
+          </div>
+        )}
         <FilePicker
-          label="Исправленный файл"
-          hint={
-            isReturned
-              ? 'PDF или DOCX, до 10 МБ. Файл верный, а поле распознано неправильно? Отправьте без нового файла — поля сохранятся, и на экране проверки их можно будет исправить.'
-              : 'PDF или DOCX, до 10 МБ. Чтобы поправить только поля, вернитесь к проверке документа — там кнопка «Изменить».'
-          }
+          label="Новый файл"
+          hint="PDF или DOCX, до 10 МБ"
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           file={newMain}
           onSelect={setNewMain}
@@ -165,9 +164,7 @@ export function NewDocumentVersionScreen() {
           <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
-            <small style={{ color: 'var(--text-tertiary)' }}>
-              Файл не будет отправлен на автоматический разбор. Поля ниже заполняете вы — они и будут данными новой версии.
-            </small>
+            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Файл не распознаётся автоматически — поля заполните сами.</span>
           </span>
         </label>
 
@@ -182,8 +179,8 @@ export function NewDocumentVersionScreen() {
         {submitting && (
           <Notice>
             {newMain && !containsSensitive
-              ? 'Распознаём реквизиты нового файла и проверяем их по правилам. Это займёт до минуты.'
-              : 'Проверяем документ по правилам…'}
+              ? 'Распознаём и проверяем новый файл — до минуты.'
+              : 'Проверяем документ…'}
           </Notice>
         )}
       </form>

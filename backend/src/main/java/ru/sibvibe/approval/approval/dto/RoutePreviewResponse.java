@@ -5,8 +5,12 @@ import ru.sibvibe.approval.common.dto.UserRef;
 
 import java.util.List;
 
-/** Предпросмотр маршрута: полностью разрешённая цепочка с именами; ничего не сохраняется. */
-public record RoutePreviewResponse(List<Stage> stages, List<Problem> problems) {
+/**
+ * Предпросмотр маршрута: полностью разрешённая цепочка с именами; ничего не сохраняется.
+ * {@code carryOver} — кто уже одобрил прошлую версию, если документ с тех пор не менялся: их одобрение
+ * перенесётся при отправке; {@code null} — переносить нечего.
+ */
+public record RoutePreviewResponse(List<Stage> stages, List<Problem> problems, CarryOver carryOver) {
 
     public RoutePreviewResponse {
         stages = List.copyOf(stages);
@@ -30,6 +34,15 @@ public record RoutePreviewResponse(List<Stage> stages, List<Problem> problems) {
         public Participant {
             candidates = List.copyOf(candidates);
         }
+    }
+
+    public record CarryOver(int fromVersionNo, List<Approval> approvals) {
+        public CarryOver {
+            approvals = List.copyOf(approvals);
+        }
+    }
+
+    public record Approval(long roleId, long userId) {
     }
 
     /** {@code code}: ROUTE_ROLE_EMPTY или BLOCKING_ISSUES; пока список не пуст, отправить нельзя. */

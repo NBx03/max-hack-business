@@ -59,16 +59,65 @@ export function launchDataFromHash(hash: string): string | null {
   }
 }
 
+const RELOADED_FOR_KEY = 'approval.reloadedFor';
+
 /**
- * Следит за повторным открытием уже открытого мини-приложения. Если MAX поменял только хэш
- * (новые данные запуска без перезагрузки), перезагружаем страницу: мост MAX читает initData
- * лишь при загрузке, и без перезагрузки все запросы ушли бы со старыми данными запуска.
+ * Данные запуска из хэша, ради которых стоит перезагрузить страницу, или null. Только внутри MAX (есть мост) и
+ * не больше одного раза для одной и той же строки: если мост и хэш по-разному декодируют «+» или «%XX» и строки
+ * никогда не совпадут, иначе каждая загрузка вызывала бы новую — приложение не открылось бы вовсе (ревью #96).
+ */
+export function launchDataToReloadFor(hash: string, bridgeInitData: string | undefined, reloadedFor: string | null): string | null {
+  if (bridgeInitData === undefined) return null;
+  const next = launchDataFromHash(hash);
+  if (!next || next === bridgeInitData) return null;
+  const mark = fingerprint(next);
+  return mark === reloadedFor ? null : mark;
+}
+
+function readReloadedFor(): string | null {
+  try {
+    return sessionStorage.getItem(RELOADED_FOR_KEY);
+  } catch {
+    // Без sessionStorage не помним, что уже перезагружали, — поэтому и не перезагружаем.
+    return 'unknown';
+  }
+}
+
+/**
+ * Следит за повторным открытием уже открытого мини-приложения (приёмка 24.09, п. 6). Если MAX поменял
+ * только хэш (новые данные запуска без перезагрузки), перезагружаем страницу: мост MAX читает initData
+ * лишь при загрузке, и без перезагрузки все запросы ушли бы со старыми данными запуска, а переход
+ * по ссылке из уведомления не случился бы. Проверяем не только hashchange: смену адреса фрейма
+ * браузер может сообщить и как popstate, а возвращение к открытому приложению — как focus или
+ * visibilitychange.
+ *
+ * Как именно MAX передаёт повторное открытие, в документации моста не описано (сверено с
+ * dev.max.ru/docs/webapps/bridge 24.09). Поэтому сообщения моста и смена хэша пишутся в консоль
+ * с меткой [approval] (уровень debug): так поведение конкретного клиента MAX можно проверить.
  */
 export function watchRelaunch(): void {
-  window.addEventListener('hashchange', () => {
-    const next = launchDataFromHash(window.location.hash);
-    if (next && next !== getWebApp()?.initData) {
-      window.location.reload();
+  const check = (reason: string) => {
+    const webApp = getWebApp();
+    const mark = launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, readReloadedFor());
+    if (mark === null) return;
+    try {
+      sessionStorage.setItem(RELOADED_FOR_KEY, mark);
+    } catch {
+      return;
+    }
+    console.debug('[approval] новый запуск мини-приложения:', reason);
+    window.location.reload();
+  };
+  window.addEventListener('hashchange', () => check('hashchange'));
+  window.addEventListener('popstate', () => check('popstate'));
+  window.addEventListener('pageshow', () => check('pageshow'));
+  window.addEventListener('focus', () => check('focus'));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') check('visibilitychange');
+  });
+  window.addEventListener('message', (event) => {
+    if (typeof event.data === 'string' && event.data.includes('"type":"WebApp')) {
+      console.debug('[approval] сообщение моста MAX:', event.data.slice(0, 120));
     }
   });
 }

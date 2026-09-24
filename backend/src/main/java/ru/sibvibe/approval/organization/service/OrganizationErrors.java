@@ -66,11 +66,6 @@ final class OrganizationErrors {
         return new DomainException("LAST_ADMIN", HttpStatus.CONFLICT, message);
     }
 
-    static DomainException memberHasPendingSteps() {
-        return new DomainException("MEMBER_HAS_PENDING_STEPS", HttpStatus.CONFLICT,
-                "У сотрудника есть незавершённые согласования");
-    }
-
     static DomainException tooManyAttempts(long retryAfterSeconds) {
         return new DomainException("TOO_MANY_ATTEMPTS", HttpStatus.TOO_MANY_REQUESTS,
                 "Слишком много попыток ввода кода. Попробуйте позже",

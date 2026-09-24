@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { decideStep, getDocument, withdrawDocument, type StepDecisionAction } from '../../api/documents';
+import { createDocumentVersion, decideStep, getDocument, withdrawDocument, type StepDecisionAction } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
-import type { DocumentCard, FileRef, RouteStage, RouteView, StepView } from '../../api/types';
+import type { DocumentCard, FileRef, RouteStage, RouteView, StepView, VersionChanges } from '../../api/types';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
 import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
 import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
@@ -13,7 +13,7 @@ import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
 import { BackLink } from '../../components/base/BackLink';
-import { ROUTE_PATTERNS, documentCheckPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+import { ROUTE_PATTERNS, documentCheckPath, routePreviewPath } from '../../routes/paths';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -30,6 +30,13 @@ function findReturnReason(route: RouteView | null): StepView | null {
     if (!latest) return step;
     return (step.decidedAt ?? '') > (latest.decidedAt ?? '') ? step : latest;
   }, null);
+}
+
+/** Согласующий текущей версии выбыл (исключён или снята роль) — поэтому документ и вернулся автору. */
+function findRemovedApprover(route: RouteView | null, versionNo: number): StepView | null {
+  if (!route) return null;
+  return route.stages.flatMap((stage) => stage.steps)
+    .find((step) => step.versionNo === versionNo && step.autoReason === 'MEMBER_REMOVED') ?? null;
 }
 
 function findStep(route: RouteView | null, stepId: number): StepView | null {
@@ -59,6 +66,8 @@ export function DocumentCardScreen() {
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   /**
    * Ссылка на скачивание живёт 15 минут (downloadExpiresAt). Если карточка открыта дольше,
@@ -152,7 +161,32 @@ export function DocumentCardScreen() {
   const doc = query.data;
   const currentVersion = doc.versions.find((v) => v.versionNo === doc.currentVersionNo);
   const withdrawnAt = doc.status === 'RETURNED' ? currentVersion?.withdrawnAt ?? null : null;
-  const returnReason = doc.status === 'RETURNED' && !withdrawnAt ? findReturnReason(doc.route) : null;
+  const removedApprover = doc.status === 'RETURNED' && !withdrawnAt ? findRemovedApprover(doc.route, doc.currentVersionNo) : null;
+  const returnReason = doc.status === 'RETURNED' && !withdrawnAt && !removedApprover ? findReturnReason(doc.route) : null;
+
+  /**
+   * «Отправить заново без изменений» (приёмка 24.09, п. 1): новая версия с теми же файлами и полями — и сразу
+   * к маршруту. Так документ, вернувшийся из-за маршрута, а не из-за текста, уходит дальше в два нажатия,
+   * а одобрения прошлой версии сохраняются: содержимое то же самое.
+   */
+  async function resendUnchanged() {
+    const current = doc.versions.find((version) => version.versionNo === doc.currentVersionNo);
+    setResendBusy(true);
+    setResendError(null);
+    try {
+      const sensitive = current?.containsSensitive ?? false;
+      const draft = await createDocumentVersion(doc.id, {
+        containsSensitive: sensitive,
+        keepFileIds: current?.files.map((file) => file.id) ?? [],
+        fields: sensitive ? Object.fromEntries(doc.check?.fields.map((field) => [field.name, field.value ?? '']) ?? []) : undefined,
+      });
+      navigate(draft.permissions.canSubmit ? routePreviewPath(doc.id) : documentCheckPath(doc.id));
+    } catch (err) {
+      setResendError(errorMessage(err));
+    } finally {
+      setResendBusy(false);
+    }
+  }
 
   async function withdraw() {
     setWithdrawBusy(true);
@@ -221,16 +255,38 @@ export function DocumentCardScreen() {
         >
           <span style={{ fontSize: 13, fontWeight: 600 }}>Отозван автором с согласования</span>
           <span style={{ fontSize: 13 }}>
-            {formatDateTime(withdrawnAt)}. Исправьте документ и отправьте заново — маршрут начнётся с первого этапа.
+            {formatDateTime(withdrawnAt)}. После правки отправьте заново.
+          </span>
+        </div>
+      )}
+      {removedApprover && (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            background: 'var(--status-warning-bg)',
+            color: 'var(--status-warning-fg)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          <span style={{ fontSize: 14, fontWeight: 600 }}>Вернулся автоматически</span>
+          <span style={{ fontSize: 14 }}>
+            {removedApprover.approver.fullName} больше не согласует как «{removedApprover.role.name}». Отправьте заново —
+            маршрут подберёт другого, прежние согласия сохранятся.
           </span>
         </div>
       )}
       {withdrawError && !withdrawOpen && <ErrorText>{withdrawError}</ErrorText>}
+      {resendError && <ErrorText>{resendError}</ErrorText>}
 
       {/* Не внутри блока activeSteps ("Согласовать" у него своего диалога нет) - иначе
           409 STEP_NOT_ACTIVE после query.refresh() был бы виден максимум на миг: шаг
           пропадает из myActiveStepIds вместе с баннером, который был бы вложен туда (#71, ревью). */}
       {decisionError && decisionDialog === null && <ErrorText>{decisionError}</ErrorText>}
+
+      {doc.changes && doc.status !== 'DRAFT' && <ChangesSummary changes={doc.changes} />}
 
       {doc.route && <RouteStages route={doc.route} />}
 
@@ -332,11 +388,18 @@ export function DocumentCardScreen() {
         </BottomActionBar>
       )}
 
+      {/* Исправление — на экране проверки: там замечания, «Изменить» и «Заменить файл» (приёмка 24.09, п. 9).
+          Раньше отсюда вела «Загрузить исправленную версию», хотя чаще нужно поправить поле, а не файл. */}
       {doc.status === 'RETURNED' && doc.permissions.canUploadVersion && (
         <BottomActionBar>
-          <Button stretched variant="primary" onClick={() => navigate(documentNewVersionPath(doc.id))}>
-            Загрузить исправленную версию
-          </Button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Button stretched variant="primary" disabled={resendBusy} onClick={() => navigate(documentCheckPath(doc.id))}>
+              Исправить документ
+            </Button>
+            <Button stretched variant="secondary" loading={resendBusy} disabled={resendBusy} onClick={() => void resendUnchanged()}>
+              Отправить заново без изменений
+            </Button>
+          </div>
         </BottomActionBar>
       )}
 
@@ -388,7 +451,7 @@ export function DocumentCardScreen() {
           setWithdrawError(null);
         }}
         title="Отозвать с согласования?"
-        description="Согласование остановится, согласующим, чья очередь уже подошла, придёт сообщение. Документ вернётся к вам: исправьте его и отправьте заново — маршрут начнётся с первого этапа."
+        description="Согласование остановится, а тем, чья очередь уже подошла, придёт сообщение. Документ вернётся к вам."
         confirmLabel="Отозвать"
         busy={withdrawBusy}
         error={withdrawError}
@@ -410,6 +473,44 @@ export function DocumentCardScreen() {
         }}
       />
     </ScreenShell>
+  );
+}
+
+const FILE_CHANGE_TEXT = { ADDED: 'добавлено', REMOVED: 'убрано', REPLACED: 'заменён' } as const;
+
+/**
+ * Что изменилось по сравнению с прошлой версией (приёмка 24.09, п. 1): после возврата документ снова проходит
+ * всех, но согласующему не нужно перечитывать его целиком — достаточно посмотреть разницу.
+ */
+function ChangesSummary({ changes }: { changes: VersionChanges }) {
+  const empty = changes.files.length === 0 && changes.fields.length === 0 && !changes.contentChanged;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        padding: 12,
+        borderRadius: 8,
+        border: '1px solid var(--divider-primary)',
+        background: 'var(--background-secondary)',
+        fontSize: 14,
+      }}
+    >
+      <strong>Изменения с версии {changes.comparedToVersionNo}</strong>
+      {empty && <span style={{ color: 'var(--text-secondary)' }}>Документ не менялся.</span>}
+      {changes.contentChanged && <span>Изменён текст документа</span>}
+      {changes.files.map((file) => (
+        <span key={`${file.change}:${file.fileName}`}>
+          {file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'} {FILE_CHANGE_TEXT[file.change]}: {file.fileName}
+        </span>
+      ))}
+      {changes.fields.map((field) => (
+        <span key={field.name} style={{ overflowWrap: 'anywhere' }}>
+          {field.label}: <s style={{ color: 'var(--text-tertiary)' }}>{field.before ?? 'пусто'}</s> → {field.after ?? 'пусто'}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -438,13 +539,13 @@ function StageGroup({ stage }: { stage: RouteStage }) {
         background: 'var(--background-secondary)',
       }}
     >
-      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
         Этап {stage.stageOrder}
         {parallel ? ' — согласуют параллельно' : ''}
       </span>
       {stage.steps.map((step) => (
         <div key={step.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+          <span style={{ fontSize: 14, color: 'var(--text-primary)' }}>
             {step.role.name} — {step.approver.fullName}
             {/* Маршрут может только расти относительно шаблона (CLAUDE.md) - добавленные
                 автором согласующие обязаны быть видны всем в цепочке, не только автору. */}

@@ -55,6 +55,7 @@ public class DocumentViewService {
     private final OrganizationSecurityService organizationService;
     private final DownloadTokenService tokenService;
     private final ObjectMapper objectMapper;
+    private final VersionChangesService versionChanges;
 
     public DocumentViewService(
             DocumentRepository documentRepository,
@@ -65,7 +66,8 @@ public class DocumentViewService {
             DocumentReadRepository readRepository,
             OrganizationSecurityService organizationService,
             DownloadTokenService tokenService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            VersionChangesService versionChanges
     ) {
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
@@ -76,6 +78,7 @@ public class DocumentViewService {
         this.organizationService = organizationService;
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
+        this.versionChanges = versionChanges;
     }
 
     @Transactional(readOnly = true)
@@ -213,7 +216,8 @@ public class DocumentViewService {
                 check,
                 route,
                 permissions,
-                activeStepIds);
+                activeStepIds,
+                versionChanges.changes(documentId, document.getCurrentVersionNo()).orElse(null));
     }
 
     private List<DocumentCardResponse.FileRef> fileViews(

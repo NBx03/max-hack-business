@@ -64,8 +64,9 @@ class SubmissionServiceTest {
     private final RoleService roles = mock(RoleService.class);
     private final ApprovalStepRepository steps = mock(ApprovalStepRepository.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    private final CarriedApprovals carried = mock(CarriedApprovals.class);
     private final SubmissionService service = new SubmissionService(
-            documents, planner, roles, steps, events, Clock.fixed(NOW, ZoneOffset.UTC));
+            documents, planner, roles, steps, events, carried, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void onlyDraftCanBeSubmittedAndNothingIsWrittenOtherwise() {
@@ -302,6 +303,66 @@ class SubmissionServiceTest {
                 List.of(choice(1, 21, 3), choice(1, 22, 2))));
 
         assertThat(savedSteps()).hasSize(4);
+    }
+
+    @Test
+    void approverAddedAsANewStageGetsTheirOwnStageAndTemplateStagesShift() {
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 20, true), row(2, 22, true)),
+                Map.of(20L, List.of(BOB), 22L, List.of(CAROL)));
+        when(roles.rolesById(eq(ORG), any())).thenReturn(Map.of(21L, LAWYER));
+        when(roles.carriersOf(ORG, 21)).thenReturn(List.of(BOB, CAROL));
+
+        // Юрист Карол — между этапами 1 и 2, Юрист Боб — последним, после директора
+        service.submit(author(), DOC, new SubmitRequest(null, List.of(
+                new SubmitRequest.Choice(2, 21L, CAROL.id(), true),
+                new SubmitRequest.Choice(3, 21L, BOB.id(), true))));
+
+        List<ApprovalStep> saved = savedSteps();
+        assertThat(saved).extracting(ApprovalStep::getStageOrder, ApprovalStep::getRoleId, ApprovalStep::getApproverId)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(1, 20L, BOB.id()),
+                        org.assertj.core.groups.Tuple.tuple(2, 21L, CAROL.id()),
+                        org.assertj.core.groups.Tuple.tuple(3, 22L, CAROL.id()),
+                        org.assertj.core.groups.Tuple.tuple(4, 21L, BOB.id()));
+        verify(documents).moveToApproval(DOC, 1);
+    }
+
+    @Test
+    void newStageMayOnlyStandBeforeATemplateStageOrLast() {
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 22, true)), Map.of(22L, List.of(CAROL)));
+        when(roles.rolesById(eq(ORG), any())).thenReturn(Map.of(21L, LAWYER));
+        when(roles.carriersOf(ORG, 21)).thenReturn(List.of(BOB));
+
+        assertThatThrownBy(() -> service.submit(author(), DOC, extras(new SubmitRequest.Choice(3, 21L, BOB.id(), true))))
+                .isInstanceOf(NotFoundException.class);
+        // «вместе с этапом» после последнего — не этап шаблона
+        assertThatThrownBy(() -> service.submit(author(), DOC, extras(new SubmitRequest.Choice(2, 21L, BOB.id(), false))))
+                .isInstanceOf(NotFoundException.class);
+        verify(steps, never()).saveAll(any());
+    }
+
+    @Test
+    void approvalsOfAnUnchangedPreviousVersionAreCarriedOverAndOthersWait() {
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 21, true), row(2, 22, true)),
+                Map.of(21L, List.of(BOB), 22L, List.of(CAROL)));
+        when(carried.of(DOC, 3)).thenReturn(Optional.of(new CarriedApprovals.Carried(2,
+                Set.of(new CarriedApprovals.Key(21L, BOB.id())))));
+
+        service.submit(author(), DOC, empty());
+
+        List<ApprovalStep> saved = savedSteps();
+        assertThat(saved).filteredOn(step -> step.getRoleId() == 21L).singleElement().satisfies(step -> {
+            assertThat(step.getDecision()).isEqualTo(ApprovalStep.Decision.APPROVED);
+            assertThat(step.getAutoReason()).isEqualTo(ApprovalStep.AutoReason.CARRIED_OVER);
+        });
+        assertThat(saved).filteredOn(step -> step.getRoleId() == 22L).singleElement()
+                .satisfies(step -> assertThat(step.getDecision()).isEqualTo(ApprovalStep.Decision.PENDING));
+        // этап 1 уже одобрен — активен сразу этап 2
+        verify(documents).moveToApproval(DOC, 2);
+        assertThat(event(ApprovalRequestedEvent.class).approverUserIds()).containsExactly(CAROL.id());
     }
 
     @Test

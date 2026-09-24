@@ -1,6 +1,8 @@
 package ru.sibvibe.approval.security.service;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.common.api.NotFoundException;
@@ -16,6 +18,8 @@ import java.util.List;
 /** Формирует ответы сессии, не раскрывая MAX id или внутренние признаки личности. */
 @Service
 public class SessionViewService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SessionViewService.class);
 
     private final OrganizationSecurityService organizationService;
     private final boolean demoMode;
@@ -44,9 +48,20 @@ public class SessionViewService {
                         .orElse(null)
                 : null;
         MeResponse.ActingAs actingAs = actingAs(currentUser);
+        if (currentUser.startParam() != null) {
+            // Только вид ссылки, без значения: токен личного приглашения — секрет (приёмка 24.09, п. 15 —
+            // проверяем, доходит ли параметр ссылки от клиента MAX до нас).
+            LOGGER.info("Запуск мини-приложения по ссылке: вид {}, компания {}, заявка {}",
+                    startParamKind(currentUser.startParam()), membership != null, pending != null);
+        }
         return new MeResponse(
                 new UserRef(authenticatedId, currentUser.authenticatedUser().displayName()),
                 membership, pending, demoMode, sandbox, actingAs, currentUser.startParam());
+    }
+
+    private static String startParamKind(String startParam) {
+        int separator = startParam.indexOf('_');
+        return separator > 0 && separator <= 3 ? startParam.substring(0, separator + 1) : "другой";
     }
 
     @Transactional(readOnly = true)

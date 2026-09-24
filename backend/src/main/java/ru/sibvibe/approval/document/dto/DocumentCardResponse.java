@@ -5,6 +5,7 @@ import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.entity.DocumentFile;
+import ru.sibvibe.approval.document.service.VersionChangesService;
 import ru.sibvibe.approval.rules.RuleEngine;
 
 import java.time.Instant;
@@ -22,7 +23,9 @@ public record DocumentCardResponse(
         CheckResult check,
         RouteView route,
         Permissions permissions,
-        List<Long> myActiveStepIds
+        List<Long> myActiveStepIds,
+        /** Что изменилось в текущей версии по сравнению с предыдущей; {@code null} у первой версии (приёмка 24.09, п. 1). */
+        VersionChangesService.Changes changes
 ) {
     /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
     public record TypeRef(long id, String name, boolean isGeneric, boolean autoDetected) {}

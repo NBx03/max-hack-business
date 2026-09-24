@@ -290,6 +290,22 @@ export interface DocumentCard {
   route: RouteView | null;
   permissions: DocumentPermissions;
   myActiveStepIds: number[];
+  /** Что изменилось в текущей версии по сравнению с предыдущей; null у первой версии. */
+  changes: VersionChanges | null;
+}
+
+export interface VersionChanges {
+  comparedToVersionNo: number;
+  files: { change: 'ADDED' | 'REMOVED' | 'REPLACED'; kind: 'MAIN' | 'ATTACHMENT'; fileName: string }[];
+  fields: { name: string; label: string; before: string | null; after: string | null }[];
+  /** Изменилось содержимое документа-формы. */
+  contentChanged: boolean;
+}
+
+/** Маршрут компании для типа документа — раздел «Компания», только чтение. */
+export interface RouteOverview {
+  documentTypeId: number;
+  stages: { stageOrder: number; participants: { role: RoleRef; mandatory: boolean }[] }[];
 }
 
 /** Итог «Исправить в файле»: новая версия и какие поля вписать не удалось (с причиной). */
@@ -324,4 +340,6 @@ export interface RoutePreviewProblem {
 export interface RoutePreview {
   stages: RoutePreviewStage[];
   problems: RoutePreviewProblem[];
+  /** Кто уже одобрил прошлую версию, если документ с тех пор не менялся — повторно их не спросят. */
+  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number }[] } | null;
 }

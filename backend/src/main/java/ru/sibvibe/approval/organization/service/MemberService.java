@@ -76,8 +76,9 @@ public class MemberService {
     }
 
     /**
-     * Заменяет набор ролей участника. Роль, по которой у человека есть незавершённые шаги,
-     * снять нельзя: иначе документ зависнет навсегда (CLAUDE.md, проверка №7).
+     * Заменяет набор ролей участника. Документы, где он ещё не решил в снятой роли, возвращаются авторам
+     * (CLAUDE.md, проверка №7): раньше роль с незавершёнными шагами снять было нельзя, и администратор
+     * ждал, пока человек решит (приёмка 24.09, п. 15).
      */
     @Transactional
     public MemberView setRoles(CurrentUser actor, long memberId, Collection<Long> roleIds) {
@@ -99,11 +100,9 @@ public class MemberService {
         Set<Long> added = new LinkedHashSet<>(target);
         added.removeAll(current);
 
-        if (!removed.isEmpty() && pendingStepsGuard.hasPendingSteps(member.getUserId(), removed)) {
-            throw OrganizationErrors.memberHasPendingSteps();
-        }
         if (!removed.isEmpty()) {
             memberRoleRepository.deleteByMemberIdAndRoleIdIn(memberId, removed);
+            pendingStepsGuard.releaseSteps(orgId, member.getUserId(), removed);
         }
         grantRoles(memberId, added, actor.userId(), clock.instant());
         return assembler.assemble(member);
@@ -133,7 +132,11 @@ public class MemberService {
         return assembler.assemble(member);
     }
 
-    /** Исключает участника из компании; повторный вызов ничего не меняет. */
+    /**
+     * Исключает участника из компании сразу; повторный вызов ничего не меняет. Документы, где он ещё не
+     * решил, возвращаются авторам (приёмка 24.09, п. 15). Запись участника остаётся: на неё ссылается история
+     * решений, а вернувшийся по заявке или ссылке человек включается в той же записи.
+     */
     @Transactional
     public MemberView disable(CurrentUser actor, long memberId) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
@@ -146,10 +149,8 @@ public class MemberService {
         if (member.isAdmin() && activeAdmins(orgId) <= 1) {
             throw OrganizationErrors.lastAdmin("Нельзя отключить последнего администратора");
         }
-        if (pendingStepsGuard.hasPendingSteps(member.getUserId())) {
-            throw OrganizationErrors.memberHasPendingSteps();
-        }
         member.setStatus(OrganizationMember.Status.DISABLED);
+        pendingStepsGuard.releaseSteps(orgId, member.getUserId(), null);
         return assembler.assemble(member);
     }
 

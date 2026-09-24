@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DocumentCard } from '../../api/types';
-import { applyCorrection, changedFields, sameValue, type CorrectionApi } from './fieldCorrection';
+import { applyCorrection, changedFields, keepingFilesInput, manualValues, sameValue, type CorrectionApi } from './fieldCorrection';
 
 // «Исправить и проверить» — несколько запросов подряд, не атомарно (ревью #95, п. 1 и 4).
 
@@ -78,5 +78,40 @@ describe('applyCorrection', () => {
     expect(outcome.versionNo).toBe(2);
     expect(outcome.notApplied).toEqual([{ field: 'x', message: 'нет' }]);
     expect(api.createDocumentVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe('новая версия с теми же файлами', () => {
+  function withCheck(sensitive: boolean): DocumentCard {
+    return {
+      id: 7,
+      currentVersionNo: 1,
+      permissions: { canEditFields: false },
+      versions: [{ versionNo: 1, containsSensitive: sensitive, files: [{ id: 71 }] }],
+      check: { fields: [
+        { name: 'addressee', value: 'Директору', source: 'MANUAL' },
+        { name: 'doc_date', value: '15.09.2026', source: 'MODEL' },
+      ] },
+    } as unknown as DocumentCard;
+  }
+
+  it('у чувствительного документа передаёт все поля: они и есть данные версии', () => {
+    expect(keepingFilesInput(withCheck(true)).fields).toEqual({ addressee: 'Директору', doc_date: '15.09.2026' });
+    expect(keepingFilesInput(withCheck(false)).fields).toBeUndefined();
+  });
+
+  it('ручные значения сохраняет заново вместе с правкой — ни одно не теряется (ревью #96)', async () => {
+    const api: CorrectionApi = {
+      correctFile: vi.fn(),
+      createDocumentVersion: vi.fn().mockResolvedValue(card(2, true)),
+      updateDocumentFields: vi.fn().mockResolvedValue({}),
+      getDocument: vi.fn().mockResolvedValue(card(2, true)),
+    };
+
+    await applyCorrection(api, withCheck(false), {}, { signer_position: 'Руководитель отдела' }, () => undefined);
+
+    expect(manualValues(withCheck(false))).toEqual({ addressee: 'Директору' });
+    expect(api.updateDocumentFields).toHaveBeenCalledWith(7, 2,
+      { addressee: 'Директору', signer_position: 'Руководитель отдела' });
   });
 });

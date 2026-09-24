@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
+import ru.sibvibe.approval.approval.event.ApproverRemovedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
 import ru.sibvibe.approval.approval.event.DocumentWithdrawnEvent;
 import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
@@ -102,11 +103,6 @@ public class NotificationListener {
         approvers.values().forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, url));
     }
 
-    /**
-     * По документу принято итоговое решение - уведомляется автор, с именем того, кто решил (issue #74).
-     * У auto-approve при отправке ({@code deciderUserId == null}, CLAUDE.md, «Решение A», один сотрудник
-     * держит единственную обязательную роль) решившего человека нет - суффикс просто не добавляется.
-     */
     /** Автор отозвал документ: тем, чья очередь уже подошла, решение больше не нужно (приёмка 24.09). */
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -116,6 +112,31 @@ public class NotificationListener {
                 .forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId())));
     }
 
+    /**
+     * Согласующего исключили или сняли с него роль — документ вернулся автору (приёмка 24.09, п. 15). Автору —
+     * что делать дальше, тем, чья очередь уже подошла, — что решение больше не нужно.
+     */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void on(ApproverRemovedEvent event) {
+        String url = links.documentLink(event.documentId());
+        String title = "«" + event.documentTitle() + "»";
+        String who = directory.find(event.removedUserId()).map(Recipient::displayName).orElse("Согласующий");
+        String why = event.roleRemoved() ? "больше не согласует его в своей роли" : "исключён из компании";
+        directory.find(event.authorUserId()).ifPresent(author -> notifier.send(author.maxUserId(),
+                title + " вернулся к вам: " + who + " " + why + ". Отправьте документ заново — если он не менялся, "
+                        + "прежние согласования сохранятся.",
+                OPEN_DOCUMENT, url));
+        String text = title + " снят с согласования: " + who + " " + why + ". Решение по нему пока не нужно.";
+        directory.find(event.waitingApproverIds()).values()
+                .forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, url));
+    }
+
+    /**
+     * По документу принято итоговое решение - уведомляется автор, с именем того, кто решил (issue #74).
+     * У auto-approve при отправке ({@code deciderUserId == null}, CLAUDE.md, «Решение A», один сотрудник
+     * держит единственную обязательную роль) решившего человека нет - суффикс просто не добавляется.
+     */
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(DocumentDecidedEvent event) {

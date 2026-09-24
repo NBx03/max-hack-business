@@ -30,12 +30,12 @@ const AUTO = 'auto';
  * реквизитам (тест 23.09, #86: раньше по умолчанию стоял «Любой файл» без проверки вовсе).
  */
 const TYPE_HINTS: Record<string, string> = {
-  [AUTO]: 'Вид документа определится автоматически по тексту. Служебную записку, заявление на отпуск и заявку на меру поддержки проверим подробно по правилам, любой другой документ — по общим реквизитам: дата, номер, заголовок, подпись.',
-  OFFICIAL_MEMO: 'Проверим по ГОСТ Р 7.0.97-2016 и инструкции компании: адресат, дата, номер, заголовок, текст, подпись.',
-  VACATION_REQUEST: 'Проверим по положению об отпусках: сотрудник, вид отпуска, дата начала, число дней.',
-  SUPPORT_MEASURE_REQUEST: 'Проверим заявителя, ИНН, категорию субъекта МСП (по 209-ФЗ) и вид поддержки.',
+  [AUTO]: 'Определим по тексту документа.',
+  OFFICIAL_MEMO: 'Проверим по ГОСТ Р 7.0.97-2016: адресат, дата, номер, подпись.',
+  VACATION_REQUEST: 'Проверим сотрудника, вид отпуска, даты и число дней.',
+  SUPPORT_MEASURE_REQUEST: 'Проверим заявителя, ИНН, категорию МСП и вид поддержки.',
   BUSINESS_TRIP_REQUEST: 'Проверим сотрудника, место, цель, дату начала и срок.',
-  GENERIC: 'Проверим общие реквизиты любого документа: дату, номер, заголовок и подпись. Замечания — только предупреждения.',
+  GENERIC: 'Проверим дату, номер, заголовок и подпись.',
 };
 
 /** Сначала типы с подробной проверкой, «Другой документ» — последним. */
@@ -120,7 +120,7 @@ export function DocumentUploadScreen() {
       <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
         <FilePicker
           label="Документ"
-          hint="PDF или DOCX, до 10 МБ. В DOCX исправленные поля можно будет вписать прямо в файл."
+          hint="PDF или DOCX, до 10 МБ"
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           file={mainFile}
           onSelect={setMainFile}
@@ -139,7 +139,7 @@ export function DocumentUploadScreen() {
             <option value={AUTO} disabled={containsSensitive}>Определить автоматически</option>
             {types.map((type) => <option key={type.id} value={String(type.id)}>{type.name}</option>)}
           </select>
-          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{hint}</span>
+          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{hint}</span>
         </label>
 
         <label style={fieldStyle}>
@@ -170,13 +170,11 @@ export function DocumentUploadScreen() {
           <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
-            <small style={{ color: 'var(--text-tertiary)' }}>
-              Текст не отправляется на автоматическое распознавание: тип выберите сами, поля заполните вручную — правила проверят их так же.
-            </small>
+            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Текст не распознаётся автоматически — поля заполните сами.</span>
           </span>
         </label>
 
-        {needsExplicitType && <Notice tone="danger">Выберите тип документа: с чувствительными данными автоматическое распознавание не используется.</Notice>}
+        {needsExplicitType && <Notice tone="danger">С чувствительными данными тип нужно выбрать самому.</Notice>}
 
         {containsSensitive && selectedType && (
           <section style={sectionStyle}>
@@ -189,8 +187,8 @@ export function DocumentUploadScreen() {
         {submitting && (
           <Notice>
             {containsSensitive
-              ? 'Проверяем документ по правилам…'
-              : 'Распознаём реквизиты документа и проверяем их по правилам. Это займёт до минуты.'}
+              ? 'Проверяем документ…'
+              : 'Распознаём и проверяем документ — до минуты.'}
           </Notice>
         )}
       </form>
