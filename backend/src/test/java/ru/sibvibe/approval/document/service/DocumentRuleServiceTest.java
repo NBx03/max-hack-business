@@ -9,7 +9,7 @@ import ru.sibvibe.approval.document.entity.DocumentTypeField;
 import ru.sibvibe.approval.document.repository.DocumentTypeFieldRepository;
 import ru.sibvibe.approval.document.repository.DocumentTypeRepository;
 import ru.sibvibe.approval.rules.RuleEngine;
-import ru.sibvibe.approval.rules.repository.RequirementRuleRepository;
+import ru.sibvibe.approval.rules.service.RuleCatalogService;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -33,7 +33,7 @@ class DocumentRuleServiceTest {
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
-                mock(RequirementRuleRepository.class),
+                mock(RuleCatalogService.class),
                 engine,
                 Clock.fixed(Instant.parse("2026-09-20T21:30:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
@@ -71,7 +71,7 @@ class DocumentRuleServiceTest {
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
-                mock(RequirementRuleRepository.class),
+                mock(RuleCatalogService.class),
                 engine,
                 Clock.fixed(Instant.parse("2026-09-24T00:00:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
@@ -98,7 +98,7 @@ class DocumentRuleServiceTest {
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
-                mock(RequirementRuleRepository.class),
+                mock(RuleCatalogService.class),
                 engine,
                 Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
@@ -136,7 +136,7 @@ class DocumentRuleServiceTest {
         RuleEngine engine = mock(RuleEngine.class);
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
-                mock(RequirementRuleRepository.class), engine,
+                mock(RuleCatalogService.class), engine,
                 Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
         type.setCode("MEMO");
@@ -166,7 +166,7 @@ class DocumentRuleServiceTest {
         when(engine.validate(any(), any(), any())).thenReturn(List.of());
         return new DocumentRuleService(
                 mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
-                mock(RequirementRuleRepository.class), engine,
+                mock(RuleCatalogService.class), engine,
                 Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
     }
 

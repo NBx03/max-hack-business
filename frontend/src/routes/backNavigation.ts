@@ -26,7 +26,7 @@ export function parentRoute(pathname: string, entryRoute: string): string {
   if (/^\/documents\/\d+$/.test(pathname)) {
     return ROUTE_PATTERNS.documents;
   }
-  if (pathname.startsWith('/admin/')) {
+  if (pathname.startsWith('/admin/') || pathname === ROUTE_PATTERNS.companyRules) {
     return ROUTE_PATTERNS.company;
   }
   if (pathname === ROUTE_PATTERNS.createCompany || pathname.startsWith(ROUTE_PATTERNS.join)) {

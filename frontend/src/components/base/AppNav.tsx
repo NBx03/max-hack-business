@@ -13,7 +13,9 @@ import { CountBadge } from './Tabs';
 type Section = 'documents' | 'company';
 
 function sectionOf(pathname: string): Section {
-  return pathname === ROUTE_PATTERNS.company || pathname.startsWith('/admin/') ? 'company' : 'documents';
+  return pathname === ROUTE_PATTERNS.company || pathname === ROUTE_PATTERNS.companyRules || pathname.startsWith('/admin/')
+    ? 'company'
+    : 'documents';
 }
 
 function DocumentsIcon() {

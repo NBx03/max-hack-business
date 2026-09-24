@@ -364,6 +364,55 @@ type FileCorrectionResult = {
 - Основной файл не DOCX (PDF) — 400 `VALIDATION_FAILED`: такой файл исправляют в исходнике.
 - Ни одно поле вписать не удалось — 400 с причинами; новая версия не создаётся.
 
+### `POST /documents/{id}/versions/{versionNo}/recheck` — проверить заново (#90)
+
+Без тела → `DocumentCard`. Текущая версия перепроверяется **по текущим правилам компании** по сохранённым полям —
+модель не вызывается, файл не перечитывается. Замечания — снимок на момент проверки: после изменения правил черновик
+сам не пересчитывается, а документы на согласовании не меняются вовсе.
+- Только автор (чужой компании документ — 404, другому участнику — 403), текущая версия `DRAFT` или `RETURNED`,
+  иначе 409 `INVALID_STATE`. Идёт проверка моделью — 409.
+- `DRAFT` — перепроверяется сама версия. `RETURNED` — возвращённая версия остаётся в истории: создаётся версия
+  `versionNo + 1` с теми же файлами, полями и содержимым формы, она и проверяется, документ → `DRAFT`.
+- Всё в одной транзакции под блокировкой документа: при параллельном запросе или ошибке правил сохранённые поля
+  не теряются, версия не остаётся в промежуточном состоянии.
+
+### Правила проверки компании (#90)
+
+| Метод | Кто | Что |
+|---|---|---|
+| `GET /orgs/current/rules` | Участник | → `CompanyRules` |
+| `PUT /orgs/current/rules/{ruleId}` | ADMIN | `RuleSetting` → `CompanyRules`. 400 `VALIDATION_FAILED` — закон, пустой текст, неверное значение; 403 `NOT_ADMIN`; нет правила — 404 |
+| `DELETE /orgs/current/rules/{ruleId}` | ADMIN | «Сбросить к типовому» → `CompanyRules` |
+
+```ts
+type CompanyRules = {
+  canEdit: boolean;                                   // текущий участник — администратор
+  types: { documentTypeId: number; code: string; name: string; rules: CompanyRule[] }[];  // «Другой документ» последним
+};
+type CompanyRule = {
+  id: number; fieldName: string; fieldLabel: string;
+  check: "REQUIRED" | "DATE_FORMAT" | "DATE_NOT_FUTURE" | "MATCHES_PATTERN" | "MIN_LENGTH" | "ONE_OF";
+  kind: RuleKind;              // действующий: рекомендация сервиса со своим источником компании → INTERNAL_POLICY
+  enabled: boolean; severity: Severity; description: string;
+  sourceTitle: string; sourceUrl: string | null; sourceRef: string | null;
+  minLength: number | null;    // только MIN_LENGTH
+  allowedValues: string[] | null;  // только ONE_OF
+  customized: boolean;         // «Изменено компанией»
+  locked: boolean;             // закон — не меняется
+  template: { kind; severity; description; sourceTitle; sourceRef; minLength; allowedValues };
+};
+type RuleSetting = {           // желаемое состояние; хранится только отличие от шаблона
+  enabled: boolean; severity: Severity; description: string;
+  sourceTitle: string | null;  // пусто — источник шаблона; свой источник — ссылка шаблона не показывается
+  sourceRef: string | null;
+  minLength?: number;          // 1..5000, только MIN_LENGTH
+  allowedValues?: string[];    // 1..20 непустых, только ONE_OF
+};
+```
+
+Что можно менять, а что нет — CLAUDE.md, «Правила проверки компании». Настройка действует на новые проверки:
+загрузку, новую версию, правку полей и `recheck`.
+
 ### `PUT /documents/{id}/versions/{versionNo}/type` — сменить тип черновика (#86)
 
 `{ documentTypeId: number }` → `DocumentCard`. Если модель определила вид неверно: текущая

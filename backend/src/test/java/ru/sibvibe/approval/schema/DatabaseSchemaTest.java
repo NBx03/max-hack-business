@@ -58,10 +58,10 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(12);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(13);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
-                    .isEqualTo(18);
-            assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(16);
+                    .isEqualTo(19);
+            assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(17);
             assertThat(context.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
             checkReferenceData(jdbc);
             checkReferenceDataMatchesTestdata(jdbc);
@@ -210,7 +210,7 @@ class DatabaseSchemaTest {
             try {
                 em.unwrap(Session.class).doWork(connection ->
                         ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/schema-fixture.sql")));
-                assertThat(factory.getMetamodel().getEntities()).hasSize(16);
+                assertThat(factory.getMetamodel().getEntities()).hasSize(17);
                 // Чтение каждой сущности проверяет не только DDL, но и enum/JSON/составные ключи.
                 for (var entity : factory.getMetamodel().getEntities()) {
                     assertThat(em.createQuery("select e from " + entity.getName() + " e", entity.getJavaType())

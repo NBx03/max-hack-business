@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { MemberView, OrganizationMetrics, RouteOverview } from './types';
+import type { CompanyRules, MemberView, OrganizationMetrics, RouteOverview, RuleSettingInput } from './types';
 
 export interface MetricsPeriod {
   from?: string;
@@ -22,6 +22,20 @@ export function getPendingJoinRequestsCount(): Promise<number> {
 /** Сотрудники своей компании — любому участнику (раздел «Компания»); управление — api/admin.ts. */
 export function getColleagues(): Promise<MemberView[]> {
   return apiRequest<MemberView[]>('/orgs/current/colleagues');
+}
+
+/** Правила проверки компании (#90): смотреть — участник, менять — администратор. */
+export function getCompanyRules(): Promise<CompanyRules> {
+  return apiRequest<CompanyRules>('/orgs/current/rules');
+}
+
+export function updateCompanyRule(ruleId: number, input: RuleSettingInput): Promise<CompanyRules> {
+  return apiRequest<CompanyRules>(`/orgs/current/rules/${ruleId}`, { method: 'PUT', body: input });
+}
+
+/** «Сбросить к типовому». */
+export function resetCompanyRule(ruleId: number): Promise<CompanyRules> {
+  return apiRequest<CompanyRules>(`/orgs/current/rules/${ruleId}`, { method: 'DELETE' });
 }
 
 /** Маршруты согласования своей компании по типам документов — любому участнику. */

@@ -42,3 +42,5 @@ INSERT INTO approval_route(id, document_type_id, org_id, stage_order, role_id, i
     (1, 1, 1, 1, 1, true);
 INSERT INTO approval_step(id, document_id, version_no, approver_id, role_id, stage_order, origin, decision, created_at, activated_at) VALUES
     (1, 1, 1, 2, 1, 1, 'TEMPLATE', 'PENDING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+INSERT INTO organization_rule_setting(org_id, rule_id, enabled, severity, description, source_title, source_ref, expected, updated_by, updated_at) VALUES
+    (1, 1, true, 'WARNING', 'Текст компании', 'Инструкция компании', 'п. 1', NULL, 1, CURRENT_TIMESTAMP);

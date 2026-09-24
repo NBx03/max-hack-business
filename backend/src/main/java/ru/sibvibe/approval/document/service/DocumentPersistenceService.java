@@ -191,6 +191,80 @@ public class DocumentPersistenceService {
     }
 
     /**
+     * «Проверить заново» (#90, ревью #103): сохранённые поля — по текущим правилам компании, без модели.
+     *
+     * Всё — в одной транзакции под блокировкой документа, а не «записать ожидание → проверить → сохранить», как
+     * при правке полей: перепроверке не с чем приходить, кроме сохранённых полей, поэтому промежуточное состояние
+     * без них не должно появляться ни на миг. Иначе второй параллельный запрос прочитал бы пустые поля первого
+     * как «прежние», а ошибка правил оставила бы версию FAILED без полей. Модели и внешних вызовов здесь нет —
+     * держать блокировку на время проверки можно.
+     *
+     * У RETURNED возвращённая версия остаётся в истории как есть: перепроверяется новая версия-черновик с теми же
+     * файлами, полями и содержимым формы.
+     *
+     * @return номер проверенной версии
+     */
+    @Transactional
+    public int recheck(
+            long documentId,
+            int versionNo,
+            long orgId,
+            long authorId,
+            long documentTypeId,
+            java.util.function.UnaryOperator<DocumentRuleService.CheckData> rules
+    ) {
+        Document document = documentRepository.findByIdForUpdate(documentId)
+                .orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getCurrentVersionNo() != versionNo) {
+            throw DocumentApiException.invalidState("Документ уже был изменён — обновите экран");
+        }
+        if (document.getStatus() != Document.Status.DRAFT && document.getStatus() != Document.Status.RETURNED) {
+            throw DocumentApiException.invalidState("Проверить заново можно черновик или возвращённый документ");
+        }
+        if (!document.getDocumentTypeId().equals(documentTypeId)) {
+            throw DocumentApiException.invalidState("Документ уже был изменён — обновите экран");
+        }
+        DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
+                .orElseThrow(NotFoundException::new);
+        JsonNode stored = version.getExtractedFields();
+        if (stored != null && stored.path("checkToken").isTextual()) {
+            throw DocumentApiException.invalidState("Проверка ещё идёт — подождите несколько секунд");
+        }
+        DocumentRuleService.CheckData result = rules.apply(readCheckData(version));
+        if (result == null) {
+            throw DocumentApiException.validation("У этого документа нет проверяемых полей");
+        }
+        DocumentVersion target = version;
+        Instant now = clock.instant();
+        if (document.getStatus() == Document.Status.RETURNED) {
+            target = new DocumentVersion();
+            target.setDocumentId(documentId);
+            target.setVersionNo(versionNo + 1);
+            target.setContainsSensitive(version.isContainsSensitive());
+            target.setContent(version.getContent() == null ? null : version.getContent().deepCopy());
+            target.setCreatedBy(authorId);
+            target.setCreatedAt(now);
+            target = versionRepository.save(target);
+            List<DocumentFile> copies = new ArrayList<>();
+            for (DocumentFile source : fileRepository.findByVersionIdOrderByPosition(version.getId())) {
+                NewFile reused = new NewFile(
+                        source.getStorageKey(), source.getFileName(), source.getMimeType(), source.getFileSize());
+                copies.add(newFile(target.getId(), source.getKind(), source.getPosition(), reused, now));
+            }
+            fileRepository.saveAll(copies);
+            document.setCurrentVersionNo(versionNo + 1);
+            document.setCurrentStage(null);
+            document.setStatus(Document.Status.DRAFT);
+        }
+        target.setExtractedFields(fieldsJson(result, null));
+        target.setValidationIssues(objectMapper.valueToTree(result.issues()));
+        target.setCheckStatus("CHECKED");
+        document.setUpdatedAt(now);
+        return target.getVersionNo();
+    }
+
+    /**
      * Смена типа черновика (#86): модель могла определить вид неверно. Текущая версия
      * перепроверяется по схеме нового типа — новая попытка проверки со своим токеном.
      */
