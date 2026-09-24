@@ -298,6 +298,8 @@ export interface VersionChanges {
   comparedToVersionNo: number;
   files: { change: 'ADDED' | 'REMOVED' | 'REPLACED'; kind: 'MAIN' | 'ATTACHMENT'; fileName: string }[];
   fields: { name: string; label: string; before: string | null; after: string | null }[];
+  /** Изменилось содержимое документа-формы. */
+  contentChanged: boolean;
 }
 
 /** Маршрут компании для типа документа — раздел «Компания», только чтение. */

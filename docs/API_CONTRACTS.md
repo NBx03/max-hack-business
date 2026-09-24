@@ -290,6 +290,7 @@ type DocumentCard = {
     comparedToVersionNo: number;
     files: { change: "ADDED" | "REMOVED" | "REPLACED"; kind: "MAIN" | "ATTACHMENT"; fileName: string }[];
     fields: { name: string; label: string; before: string | null; after: string | null }[];
+    contentChanged: boolean;   // изменилось содержимое документа-формы
   } | null;
 };
 ```

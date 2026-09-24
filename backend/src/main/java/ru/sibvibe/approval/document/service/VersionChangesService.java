@@ -77,10 +77,17 @@ public class VersionChangesService {
         return Optional.of(new Changes(
                 versionNo - 1,
                 fileChanges(files(previous.get()), files(current.get())),
-                fieldChanges(values(previous.get()), values(current.get()), labels)));
+                fieldChanges(values(previous.get()), values(current.get()), labels),
+                // Содержимое документа-формы (SHOULD, CLAUDE.md): пока его пишет только демо, но как только появится
+                // правка формы, изменённый текст не должен считаться «тем же документом» (ревью #97).
+                !Objects.equals(previous.get().getContent(), current.get().getContent())));
     }
 
-    /** Содержимое версии совпадает с предыдущей: те же файлы и те же значения полей. */
+    /**
+     * Содержимое версии совпадает с предыдущей: те же файлы, те же значения полей и то же содержимое формы.
+     * Признак «чувствительные данные» не сравнивается сознательно: он меняет только то, уходит ли текст в модель,
+     * а не то, что видит и одобряет согласующий.
+     */
     @Transactional(readOnly = true)
     public boolean sameAsPrevious(long documentId, int versionNo) {
         return changes(documentId, versionNo).map(Changes::isEmpty).orElse(false);
@@ -174,10 +181,11 @@ public class VersionChangesService {
     public record FieldChange(String name, String label, String before, String after) {
     }
 
-    public record Changes(int comparedToVersionNo, List<FileChange> files, List<FieldChange> fields) {
+    /** contentChanged — изменилось содержимое документа-формы ({@code document_version.content}). */
+    public record Changes(int comparedToVersionNo, List<FileChange> files, List<FieldChange> fields, boolean contentChanged) {
 
         public boolean isEmpty() {
-            return files.isEmpty() && fields.isEmpty();
+            return files.isEmpty() && fields.isEmpty() && !contentChanged;
         }
     }
 }

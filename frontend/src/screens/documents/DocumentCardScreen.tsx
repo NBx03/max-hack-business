@@ -483,7 +483,7 @@ const FILE_CHANGE_TEXT = { ADDED: 'добавлено', REMOVED: 'убрано',
  * всех, но согласующему не нужно перечитывать его целиком — достаточно посмотреть разницу.
  */
 function ChangesSummary({ changes }: { changes: VersionChanges }) {
-  const empty = changes.files.length === 0 && changes.fields.length === 0;
+  const empty = changes.files.length === 0 && changes.fields.length === 0 && !changes.contentChanged;
   return (
     <div
       style={{
@@ -499,6 +499,7 @@ function ChangesSummary({ changes }: { changes: VersionChanges }) {
     >
       <strong>Изменения с версии {changes.comparedToVersionNo}</strong>
       {empty && <span style={{ color: 'var(--text-secondary)' }}>Документ не менялся.</span>}
+      {changes.contentChanged && <span>Изменён текст документа</span>}
       {changes.files.map((file) => (
         <span key={`${file.change}:${file.fileName}`}>
           {file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'} {FILE_CHANGE_TEXT[file.change]}: {file.fileName}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Button, Spinner, Typography } from '@maxhub/max-ui';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument, type RouteSelection } from '../../api/documents';
 import { getColleagues } from '../../api/organization';
 import type { DocumentStatus, MemberView, RoutePreview, RoutePreviewParticipant, RoutePreviewStage } from '../../api/types';
@@ -10,7 +10,7 @@ import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/b
 import { ErrorState, ErrorText } from '../../components/base/StateCard';
 import { useAsync } from '../../hooks/useAsync';
 import { errorMessage } from '../../api/errors';
-import { documentCardPath } from '../../routes/paths';
+import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import { BackLink } from '../../components/base/BackLink';
 import { inputStyle } from './DocumentFormParts';
 
@@ -85,6 +85,9 @@ export function RoutePreviewScreen() {
   const { id } = useParams<{ id: string }>();
   const documentId = Number(id);
   const navigate = useNavigate();
+  // С экрана проверки («К маршруту» при создании документа) «назад» ведёт туда же, а не через него на карточку
+  // (ревью #96, вопрос 1).
+  const fromCheck = (useLocation().state as { from?: string } | null)?.from === 'check';
 
   const query = useAsync(() => getRoutePreview(documentId), [documentId]);
   const [selections, setSelections] = useState<Map<string, number>>(new Map());
@@ -155,7 +158,10 @@ export function RoutePreviewScreen() {
   return (
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-        <BackLink to={documentCardPath(documentId)} label="К документу" />
+        <BackLink
+          to={fromCheck ? documentCheckPath(documentId) : documentCardPath(documentId)}
+          label={fromCheck ? 'К проверке' : 'К документу'}
+        />
         <Typography.Headline variant="large-strong">Маршрут</Typography.Headline>
         <Typography.Text style={{ color: 'var(--text-secondary)' }}>
           Этапы идут по очереди, участники одного этапа — одновременно. Можно добавить согласующих, убрать
@@ -222,7 +228,8 @@ export function RoutePreviewScreen() {
         onClose={() => setAddOpen(false)}
         preview={data}
         onAdd={(extra) => {
-          setExtras((prev) => [...prev, extra]);
+          // Тот же человек в той же роли на том же месте — не дубль, а то же самое (ревью #97).
+          setExtras((prev) => (prev.some((item) => item.key === extra.key) ? prev : [...prev, extra]));
           setAddOpen(false);
         }}
       />
