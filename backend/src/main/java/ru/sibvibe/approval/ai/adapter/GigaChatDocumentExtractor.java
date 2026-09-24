@@ -31,6 +31,8 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
     private static final Logger LOGGER = LoggerFactory.getLogger(GigaChatDocumentExtractor.class);
     private static final int MAX_VALUE_LENGTH = 10_000;
     private static final int MAX_QUOTE_LENGTH = 2_000;
+    /** Попыток на один документ: повтор — только если ответ не разобран, и в пределах того же тайм-аута. */
+    static final int MAX_ATTEMPTS = 2;
     private static final String SYSTEM_PROMPT = """
             Ты извлекаешь структурированные поля из текста документа.
             Не проверяй правила, не оценивай документ и не добавляй сведения, которых нет в тексте.
@@ -85,25 +87,39 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
         if (builder == null) {
             return unavailable();
         }
-        Future<String> call = executor.submit(() -> builder.build().prompt()
-                .system(SYSTEM_PROMPT)
-                .user(buildUserPrompt(request))
-                .call()
-                .content());
-        try {
-            String response = call.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            return parse(response, request.schema());
-        } catch (TimeoutException exception) {
-            call.cancel(true);
-            LOGGER.warn("Истёк тайм-аут извлечения полей GigaChat");
-            return unavailable();
-        } catch (InterruptedException exception) {
-            call.cancel(true);
-            Thread.currentThread().interrupt();
-            return unavailable();
-        } catch (ExecutionException | RuntimeException exception) {
-            LOGGER.warn("GigaChat недоступен при извлечении полей: {}", exception.getClass().getSimpleName());
-            return unavailable();
+        // Живой прогон 24.09: изредка модель отвечает некорректным JSON (на одном и том же документе то да, то нет),
+        // и тогда пропадали все поля — автор видел «распознавание недоступно». Один повтор в пределах того же
+        // тайм-аута: общее время ожидания не растёт, а случайный сбой формата больше не ломает проверку.
+        long deadline = System.nanoTime() + timeout.toNanos();
+        for (int attempt = 1; ; attempt++) {
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                LOGGER.warn("Истёк тайм-аут извлечения полей GigaChat");
+                return unavailable();
+            }
+            Future<String> call = executor.submit(() -> builder.build().prompt()
+                    .system(SYSTEM_PROMPT)
+                    .user(buildUserPrompt(request))
+                    .call()
+                    .content());
+            try {
+                ExtractionResult parsed = parse(call.get(left, TimeUnit.NANOSECONDS), request.schema());
+                if (parsed.available() || attempt >= MAX_ATTEMPTS) {
+                    return parsed;
+                }
+                LOGGER.info("Повторяем извлечение полей: ответ GigaChat не разобран");
+            } catch (TimeoutException exception) {
+                call.cancel(true);
+                LOGGER.warn("Истёк тайм-аут извлечения полей GigaChat");
+                return unavailable();
+            } catch (InterruptedException exception) {
+                call.cancel(true);
+                Thread.currentThread().interrupt();
+                return unavailable();
+            } catch (ExecutionException | RuntimeException exception) {
+                LOGGER.warn("GigaChat недоступен при извлечении полей: {}", exception.getClass().getSimpleName());
+                return unavailable();
+            }
         }
     }
 
