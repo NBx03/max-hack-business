@@ -127,13 +127,16 @@ public class NotificationListener {
      * Шаг застрял дольше настроенного порога (issue #60, COULD) - согласующему уходит напоминание с той же
      * кнопкой, что и обычный запрос решения. Отсечение «не чаще раза в сутки на шаг» уже сделано отправителем
      * события ({@code approval.StuckStepReminderJob}, атомарный {@code UPDATE}) - здесь только текст.
+     *
+     * Текст нейтральный, без подталкивания к конкретному решению (ревью #93, пункт 6): согласующий может
+     * не только одобрить, но и вернуть или отклонить документ, а «Не забудьте согласовать» это исключало.
      */
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(StuckStepReminderEvent event) {
         directory.find(event.approverUserId()).ifPresent(approver -> {
             String text = "«" + event.documentTitle() + "» " + waitingPhrase(event.waitingHours())
-                    + " Не забудьте согласовать.";
+                    + " Откройте документ, чтобы принять решение.";
             notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId()));
         });
     }

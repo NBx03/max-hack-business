@@ -26,6 +26,16 @@ public class MaxBotApiNotifier implements Notifier {
 
     @Override
     public void send(long maxUserId, String text, String buttonLabel, String buttonUrl) {
+        if (maxUserId <= 0) {
+            // Синтетический получатель демо-песочницы (ревью #93, пункт 3): у таких участников нет
+            // настоящего аккаунта MAX - OrganizationSecurityService.nextSyntheticMaxUserId выдаёт им
+            // только отрицательные id, настоящий MAX всегда возвращает положительный. Без этой проверки
+            // каждая песочница каждого проверяющего слала бы в Bot API заведомо неудачные вызовы -
+            // например, каждое утро по «застрявшим» шагам заранее посаженной служебной записки.
+            LOGGER.debug("Уведомление MAX пропущено: получатель {} - синтетический пользователь демо-песочницы",
+                    maxUserId);
+            return;
+        }
         List<MaxBotApiClient.OpenAppButtonRequest> buttons = buttonUrl == null || buttonUrl.isBlank()
                 ? List.of()
                 : List.of(openAppButton(buttonLabel, buttonUrl));

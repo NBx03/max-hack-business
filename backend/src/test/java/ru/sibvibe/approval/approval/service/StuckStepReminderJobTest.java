@@ -45,13 +45,15 @@ class StuckStepReminderJobTest {
             new StuckStepReminderJob(steps, documents, events, clock, 48, 24);
 
     @Test
-    void passesConfiguredThresholdsToTheAtomicClaim() {
+    void passesConfiguredThresholdsToTheAtomicClaimWithAnHourOfDriftMargin() {
         when(steps.markStuckAsReminded(any(), any(), any(), any())).thenReturn(0);
 
         job.remindStuckSteps();
 
+        // Запас в час (ревью #93, пункт 2): без него запуск, чуть сдвинутый во времени относительно
+        // вчерашней отметки, примерно в половине случаев отсекал бы законное повторное напоминание.
         verify(steps).markStuckAsReminded(
-                eq(NOW), eq(NOW.minusSeconds(48 * 3600)), eq(NOW.minusSeconds(24 * 3600)),
+                eq(NOW), eq(NOW.minusSeconds(48 * 3600)), eq(NOW.minusSeconds(23 * 3600)),
                 eq(ApprovalStep.Decision.PENDING));
     }
 
