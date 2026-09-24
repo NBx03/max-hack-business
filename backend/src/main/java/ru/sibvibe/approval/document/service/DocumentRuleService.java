@@ -210,7 +210,8 @@ public class DocumentRuleService {
         if (prepared.suppliedFields().containsKey(name)) {
             String value = prepared.suppliedFields().get(name);
             values.put(name, value);
-            return new DocumentCardResponse.FieldValue(name, value, "MANUAL", null, null);
+            return new DocumentCardResponse.FieldValue(
+                    name, value, "MANUAL", null, null, prepared.fileValues().get(name));
         }
         DocumentExtractor.ExtractedField extracted = extraction.fields().get(name);
         String value = extracted == null ? null : extracted.value();
@@ -226,12 +227,30 @@ public class DocumentRuleService {
                 extracted == null ? null : extracted.page());
     }
 
+    /**
+     * fileValues — что написано в файле для полей из suppliedFields, которые автор раньше заменил
+     * вручную, не меняя файл: согласующий продолжает видеть расхождение (ревью слитого #88).
+     */
     public record PreparedCheck(
             DocumentType type,
             List<DocumentTypeField> schema,
             Map<String, String> suppliedFields,
-            List<RuleEngine.RequirementRule> rules
-    ) {}
+            List<RuleEngine.RequirementRule> rules,
+            Map<String, String> fileValues
+    ) {
+        public PreparedCheck(
+                DocumentType type,
+                List<DocumentTypeField> schema,
+                Map<String, String> suppliedFields,
+                List<RuleEngine.RequirementRule> rules
+        ) {
+            this(type, schema, suppliedFields, rules, Map.of());
+        }
+
+        public PreparedCheck withFileValues(Map<String, String> values) {
+            return new PreparedCheck(type, schema, suppliedFields, rules, Map.copyOf(values));
+        }
+    }
 
     /** textMissing — в файле не нашлось текста (скан): поля только вручную, и экран говорит почему. */
     public record CheckData(

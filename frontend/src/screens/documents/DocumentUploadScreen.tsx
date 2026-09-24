@@ -119,7 +119,7 @@ export function DocumentUploadScreen() {
       <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
         <FilePicker
           label="Документ"
-          hint="PDF или DOCX, до 10 МБ. Исправления полей ИИ сможет вписать прямо в DOCX."
+          hint="PDF или DOCX, до 10 МБ. В DOCX исправленные поля можно будет вписать прямо в файл."
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           file={mainFile}
           onSelect={setMainFile}
