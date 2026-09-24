@@ -96,6 +96,12 @@ services:
       DEMO_MODE: ${DEMO_MODE:-false}
       AI_ENABLED: ${AI_ENABLED:-true}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-30}
+      # Напоминание о застрявшем шаге (issue #60): для демо снизьте REMINDERS_STUCK_AFTER_HOURS
+      # и учащите REMINDERS_CRON, не пересобирая образ.
+      REMINDERS_ENABLED: ${REMINDERS_ENABLED:-true}
+      REMINDERS_CRON: "${REMINDERS_CRON:-0 0 8 * * *}"
+      REMINDERS_STUCK_AFTER_HOURS: ${REMINDERS_STUCK_AFTER_HOURS:-48}
+      REMINDERS_COOLDOWN_HOURS: ${REMINDERS_COOLDOWN_HOURS:-24}
     ports:
       # Только 127.0.0.1: снаружи бэкенд доступен лишь через nginx фронтенда,
       # а не по голому HTTP в обход HTTPS стенда.

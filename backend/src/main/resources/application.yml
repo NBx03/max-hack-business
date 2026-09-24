@@ -132,6 +132,15 @@ app:
     # всегда ведёт к ручному вводу полей — отдельного переключателя на это нет (ревью #67).
     enabled: ${AI_ENABLED:true}
     timeout-seconds: ${AI_TIMEOUT_SECONDS:30}
+  reminders:
+    # Раз в сутки напоминаем согласующему про шаг, который висит в PENDING дольше stuck-after-hours
+    # (COULD, issue #60). Для демо снизьте оба порога настройкой - показывать без ожидания суток
+    # не требует правки кода: например, stuck-after-hours=0 и cron на каждую минуту.
+    enabled: ${REMINDERS_ENABLED:true}
+    cron: "${REMINDERS_CRON:0 0 8 * * *}"
+    stuck-after-hours: ${REMINDERS_STUCK_AFTER_HOURS:48}
+    # Не чаще одного напоминания в сутки на шаг.
+    cooldown-hours: ${REMINDERS_COOLDOWN_HOURS:24}
 
 logging:
   level:

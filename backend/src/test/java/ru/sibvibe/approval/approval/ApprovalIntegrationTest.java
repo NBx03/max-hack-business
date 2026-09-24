@@ -24,6 +24,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import ru.sibvibe.approval.approval.service.StuckStepReminderJob;
 import ru.sibvibe.approval.storage.FileStorage;
 import ru.sibvibe.approval.storage.StoredFileNotFoundException;
 
@@ -38,6 +39,9 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -120,6 +124,9 @@ class ApprovalIntegrationTest {
 
     @Autowired
     private InMemoryFileStorage storage;
+
+    @Autowired
+    private StuckStepReminderJob reminderJob;
 
     private Company company;
 
@@ -727,6 +734,64 @@ class ApprovalIntegrationTest {
         ok(decide(company.bob, bobStep, "RETURN", "  " + limit + "  "));
         assertThat(jdbc.queryForObject("select length(comment) from approval_step where id = ?", Integer.class, bobStep))
                 .isEqualTo(2000);
+    }
+
+    // ============ напоминания о застрявших шагах (issue #60) ============
+
+    /**
+     * Ревью #93, пункт 2: наивное {@code lastRemindedAt <= now - cooldown} отсекает законное повторное
+     * напоминание, если время суток вчерашней отметки чуть позже, чем сегодняшний запуск планировщика
+     * (дрожание момента старта {@code @Scheduled}) - тогда напоминание пришло бы через двое суток вместо
+     * одних. Здесь разница ровно такая: вчерашняя отметка на 400 мс позже условного «сегодня 08:00».
+     */
+    @Test
+    void stuckStepReminderSurvivesClockDriftAtTheCooldownBoundary() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null));
+        long bobStep = stepOf(submitted, company.bob);
+
+        Instant now = Instant.now();
+        jdbc.update("update approval_step set activated_at = ?, last_reminded_at = ? where id = ?",
+                Timestamp.from(now.minus(Duration.ofHours(60))),
+                Timestamp.from(now.minus(Duration.ofHours(24)).plusMillis(400)),
+                bobStep);
+
+        reminderJob.remindStuckSteps();
+
+        Instant remindedAt = lastRemindedAt(bobStep);
+        assertThat(remindedAt).isAfter(now.minusSeconds(5));
+
+        // Повторный запуск сразу же ничего не меняет - шаг только что отмечен, до cooldown ещё далеко.
+        reminderJob.remindStuckSteps();
+        assertThat(lastRemindedAt(bobStep)).isEqualTo(remindedAt);
+    }
+
+    @Test
+    void stuckStepReminderIgnoresStepsBelowTheThresholdOrRemindedRecently() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null));
+        long bobStep = stepOf(submitted, company.bob);
+        Instant now = Instant.now();
+
+        // Активирован недавно - ещё не «застрял» (порог по умолчанию 48 часов).
+        jdbc.update("update approval_step set activated_at = ?, last_reminded_at = null where id = ?",
+                Timestamp.from(now.minus(Duration.ofHours(1))), bobStep);
+        reminderJob.remindStuckSteps();
+        assertThat(jdbc.queryForObject(
+                "select last_reminded_at is null from approval_step where id = ?", Boolean.class, bobStep)).isTrue();
+
+        // Застрял, но напомнили совсем недавно - до суток ещё далеко.
+        jdbc.update("update approval_step set activated_at = ?, last_reminded_at = ? where id = ?",
+                Timestamp.from(now.minus(Duration.ofHours(60))), Timestamp.from(now.minus(Duration.ofHours(1))),
+                bobStep);
+        Instant remindedRecently = lastRemindedAt(bobStep);
+        reminderJob.remindStuckSteps();
+        assertThat(lastRemindedAt(bobStep)).isEqualTo(remindedRecently);
+    }
+
+    private Instant lastRemindedAt(long stepId) {
+        return jdbc.queryForObject(
+                "select last_reminded_at from approval_step where id = ?", Timestamp.class, stepId).toInstant();
     }
 
     // ============ вспомогательное: гонка ============

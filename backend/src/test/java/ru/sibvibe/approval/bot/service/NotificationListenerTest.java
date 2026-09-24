@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
+import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
 import ru.sibvibe.approval.bot.Notifier;
 import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
 import ru.sibvibe.approval.organization.event.JoinRequestSubmittedEvent;
@@ -158,5 +159,53 @@ class NotificationListenerTest {
                 500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков"));
 
         verify(notifier, never()).send(anyLong(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void stuckStepReminderNotifiesTheApproverWithDocumentLinkTitleAndDaysWaiting() {
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Согласующий")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 76));
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000011L), text.capture(), anyString(),
+                eq("https://max.ru/t354_hakaton_max_bot?startapp=d_500"));
+        assertThat(text.getValue()).contains("Заявление на отпуск").contains("3 дня");
+    }
+
+    @Test
+    void stuckStepReminderUsesHoursWhenUnderADay() {
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Согласующий")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 5));
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000011L), text.capture(), anyString(), any());
+        assertThat(text.getValue()).contains("5 часов").doesNotContain("дня").doesNotContain("дней");
+    }
+
+    @Test
+    void stuckStepReminderPluralizesRussianDaysCorrectly() {
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Согласующий")));
+        when(links.documentLink(500L)).thenReturn("url");
+
+        listener.on(new StuckStepReminderEvent(500L, 1, 1, 11L, "Документ", 24)); // 1 день
+        listener.on(new StuckStepReminderEvent(501L, 1, 1, 11L, "Документ", 11 * 24)); // 11 дней
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier, times(2)).send(eq(910000011L), text.capture(), anyString(), any());
+        assertThat(text.getAllValues().get(0)).contains("1 день");
+        assertThat(text.getAllValues().get(1)).contains("11 дней");
+    }
+
+    @Test
+    void stuckStepReminderDoesNothingIfApproverIsGone() {
+        when(directory.find(11L)).thenReturn(Optional.empty());
+
+        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 76));
+
+        verifyNoInteractions(notifier);
     }
 }

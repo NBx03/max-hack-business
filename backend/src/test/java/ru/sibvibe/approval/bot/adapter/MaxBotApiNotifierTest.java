@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Кнопка уведомлений - тип {@code open_app}, а не {@code link} (задача #57, ревью #70): проверяем,
@@ -56,5 +57,25 @@ class MaxBotApiNotifierTest {
         doThrow(new RuntimeException("boom")).when(client).sendMessage(eq(910000001L), eq("Текст"), any());
 
         assertThatCode(() -> notifier.send(910000001L, "Текст", null, null)).doesNotThrowAnyException();
+    }
+
+    /**
+     * Ревью #93, пункт 3: синтетические участники демо-песочницы получают отрицательный {@code maxUserId}
+     * (OrganizationSecurityService.nextSyntheticMaxUserId) - реального аккаунта MAX у них нет, вызов
+     * {@code sendMessage} для них заведомо провалился бы.
+     */
+    @Test
+    void negativeOrZeroMaxUserIdIsSkippedWithoutCallingTheApi() {
+        notifier.send(-123L, "Текст", "Открыть", "https://max.ru/t354_hakaton_max_bot");
+        notifier.send(0L, "Текст", "Открыть", "https://max.ru/t354_hakaton_max_bot");
+
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void positiveMaxUserIdIsSentAsUsual() {
+        notifier.send(1L, "Текст", null, null);
+
+        verify(client).sendMessage(eq(1L), eq("Текст"), eq(List.of()));
     }
 }

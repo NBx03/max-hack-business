@@ -13,7 +13,10 @@ import ru.sibvibe.approval.document.repository.DocumentTypeRepository;
 import ru.sibvibe.approval.document.repository.DocumentVersionRepository;
 
 import java.time.Clock;
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Единственное место, где меняется статус документа при согласовании. Модуль approval вызывает только этот
@@ -89,6 +92,22 @@ public class DocumentStateService {
         DocumentVersion version = versionRepository.findByDocumentIdAndVersionNo(documentId, versionNo)
                 .orElseThrow(NotFoundException::new);
         return DocumentCheckRules.blockReason(generic, version.getCheckStatus(), version.getValidationIssues());
+    }
+
+    /**
+     * Заголовки документов по id, без блокировки и без проверки прав - только для фоновой задачи
+     * {@code approval.StuckStepReminderJob} вне пользовательского запроса (напоминания о застрявших
+     * шагах, issue #60): она уже знает id документов из собственных шагов согласования, а не принимает
+     * их от клиента, поэтому ACL здесь не нужен. Документов, которых уже нет, в результате не будет -
+     * в MVP документы не удаляются, это защита на случай будущей правки, а не ожидаемый путь.
+     */
+    @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
+    public Map<Long, String> titles(Collection<Long> documentIds) {
+        if (documentIds.isEmpty()) {
+            return Map.of();
+        }
+        return documentRepository.findAllById(documentIds).stream()
+                .collect(Collectors.toMap(Document::getId, Document::getTitle));
     }
 
     /** {@code DRAFT → IN_APPROVAL}: отправка. Этап {@code null} допустим, если сразу следует {@link #approve}. */
