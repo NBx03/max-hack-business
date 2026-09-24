@@ -21,6 +21,8 @@ import ru.sibvibe.approval.organization.service.CompanyService;
 import ru.sibvibe.approval.organization.dto.MemberView;
 import ru.sibvibe.approval.organization.service.MemberService;
 import ru.sibvibe.approval.organization.service.RoleService;
+import ru.sibvibe.approval.organization.service.RouteTemplateService;
+import ru.sibvibe.approval.organization.dto.RouteOverview;
 
 import java.util.List;
 
@@ -31,11 +33,18 @@ public class CompanyController {
     private final CompanyService companyService;
     private final RoleService roleService;
     private final MemberService memberService;
+    private final RouteTemplateService routeTemplates;
 
-    public CompanyController(CompanyService companyService, RoleService roleService, MemberService memberService) {
+    public CompanyController(
+            CompanyService companyService,
+            RoleService roleService,
+            MemberService memberService,
+            RouteTemplateService routeTemplates
+    ) {
         this.companyService = companyService;
         this.roleService = roleService;
         this.memberService = memberService;
+        this.routeTemplates = routeTemplates;
     }
 
     /** Создаёт компанию от имени реальной личности: демо-участник компанию создать не может. */
@@ -75,6 +84,12 @@ public class CompanyController {
     @GetMapping("/orgs/current/colleagues")
     public List<MemberView> colleagues(@AuthenticationPrincipal CurrentUser currentUser) {
         return memberService.colleagues(currentUser);
+    }
+
+    /** Маршруты согласования своей компании по типам документов — любому участнику, только чтение. */
+    @GetMapping("/orgs/current/routes")
+    public List<RouteOverview> routes(@AuthenticationPrincipal CurrentUser currentUser) {
+        return routeTemplates.overview(currentUser);
     }
 
     @GetMapping("/orgs/current/roles/{id}/members")

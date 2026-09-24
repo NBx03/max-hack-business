@@ -11,10 +11,18 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ApprovalStepRepository extends JpaRepository<ApprovalStep, Long> {
-    boolean existsByApproverIdAndDecision(Long approverId, ApprovalStep.Decision decision);
-
-    boolean existsByApproverIdAndRoleIdInAndDecision(
-            Long approverId, Collection<Long> roleIds, ApprovalStep.Decision decision);
+    /**
+     * Документы, где человек ещё не решил, — только номера: шаги читаются уже под блокировкой документа
+     * (см. {@link #findDocumentIdOfStep}). {@code roleIds} {@code null} — в любой роли.
+     */
+    @Query("""
+            select distinct s.documentId from ApprovalStep s
+            where s.approverId = :approverId and s.decision = :decision
+              and (:anyRole = true or s.roleId in :roleIds)
+            order by s.documentId
+            """)
+    List<Long> findDocumentIdsWithDecision(
+            Long approverId, ApprovalStep.Decision decision, boolean anyRole, Collection<Long> roleIds);
 
     /**
      * Документ шага, если шаг принадлежит этому пользователю. Возвращается число, а не сущность: до блокировки

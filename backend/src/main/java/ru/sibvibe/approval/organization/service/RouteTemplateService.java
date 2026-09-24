@@ -3,13 +3,19 @@ package ru.sibvibe.approval.organization.service;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.organization.DocumentTypeDirectory;
+import ru.sibvibe.approval.common.dto.RoleRef;
+import ru.sibvibe.approval.common.security.CurrentUser;
+import ru.sibvibe.approval.organization.dto.RouteOverview;
+import ru.sibvibe.approval.organization.entity.ApprovalRoute;
 import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.Role;
 import ru.sibvibe.approval.organization.repository.ApprovalRouteRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationRepository;
 import ru.sibvibe.approval.organization.repository.RoleRepository;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,6 +62,36 @@ public class RouteTemplateService {
         return routeRepository.findByOrgIdAndDocumentTypeIdOrderByStageOrderAscIdAsc(orgId, documentTypeId).stream()
                 .map(route -> new TemplateRow(route.getStageOrder(), route.getRoleId(), route.isMandatory()))
                 .toList();
+    }
+
+    /**
+     * Маршруты своей компании по всем типам — любому участнику, только чтение (раздел «Компания»). Недостающие
+     * маршруты по умолчанию добираются здесь же, как и при отправке: список не должен быть пустым из-за того,
+     * что до этого типа ещё никто не дошёл.
+     */
+    @Transactional
+    public List<RouteOverview> overview(CurrentUser actor) {
+        long orgId = OrganizationAccess.requireMemberOrg(actor);
+        ensureDefaultRoutes(orgId);
+        Map<Long, RoleRef> roles = new HashMap<>();
+        for (Role role : roleRepository.findByOrgIdOrderById(orgId)) {
+            roles.put(role.getId(), new RoleRef(role.getId(), role.getCode(), role.getName()));
+        }
+        Map<Long, TreeMap<Integer, List<RouteOverview.Participant>>> byType = new LinkedHashMap<>();
+        for (ApprovalRoute route : routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(orgId)) {
+            RoleRef role = roles.get(route.getRoleId());
+            if (role == null) {
+                continue;
+            }
+            byType.computeIfAbsent(route.getDocumentTypeId(), id -> new TreeMap<>())
+                    .computeIfAbsent(route.getStageOrder(), order -> new ArrayList<>())
+                    .add(new RouteOverview.Participant(role, route.isMandatory()));
+        }
+        List<RouteOverview> result = new ArrayList<>();
+        byType.forEach((typeId, stages) -> result.add(new RouteOverview(typeId, stages.entrySet().stream()
+                .map(stage -> new RouteOverview.Stage(stage.getKey(), List.copyOf(stage.getValue())))
+                .toList())));
+        return result;
     }
 
     /** Строка шаблона: роль на этапе; {@code mandatory = false} — пропускается, если носителей роли нет. */

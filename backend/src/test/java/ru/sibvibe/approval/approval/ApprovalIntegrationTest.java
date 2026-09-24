@@ -478,16 +478,67 @@ class ApprovalIntegrationTest {
     }
 
     @Test
-    void administratorCannotRemoveTheRoleOfSomeoneWhoseDecisionIsAwaited() throws Exception {
+    void removingAnAwaitedApproverReturnsTheDocumentAndAnUnchangedResendKeepsEarlierApprovals() throws Exception {
         long support = createDocument(company.frank, "SUPPORT_MEASURE_REQUEST");
-        ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit",
-                Map.of("selections", List.of(choice(1, company.roles.get("LAWYER"), company.carol.dbId)))));
+        long lawyerRole = company.roles.get("LAWYER");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit",
+                Map.of("selections", List.of(choice(1, lawyerRole, company.carol.dbId)))));
+        // бухгалтер Эрин одобрил, юрист Карол ещё не решила
+        ok(decide(company.erin, stepOf(submitted, company.erin), "APPROVE", null));
 
         Resp removal = call(company.alice, "PUT", "/api/v1/orgs/current/members/" + memberId(company.carol) + "/roles",
                 Map.of("roleIds", List.of()));
+        assertThat(removal.status()).as(removal.body()).isEqualTo(200);
 
-        assertThat(removal.status()).isEqualTo(409);
-        assertThat(removal.code()).isEqualTo("MEMBER_HAS_PENDING_STEPS");
+        JsonNode returned = card(company.frank, support);
+        assertThat(returned.path("status").asText()).isEqualTo("RETURNED");
+        assertThat(jdbc.queryForObject("select auto_reason from approval_step where document_id = ? and approver_id = ?",
+                String.class, support, company.carol.dbId)).isEqualTo("MEMBER_REMOVED");
+
+        // автор отправляет заново, ничего не меняя: одобрение Эрин переносится, юриста подбирает маршрут
+        long fileId = returned.path("versions").get(0).path("files").get(0).path("id").asLong();
+        JsonNode draft = ok(newVersion(company.frank, support, fileId, "SUPPORT_MEASURE_REQUEST"));
+        assertThat(draft.path("changes").path("comparedToVersionNo").asInt()).isEqualTo(1);
+        assertThat(draft.path("changes").path("files")).isEmpty();
+        assertThat(draft.path("changes").path("fields")).isEmpty();
+        JsonNode preview = ok(call(company.frank, "GET", "/api/v1/documents/" + support + "/route-preview", null));
+        assertThat(preview.path("carryOver").path("fromVersionNo").asInt()).isEqualTo(1);
+        assertThat(preview.path("carryOver").path("approvals")).hasSize(1);
+
+        JsonNode resubmitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit", null));
+        assertThat(jdbc.queryForObject("select decision || '/' || auto_reason from approval_step"
+                + " where document_id = ? and version_no = 2 and approver_id = ?",
+                String.class, support, company.erin.dbId)).isEqualTo("APPROVED/CARRIED_OVER");
+        assertThat(stageStates(resubmitted)).containsExactly("ACTIVE", "WAITING");
+        assertThat(myActive(card(company.dave, support))).as("юрист теперь Дейв — решает он").hasSize(1);
+        assertThat(myActive(card(company.erin, support))).as("Эрин повторно не спрашивают").isEmpty();
+    }
+
+    @Test
+    void changedVersionIsApprovedByEveryoneAgainAndTheCardShowsWhatChanged() throws Exception {
+        long support = createDocument(company.frank, "SUPPORT_MEASURE_REQUEST");
+        long lawyerRole = company.roles.get("LAWYER");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit",
+                Map.of("selections", List.of(choice(1, lawyerRole, company.carol.dbId)))));
+        ok(decide(company.erin, stepOf(submitted, company.erin), "APPROVE", null));
+        JsonNode returned = ok(decide(company.carol, stepOf(submitted, company.carol), "RETURN", "Уточните ИНН"));
+
+        long fileId = returned.path("versions").get(0).path("files").get(0).path("id").asLong();
+        ok(newVersion(company.frank, support, fileId, "SUPPORT_MEASURE_REQUEST"));
+        ok(call(company.frank, "PUT", "/api/v1/documents/" + support + "/versions/2/fields",
+                Map.of("fields", Map.of("applicant_inn", "7707083893"))));
+        JsonNode draft = card(company.frank, support);
+        JsonNode changes = draft.path("changes");
+        assertThat(changes.path("fields")).hasSize(1);
+        assertThat(changes.path("fields").get(0).path("name").asText()).isEqualTo("applicant_inn");
+        assertThat(changes.path("fields").get(0).path("before").asText()).isEqualTo("1234567890");
+        assertThat(changes.path("fields").get(0).path("after").asText()).isEqualTo("7707083893");
+        assertThat(draft.path("status").asText()).isEqualTo("DRAFT");
+
+        JsonNode resubmitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit",
+                Map.of("selections", List.of(choice(1, lawyerRole, company.carol.dbId)))));
+        assertThat(myActive(card(company.erin, resubmitted.path("id").asLong())))
+                .as("документ изменился — Эрин согласует заново").hasSize(1);
     }
 
     // ============ демо-режим: проверяющий один проходит всю цепочку ============

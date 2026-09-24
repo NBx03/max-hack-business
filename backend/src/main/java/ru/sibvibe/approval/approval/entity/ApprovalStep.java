@@ -65,5 +65,10 @@ public class ApprovalStep {
 
     public enum Decision { PENDING, APPROVED, RETURNED, REJECTED, SKIPPED }
 
-    public enum AutoReason { AUTHOR_HOLDS_ROLE }
+    /**
+     * AUTHOR_HOLDS_ROLE — согласовано автоматически: обязательная роль есть только у автора. CARRIED_OVER —
+     * одобрение прошлой версии перенесено: документ с тех пор не менялся. MEMBER_REMOVED — шаг закрыт
+     * (SKIPPED), потому что согласующего исключили из компании или сняли с него роль; документ вернулся автору.
+     */
+    public enum AutoReason { AUTHOR_HOLDS_ROLE, CARRIED_OVER, MEMBER_REMOVED }
 }

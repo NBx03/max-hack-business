@@ -44,6 +44,7 @@ public class SubmissionService {
     private final RoleService roles;
     private final ApprovalStepRepository steps;
     private final ApplicationEventPublisher events;
+    private final CarriedApprovals carriedApprovals;
     private final Clock clock;
 
     public SubmissionService(
@@ -52,6 +53,7 @@ public class SubmissionService {
             RoleService roles,
             ApprovalStepRepository steps,
             ApplicationEventPublisher events,
+            CarriedApprovals carriedApprovals,
             Clock clock
     ) {
         this.documents = documents;
@@ -59,6 +61,7 @@ public class SubmissionService {
         this.roles = roles;
         this.steps = steps;
         this.events = events;
+        this.carriedApprovals = carriedApprovals;
         this.clock = clock;
     }
 
@@ -86,6 +89,7 @@ public class SubmissionService {
 
         Instant now = clock.instant();
         List<ApprovalStep> planned = buildSteps(document, route, chosen, extras, now);
+        carryOverApprovals(document, planned, now);
         OptionalInt firstStage = planned.stream()
                 .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING)
                 .mapToInt(ApprovalStep::getStageOrder)
@@ -164,12 +168,16 @@ public class SubmissionService {
             List<SubmitRequest.Choice> extras
     ) {
         Set<Integer> stageOrders = route.stages().stream().map(RouteResolver.Stage::stageOrder).collect(Collectors.toSet());
+        int afterLast = afterLastStage(route);
         Set<Long> roleIds = extras.stream().map(SubmitRequest.Choice::roleId).collect(Collectors.toSet());
         Map<Long, RoleRef> knownRoles = roles.rolesById(document.orgId(), roleIds);
         Set<Assignment> taken = templateAssignments(route, chosen);
         List<Assignment> result = new ArrayList<>();
         for (SubmitRequest.Choice extra : extras) {
-            if (!stageOrders.contains(extra.stageOrder()) || !knownRoles.containsKey(extra.roleId())) {
+            // Новый этап ставится перед этапом шаблона или после последнего; «вместе с» — только с этапом шаблона.
+            boolean placeExists = stageOrders.contains(extra.stageOrder())
+                    || (extra.isNewStage() && extra.stageOrder() == afterLast);
+            if (!placeExists || !knownRoles.containsKey(extra.roleId())) {
                 throw new NotFoundException();
             }
             if (extra.userId() == document.authorId()) {
@@ -179,7 +187,7 @@ public class SubmissionService {
             if (carriers.stream().noneMatch(user -> user.id() == extra.userId())) {
                 throw new NotFoundException();
             }
-            Assignment assignment = new Assignment(extra.stageOrder(), extra.roleId(), extra.userId());
+            Assignment assignment = new Assignment(extra.stageOrder(), extra.roleId(), extra.userId(), extra.isNewStage());
             if (!taken.add(assignment)) {
                 throw ApprovalErrors.validation("Этот согласующий уже есть в маршруте на этом этапе");
             }
@@ -200,7 +208,7 @@ public class SubmissionService {
                     case SKIPPED, AUTHOR_HOLDS_ROLE -> null;
                 };
                 if (userId != null) {
-                    assigned.add(new Assignment(stage.stageOrder(), roleId, userId));
+                    assigned.add(new Assignment(stage.stageOrder(), roleId, userId, false));
                 }
             }
         }
@@ -214,8 +222,12 @@ public class SubmissionService {
             List<Assignment> extras,
             Instant now
     ) {
+        StageNumbers numbers = StageNumbers.of(route, extras);
         List<ApprovalStep> planned = new ArrayList<>();
-        for (RouteResolver.Stage stage : route.stages()) {
+        for (RouteResolver.Stage template : route.stages()) {
+            addNewStage(planned, document, extras, template.stageOrder(), numbers, now);
+            RouteResolver.Stage stage = new RouteResolver.Stage(
+                    numbers.template(template.stageOrder()), template.participants());
             for (RouteResolver.Participant participant : stage.participants()) {
                 long roleId = participant.role().id();
                 switch (participant.resolution()) {
@@ -234,17 +246,89 @@ public class SubmissionService {
                     case AUTO -> planned.add(step(document, stage.stageOrder(), roleId, participant.selectedUserId(),
                             ApprovalStep.Origin.TEMPLATE, now));
                     case SELECT -> planned.add(step(document, stage.stageOrder(), roleId,
-                            chosen.get(new StageRole(stage.stageOrder(), roleId)), ApprovalStep.Origin.TEMPLATE, now));
+                            chosen.get(new StageRole(template.stageOrder(), roleId)), ApprovalStep.Origin.TEMPLATE, now));
                 }
             }
             for (Assignment extra : extras) {
-                if (extra.stageOrder() == stage.stageOrder()) {
+                if (!extra.newStage() && extra.stageOrder() == template.stageOrder()) {
                     planned.add(step(document, stage.stageOrder(), extra.roleId(), extra.userId(),
                             ApprovalStep.Origin.ADDED_BY_AUTHOR, now));
                 }
             }
         }
+        addNewStage(planned, document, extras, afterLastStage(route), numbers, now);
         return planned;
+    }
+
+    /** Добавленные автором отдельным этапом перед этапом шаблона {@code before} (или последним). */
+    private void addNewStage(
+            List<ApprovalStep> planned, DocumentSnapshot document, List<Assignment> extras,
+            int before, StageNumbers numbers, Instant now
+    ) {
+        for (Assignment extra : extras) {
+            if (extra.newStage() && extra.stageOrder() == before) {
+                planned.add(step(document, numbers.newStage(before), extra.roleId(), extra.userId(),
+                        ApprovalStep.Origin.ADDED_BY_AUTHOR, now));
+            }
+        }
+    }
+
+    /**
+     * Одобрения прошлой версии, если документ с тех пор не менялся ({@link CarriedApprovals}): шаг сразу
+     * согласован с отметкой {@code CARRIED_OVER}, видимой в истории. Изменился хоть один файл или поле —
+     * согласуют все заново.
+     */
+    private void carryOverApprovals(DocumentSnapshot document, List<ApprovalStep> planned, Instant now) {
+        carriedApprovals.of(document.id(), document.currentVersionNo()).ifPresent(carried -> planned.stream()
+                .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING)
+                .filter(step -> carried.covers(step.getRoleId(), step.getApproverId()))
+                .forEach(step -> {
+                    step.setDecision(ApprovalStep.Decision.APPROVED);
+                    step.setAutoReason(ApprovalStep.AutoReason.CARRIED_OVER);
+                    step.setActivatedAt(now);
+                    step.setDecidedAt(now);
+                }));
+    }
+
+    private static int afterLastStage(RouteResolver.ResolvedRoute route) {
+        return route.stages().stream().mapToInt(RouteResolver.Stage::stageOrder).max().orElse(0) + 1;
+    }
+
+    /**
+     * Номера этапов после вставки новых: этапы шаблона идут в своём порядке, новые — на выбранных местах,
+     * всё нумеруется подряд с единицы. Без новых этапов номера совпадают с шаблоном (1, 2, …).
+     */
+    private record StageNumbers(Map<Integer, Integer> templateNumbers, Map<Integer, Integer> newStageNumbers) {
+
+        static StageNumbers of(RouteResolver.ResolvedRoute route, List<Assignment> extras) {
+            Set<Integer> newBefore = extras.stream()
+                    .filter(Assignment::newStage)
+                    .map(Assignment::stageOrder)
+                    .collect(Collectors.toSet());
+            Map<Integer, Integer> templateNumbers = new HashMap<>();
+            Map<Integer, Integer> newStageNumbers = new HashMap<>();
+            int number = 0;
+            List<Integer> orders = route.stages().stream().map(RouteResolver.Stage::stageOrder).sorted().toList();
+            for (int order : orders) {
+                if (newBefore.contains(order)) {
+                    newStageNumbers.put(order, ++number);
+                }
+                templateNumbers.put(order, ++number);
+            }
+            int afterLast = afterLastStage(route);
+            if (newBefore.contains(afterLast)) {
+                newStageNumbers.put(afterLast, ++number);
+            }
+            return new StageNumbers(templateNumbers, newStageNumbers);
+        }
+
+        int template(int templateOrder) {
+            return templateNumbers.get(templateOrder);
+        }
+
+        int newStage(int before) {
+            return newStageNumbers.get(before);
+        }
     }
 
     private ApprovalStep step(
@@ -266,7 +350,7 @@ public class SubmissionService {
     private record StageRole(int stageOrder, long roleId) {
     }
 
-    /** Кто согласует на этапе в какой роли. */
-    private record Assignment(int stageOrder, long roleId, long userId) {
+    /** Кто согласует на этапе в какой роли; {@code newStage} — отдельным этапом перед {@code stageOrder}. */
+    private record Assignment(int stageOrder, long roleId, long userId, boolean newStage) {
     }
 }
