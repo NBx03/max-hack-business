@@ -12,6 +12,8 @@ export const ROUTE_PATTERNS = {
   documents: '/documents',
   /** Раздел «Компания» нижнего меню: сведения о компании, администрирование, демо. */
   company: '/company',
+  /** «Правила проверки» (#91): внутри раздела «Компания». */
+  companyRules: '/company/rules',
   documentUpload: '/documents/new',
   documentCheck: '/documents/:id/check',
   /** Загрузка исправленного файла после RETURNED - docs/SCREENS.md, "Правки документов". */
@@ -49,6 +51,11 @@ export function documentCheckPath(id: number | string): string {
 
 export function documentNewVersionPath(id: number | string): string {
   return ROUTE_PATTERNS.documentNewVersion.replace(':id', String(id));
+}
+
+/** Правила проверки; ruleId — сразу открыть это правило (ссылка «Настроить правило» с экрана проверки). */
+export function companyRulesPath(ruleId?: number): string {
+  return ruleId === undefined ? ROUTE_PATTERNS.companyRules : `${ROUTE_PATTERNS.companyRules}?rule=${ruleId}`;
 }
 
 export function routePreviewPath(id: number | string): string {

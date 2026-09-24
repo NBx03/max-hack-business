@@ -302,6 +302,54 @@ export interface VersionChanges {
   contentChanged: boolean;
 }
 
+export type RuleCheck = 'REQUIRED' | 'DATE_FORMAT' | 'DATE_NOT_FUTURE' | 'MATCHES_PATTERN' | 'MIN_LENGTH' | 'ONE_OF';
+
+/**
+ * Правило проверки, как оно действует в компании (#90). minLength — только у MIN_LENGTH, allowedValues — только
+ * у ONE_OF: у них ожидаемое значение настраивается. locked — закон, не меняется. template — значения шаблона сервиса.
+ */
+export interface CompanyRule {
+  id: number;
+  fieldName: string;
+  fieldLabel: string;
+  check: RuleCheck;
+  kind: RuleKind;
+  enabled: boolean;
+  severity: Severity;
+  description: string;
+  sourceTitle: string;
+  sourceUrl: string | null;
+  sourceRef: string | null;
+  minLength: number | null;
+  allowedValues: string[] | null;
+  customized: boolean;
+  locked: boolean;
+  template: {
+    kind: RuleKind;
+    severity: Severity;
+    description: string;
+    sourceTitle: string;
+    sourceRef: string | null;
+    minLength: number | null;
+    allowedValues: string[] | null;
+  };
+}
+
+export interface CompanyRules {
+  canEdit: boolean;
+  types: { documentTypeId: number; code: string; name: string; rules: CompanyRule[] }[];
+}
+
+export interface RuleSettingInput {
+  enabled: boolean;
+  severity: Severity;
+  description: string;
+  sourceTitle: string | null;
+  sourceRef: string | null;
+  minLength?: number;
+  allowedValues?: string[];
+}
+
 /** Маршрут компании для типа документа — раздел «Компания», только чтение. */
 export interface RouteOverview {
   documentTypeId: number;

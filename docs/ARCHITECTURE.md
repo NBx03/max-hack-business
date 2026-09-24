@@ -216,6 +216,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `DocumentTypeField` | id, document_type_id, field_name, field_type, label, hint, **position** (порядок показа, #86) |
 | `ApprovalRoute` | id, document_type_id, org_id, **stage_order**, **role_id**, **is_mandatory** |
 | `RequirementRule` | id, document_type_id, field_name, description, check_type, expected, **kind**, severity, source_title, source_url, source_ref, source_checked_at |
+| `OrganizationRuleSetting` | **org_id + rule_id** (PK), enabled, severity, description, source_title, source_ref, expected, updated_by, updated_at — отличие правила компании от шаблона (#90); `NULL` — как в шаблоне, строки нет — правило целиком как в шаблоне |
 | `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, **type_auto_detected** (тип выбрал ИИ, #86), created_at, updated_at |
 | `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у типа с `is_generic = true`; с #86 таких типов нет — «Другой документ» (`GENERIC`) тоже проверяется), **withdrawn_at** (автор отозвал версию с согласования) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |

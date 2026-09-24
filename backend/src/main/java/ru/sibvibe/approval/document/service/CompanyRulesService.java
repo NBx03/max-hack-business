@@ -50,9 +50,16 @@ public class CompanyRulesService {
         long orgId = requireMember(user);
         Map<Long, List<CatalogRule>> byType = catalog.all(orgId).stream()
                 .collect(Collectors.groupingBy(CatalogRule::documentTypeId));
-        Map<String, String> labels = fieldRepository.findAllByOrderByDocumentTypeIdAscPositionAscIdAsc().stream()
+        List<DocumentTypeField> fields = fieldRepository.findAllByOrderByDocumentTypeIdAscPositionAscIdAsc();
+        Map<String, String> labels = fields.stream()
                 .collect(Collectors.toMap(field -> field.getDocumentTypeId() + ":" + field.getFieldName(),
                         DocumentTypeField::getLabel, (left, right) -> left));
+        // Правила — в порядке полей документа, как на экране проверки, а не в порядке номеров в базе.
+        Map<String, Integer> positions = new java.util.HashMap<>();
+        for (int index = 0; index < fields.size(); index++) {
+            DocumentTypeField field = fields.get(index);
+            positions.putIfAbsent(field.getDocumentTypeId() + ":" + field.getFieldName(), index);
+        }
         List<CompanyRulesResponse.TypeRules> types = typeRepository.findAllByOrderById().stream()
                 .filter(type -> byType.containsKey(type.getId()))
                 // Как на экране загрузки: «Другой документ» — последним.
@@ -60,6 +67,10 @@ public class CompanyRulesService {
                         .thenComparing(DocumentType::getId))
                 .map(type -> new CompanyRulesResponse.TypeRules(type.getId(), type.getCode(), type.getName(),
                         byType.get(type.getId()).stream()
+                                .sorted(Comparator.comparing((CatalogRule rule) -> positions.getOrDefault(
+                                        type.getId() + ":" + rule.fieldName(), Integer.MAX_VALUE))
+                                        .thenComparing(rule -> rule.check().ordinal())
+                                        .thenComparing(CatalogRule::id))
                                 .map(rule -> view(rule, labels.getOrDefault(type.getId() + ":" + rule.fieldName(),
                                         rule.fieldName())))
                                 .toList()))

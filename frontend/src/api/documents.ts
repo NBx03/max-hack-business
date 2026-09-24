@@ -141,6 +141,14 @@ export function correctFile(
   });
 }
 
+/** «Проверить заново» (#90): черновик — по текущим правилам компании, по сохранённым полям, без модели. */
+export function recheckDocument(documentId: number, versionNo: number): Promise<DocumentCard> {
+  return apiRequest<DocumentCard>(`/documents/${documentId}/versions/${versionNo}/recheck`, {
+    method: 'POST',
+    timeoutMs: 60_000,
+  });
+}
+
 /** Сменить тип черновика, если ИИ определил вид неверно; версия перепроверяется. */
 export function changeDocumentType(documentId: number, versionNo: number, documentTypeId: number): Promise<DocumentCard> {
   return apiRequest<DocumentCard>(`/documents/${documentId}/versions/${versionNo}/type`, {

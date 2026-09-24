@@ -121,6 +121,17 @@ export function CompanyScreen() {
         </div>
       )}
 
+      {/* Правила — всем: автор хочет понять, откуда замечание; администратор — подстроить под компанию (#91). */}
+      <CellList mode="full-width">
+        <CellSimple
+          as="button"
+          showChevron
+          onClick={() => navigate(ROUTE_PATTERNS.companyRules)}
+          title="Правила проверки"
+          subtitle={isAdmin ? 'Что проверяется в документах — и настройка под компанию' : 'Что проверяется в документах и почему'}
+        />
+      </CellList>
+
       {/* Второстепенные блоки: при ошибке просто не показываем, раздел не должен выглядеть сломанным. */}
       {routesQuery.status === 'ready' && <RoutesCard routes={routesQuery.data[0]} types={routesQuery.data[1]} />}
 

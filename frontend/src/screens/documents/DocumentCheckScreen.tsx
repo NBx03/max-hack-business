@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   changeDocumentType,
   correctFile,
+  recheckDocument,
   createDocumentVersion,
   getDocument,
   getDocumentTypes,
@@ -23,8 +24,10 @@ import type {
 import { BottomSheet } from '../../components/base/BottomSheet';
 import { scrollScreenToTop } from '../../components/base/Layout';
 import { ErrorState } from '../../components/base/StateCard';
-import { documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
+import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, keepingFilesInput, manualValues, sameValue } from './fieldCorrection';
+import { useSession } from '../../app/SessionContext';
+import { SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
 import {
   DocumentScreen,
   FieldInputs,
@@ -36,11 +39,8 @@ import {
   stackStyle,
 } from './DocumentFormParts';
 
-const SEVERITY_LABELS: Record<Severity, string> = {
-  BLOCKER: 'Критично',
-  WARNING: 'Предупреждение',
-  INFO: 'Подсказка',
-};
+// Те же слова, что в «Правилах проверки»: «Совет», а не «Подсказка» (#91).
+const SEVERITY_LABELS: Record<Severity, string> = RULE_SEVERITY_LABELS;
 
 /**
  * Подпись к источнику замечания. «Регламент компании» у правил со ссылкой на ГОСТ путал: ГОСТ — не
@@ -138,7 +138,9 @@ export function DocumentCheckScreen() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<'file' | 'fields' | 'type' | null>(null);
+  const [busy, setBusy] = useState<'file' | 'fields' | 'type' | 'recheck' | null>(null);
+  const { me } = useSession();
+  const isAdmin = Boolean(me?.actingAs ? me.actingAs.isAdmin : me?.membership?.isAdmin);
   const [actionError, setActionError] = useState<string | null>(null);
   const [correction, setCorrection] = useState<CorrectionNotice | null>(null);
   const [typeSheetOpen, setTypeSheetOpen] = useState(false);
@@ -336,6 +338,26 @@ export function DocumentCheckScreen() {
     }
   }
 
+  /**
+   * «Проверить заново» (#90): по текущим правилам компании, по тем же полям, без повторного чтения файла.
+   * Нужна, когда администратор поменял правила после проверки: замечания — снимок на момент проверки.
+   */
+  async function recheck() {
+    if (!card) return;
+    setBusy('recheck');
+    setActionError(null);
+    try {
+      const refreshed = await recheckDocument(card.id, card.currentVersionNo);
+      setCard(refreshed);
+      setFields(fieldsToRecord(refreshed.check));
+      setCorrection(null);
+    } catch (recheckError) {
+      setActionError(errorMessage(recheckError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function saveDraft() {
     if (!card) return;
     navigate(documentCardPath(card.id), { state: { toast: 'Черновик сохранён — он в разделе «Мои»' } });
@@ -461,7 +483,16 @@ export function DocumentCheckScreen() {
       {actionError && !editing && <Notice tone="danger">{actionError}</Notice>}
 
       <section style={sectionStyle}>
-        <Typography.Headline variant="medium">Замечания</Typography.Headline>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <Typography.Headline variant="medium">Замечания</Typography.Headline>
+          {isDraft && card.permissions.canUploadVersion && !editing && (
+            <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
+              <Button size="small" variant="secondary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void recheck()}>
+                Проверить заново
+              </Button>
+            </div>
+          )}
+        </div>
         {!check || check.issues.length === 0 ? (
           <Notice tone="success">Замечаний нет</Notice>
         ) : (
@@ -501,6 +532,18 @@ export function DocumentCheckScreen() {
                     <span>{issue.sourceTitle}</span>
                   )}
                   {issue.kind !== 'PRODUCT_RULE' && issue.sourceRef && <span> · {issue.sourceRef}</span>}
+                  {isAdmin && (
+                    <>
+                      {' · '}
+                      <button
+                        type="button"
+                        onClick={() => navigate(companyRulesPath(issue.ruleId))}
+                        style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--text-themed)', cursor: 'pointer' }}
+                      >
+                        Настроить правило
+                      </button>
+                    </>
+                  )}
                 </div>
                 {issue.quote && (
                   <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '3px solid var(--divider-primary)', color: 'var(--text-secondary)' }}>
