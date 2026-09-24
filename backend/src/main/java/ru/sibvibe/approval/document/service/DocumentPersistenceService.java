@@ -348,6 +348,8 @@ public class DocumentPersistenceService {
             target.setVersionNo(versionNo + 1);
             target.setContainsSensitive(version.isContainsSensitive());
             target.setContent(version.getContent() == null ? null : version.getContent().deepCopy());
+            // Тот же файл — та же проверенная сводка (#92): модель здесь не вызывается.
+            target.setAiSummary(version.getAiSummary());
             target.setCreatedBy(authorId);
             target.setCreatedAt(now);
             target = versionRepository.save(target);
