@@ -6,6 +6,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import ru.sibvibe.approval.approval.event.ApprovalRequestedEvent;
 import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
+import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
 import ru.sibvibe.approval.bot.Notifier;
 import ru.sibvibe.approval.bot.config.BotConfiguration;
 import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
@@ -122,8 +123,49 @@ public class NotificationListener {
         });
     }
 
+    /**
+     * Шаг застрял дольше настроенного порога (issue #60, COULD) - согласующему уходит напоминание с той же
+     * кнопкой, что и обычный запрос решения. Отсечение «не чаще раза в сутки на шаг» уже сделано отправителем
+     * события ({@code approval.StuckStepReminderJob}, атомарный {@code UPDATE}) - здесь только текст.
+     */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void on(StuckStepReminderEvent event) {
+        directory.find(event.approverUserId()).ifPresent(approver -> {
+            String text = "«" + event.documentTitle() + "» " + waitingPhrase(event.waitingHours())
+                    + " Не забудьте согласовать.";
+            notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId()));
+        });
+    }
+
     /** Без гендерного глагола при имени (как и в {@link #on(MemberJoinedByLinkEvent)}) - пол не знаем. */
     private static String deciderSuffix(String deciderName) {
         return deciderName == null ? "" : " Решение: " + deciderName + ".";
+    }
+
+    /** Часы, пока не набегут сутки, дальше - дни; ноль и меньше округляем вверх до одного часа. */
+    private static String waitingPhrase(long waitingHours) {
+        long hours = Math.max(waitingHours, 1);
+        if (hours < 24) {
+            return "ждёт вашего решения уже " + hours + " " + ruPlural(hours, "час", "часа", "часов") + ".";
+        }
+        long days = hours / 24;
+        return "ждёт вашего решения уже " + days + " " + ruPlural(days, "день", "дня", "дней") + ".";
+    }
+
+    /** Русское склонение числительного: 1 день, 2-4 дня, 5-20 и *1 дней (11-14 - всегда «дней»). */
+    private static String ruPlural(long count, String one, String few, String many) {
+        long mod100 = count % 100;
+        long mod10 = count % 10;
+        if (mod100 >= 11 && mod100 <= 14) {
+            return many;
+        }
+        if (mod10 == 1) {
+            return one;
+        }
+        if (mod10 >= 2 && mod10 <= 4) {
+            return few;
+        }
+        return many;
     }
 }

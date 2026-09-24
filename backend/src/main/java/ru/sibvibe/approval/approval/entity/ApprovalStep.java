@@ -57,6 +57,10 @@ public class ApprovalStep {
     @Column(name = "decided_at")
     private Instant decidedAt;
 
+    /** Когда согласующему в последний раз напоминали про этот шаг (issue #60); {@code null} - ни разу. */
+    @Column(name = "last_reminded_at")
+    private Instant lastRemindedAt;
+
     public enum Origin { TEMPLATE, ADDED_BY_AUTHOR }
 
     public enum Decision { PENDING, APPROVED, RETURNED, REJECTED, SKIPPED }

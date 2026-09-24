@@ -177,6 +177,13 @@
 Так уведомление уходит только после того, как изменение действительно сохранилось,
 а ошибка Bot API не откатывает действие пользователя: её пишем в лог.
 
+**Напоминание о застрявшем шаге** (issue #60, COULD) — не событие внутри пользовательского запроса,
+а `approval.StuckStepReminderJob`: раз в сутки (`@Scheduled`, `app.reminders.cron`) находит шаги,
+которые висят в `PENDING` дольше `app.reminders.stuck-after-hours`, атомарно помечает их напомненными
+(тем же приёмом, что и использование личной ссылки, раздел «Конкурентность») и публикует
+`StuckStepReminderEvent` — не чаще раза в `app.reminders.cooldown-hours` на шаг. Для демо оба порога
+снижаются настройкой, без правки кода и без ожидания суток.
+
 ### Ошибки
 
 Сервис бросает `DomainException(code, httpStatus, message)`, `@RestControllerAdvice`
@@ -211,7 +218,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, created_at, updated_at |
 | `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у generic-типа) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |
-| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at |
+| `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at, **last_reminded_at** (напоминание о застрявшем шаге, issue #60; `null` — ни разу) |
 
 Значения:
 - `Document.status`: `DRAFT` / `IN_APPROVAL` / `APPROVED` / `RETURNED` / `REJECTED`.
