@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState, type ReactElement } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
-import { isLaunchHandled, markLaunchHandled } from '../app/launch';
+import { isLaunchHandled, logLaunch, markLaunchHandled } from '../app/launch';
 import {
   CreateCompanyRoute,
   JoinRoute,
@@ -48,6 +48,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   const entryRoute = resolveEntryRoute(me, startParamPending);
 
   useEffect(() => {
+    logLaunch(me.startParam);
     if (!startParamPending) {
       return;
     }

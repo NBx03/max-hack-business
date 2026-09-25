@@ -18,7 +18,11 @@ function attemptMessage(err: unknown): string {
   return errorMessage(err);
 }
 
-/** 4. Присоединение по коду (docs/SCREENS.md). Код из ссылки `startapp=c_<код>` уже подставлен. */
+/**
+ * 4. Присоединение по коду. По ссылке `startapp=c_<код>` (LNK-1) заявка подаётся сразу при открытии: код уже проверен
+ * ссылкой, а заявка доступа не даёт — решает администратор (DECISIONS.md, противоречие 2). Код, набранный вручную, —
+ * как раньше: «Найти компанию», затем «Отправить заявку».
+ */
 export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string; onBack: () => void }) {
   const { refresh } = useSession();
   const [raw, setRaw] = useState(initialCode ?? '');
@@ -37,10 +41,10 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
   const orgName = confirmed !== null && confirmed.code === code ? confirmed.orgName : null;
 
   // Каждая неверная попытка расходует лимит, поэтому проверяем по нажатию, а не на каждый символ.
-  const check = async (event?: FormEvent) => {
+  const check = async (event?: FormEvent): Promise<string | null> => {
     event?.preventDefault();
     if (!complete || checking) {
-      return;
+      return null;
     }
     const seq = ++checkSeq.current;
     const checkedCode = code;
@@ -50,11 +54,14 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
       const preview = await previewInviteCode(checkedCode);
       if (seq === checkSeq.current) {
         setConfirmed({ code: checkedCode, orgName: preview.orgName });
+        return checkedCode;
       }
+      return null;
     } catch (err) {
       if (seq === checkSeq.current) {
         setError(attemptMessage(err));
       }
+      return null;
     } finally {
       if (seq === checkSeq.current) {
         setChecking(false);
@@ -62,24 +69,14 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
     }
   };
 
-  // Пришли по ссылке с кодом — показываем компанию сразу, без лишнего нажатия.
-  const autoChecked = useRef(false);
-  useEffect(() => {
-    if (initialCode && !autoChecked.current) {
-      autoChecked.current = true;
-      void check();
-    }
-    // Только один раз при открытии экрана по ссылке, поэтому зависимостей нет.
-  }, []);
-
-  const send = async () => {
-    if (confirmed === null || confirmed.code !== code) {
+  const send = async (confirmedCode = confirmed !== null && confirmed.code === code ? confirmed.code : null) => {
+    if (confirmedCode === null) {
       return;
     }
     setSending(true);
     setError(null);
     try {
-      await submitJoinRequest(confirmed.code);
+      await submitJoinRequest(confirmedCode);
       // Дальше /me покажет экран ожидания решения.
       await refresh();
     } catch (err) {
@@ -92,6 +89,17 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
       setSending(false);
     }
   };
+
+  // Пришли по ссылке с кодом — компания находится и заявка уходит сама, без нажатий (LNK-1).
+  const autoChecked = useRef(false);
+  useEffect(() => {
+    if (initialCode && !autoChecked.current) {
+      autoChecked.current = true;
+      void check().then((checkedCode) => (checkedCode ? send(checkedCode) : undefined));
+    }
+    // Только один раз при открытии экрана по ссылке, поэтому зависимостей нет.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const edit = (value: string) => {
     setRaw(value);
@@ -139,7 +147,9 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
       </form>
 
       {orgName && (
-        <Typography.Body variant="large-strong">Вы вступаете в „{orgName}“</Typography.Body>
+        <Typography.Body variant="large-strong">
+          {sending ? `Отправляем заявку в „${orgName}“…` : `Вы вступаете в „${orgName}“`}
+        </Typography.Body>
       )}
       {orgName && (
         <Hint>

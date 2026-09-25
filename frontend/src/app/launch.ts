@@ -96,16 +96,24 @@ function readReloadedFor(): string | null {
  * с меткой [approval] (уровень debug): так поведение конкретного клиента MAX можно проверить.
  */
 export function watchRelaunch(): void {
+  // Данные запуска, с которыми страница загрузилась. Если мост позже отдаст другие (MAX обновил их в уже открытом
+  // приложении, не меняя хэш), это новый запуск — например, кнопка «Открыть документ» из бота (LNK-2).
+  const loadedWith = getWebApp()?.initData ?? '';
   const check = (reason: string) => {
     const webApp = getWebApp();
-    const mark = launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, readReloadedFor());
+    const bridgeNow = webApp?.initData ?? '';
+    const bridgeChanged = bridgeNow !== '' && loadedWith !== '' && bridgeNow !== loadedWith;
+    const reloadedFor = readReloadedFor();
+    const mark = bridgeChanged
+      ? (fingerprint(bridgeNow) === reloadedFor ? null : fingerprint(bridgeNow))
+      : launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, reloadedFor);
     if (mark === null) return;
     try {
       sessionStorage.setItem(RELOADED_FOR_KEY, mark);
     } catch {
       return;
     }
-    console.debug('[approval] новый запуск мини-приложения:', reason);
+    console.info('[approval] новый запуск мини-приложения:', reason, bridgeChanged ? '(мост отдал новые данные запуска)' : '(хэш)');
     window.location.reload();
   };
   window.addEventListener('hashchange', () => check('hashchange'));
@@ -120,4 +128,15 @@ export function watchRelaunch(): void {
       console.debug('[approval] сообщение моста MAX:', event.data.slice(0, 120));
     }
   });
+}
+
+/**
+ * Диагностика диплинков (LNK-1, LNK-2): дошёл ли параметр ссылки до моста и до бэкенда. Сам параметр не пишем — токен
+ * личной ссылки секретный; только вид (c_, p_, d_). Смотреть в консоли веб-версии MAX, строки [approval].
+ */
+export function logLaunch(meStartParam: string | null): void {
+  const bridgeParam = getWebApp()?.initDataUnsafe?.start_param ?? null;
+  const kind = (value: string | null) => (value ? value.slice(0, value.indexOf('_') + 1) || 'другой' : 'нет');
+  console.info('[approval] запуск: параметр в мосте —', kind(bridgeParam), '; в /me —', kind(meStartParam),
+    '; уже обработан —', isLaunchHandled());
 }
