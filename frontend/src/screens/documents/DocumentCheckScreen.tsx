@@ -22,7 +22,7 @@ import type {
   Severity,
   ValidationIssue,
 } from '../../api/types';
-import { BottomSheet, Button, scrollScreenToTop, ErrorState, SelectField } from '../../ui';
+import { BottomSheet, Button, scrollScreenToTop, ErrorState, SelectField, StatusBadge, type StatusMeta } from '../../ui';
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
@@ -81,16 +81,11 @@ function fieldDefinitions(type: DocumentType | undefined, check: CheckResult | n
   return check?.fields.map((field) => ({ name: field.name, type: 'STRING', label: field.name, hint: '' })) ?? [];
 }
 
-function severityColor(severity: Severity): string {
-  if (severity === 'BLOCKER') return 'var(--status-danger-bg)';
-  if (severity === 'WARNING') return 'var(--status-warning-bg)';
-  return 'var(--status-neutral-bg)';
-}
-
-function severityTextColor(severity: Severity): string {
-  if (severity === 'BLOCKER') return 'var(--status-danger-fg)';
-  if (severity === 'WARNING') return 'var(--status-warning-fg)';
-  return 'var(--status-neutral-fg)';
+/** Важность замечания — тон палитры, значок и слово (DOC-3): не только цвет. */
+function severityMeta(severity: Severity): StatusMeta {
+  if (severity === 'BLOCKER') return { text: SEVERITY_LABELS[severity], tone: 'danger', icon: 'alert' };
+  if (severity === 'WARNING') return { text: SEVERITY_LABELS[severity], tone: 'warning', icon: 'alert' };
+  return { text: SEVERITY_LABELS[severity], tone: 'neutral', icon: 'info' };
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { BLOCKER: 0, WARNING: 1, INFO: 2 };
@@ -404,7 +399,7 @@ export function DocumentCheckScreen() {
   const canReplaceFile = card.permissions.canUploadVersion && !editing && !isForm;
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
-      <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>К маршруту</Button>
+      <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>Далее: выбрать согласующих</Button>
       <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
     </div>
   ) : isDraft && canEdit ? (
@@ -505,34 +500,26 @@ export function DocumentCheckScreen() {
         ) : (
           <div style={{ ...stackStyle, gap: 12 }}>
             {sortIssues(check.issues).map((issue) => (
+              // Без цветных полос слева (DOC-3, принцип 8): важность — меткой со значком и словом.
               <article
                 key={`${issue.ruleId}:${issue.fieldName}`}
                 style={{
                   ...stackStyle,
                   gap: 8,
                   padding: 12,
-                  borderRadius: 8,
+                  borderRadius: 'var(--ds-radius-m)',
                   background: 'var(--background-primary)',
-                  borderLeft: `3px solid ${severityTextColor(issue.severity)}`,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: 999,
-                      background: severityColor(issue.severity),
-                      color: severityTextColor(issue.severity),
-                      fontSize: 12,
-                    }}
-                  >
-                    {SEVERITY_LABELS[issue.severity]}
-                  </span>
+                  <StatusBadge meta={severityMeta(issue.severity)} />
                   <strong>{labels.get(issue.fieldName) ?? issue.fieldName}</strong>
                 </div>
                 <Typography.Text>{issue.message}</Typography.Text>
+                {/* «Рекомендация сервиса» у всех рекомендаций одинакова — её не повторяем; основание показываем
+                    только у закона и правила компании. */}
                 <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                  <span>{BASIS_LABELS[issue.kind]}{issue.kind === 'PRODUCT_RULE' ? '' : ': '}</span>
+                  {issue.kind !== 'PRODUCT_RULE' && <span>{BASIS_LABELS[issue.kind]}: </span>}
                   {issue.kind === 'PRODUCT_RULE' ? null : issue.sourceUrl ? (
                     <a href={issue.sourceUrl} target="_blank" rel="noreferrer" style={linkStyle}>{issue.sourceTitle}</a>
                   ) : (
@@ -541,7 +528,7 @@ export function DocumentCheckScreen() {
                   {issue.kind !== 'PRODUCT_RULE' && issue.sourceRef && <span> · {issue.sourceRef}</span>}
                   {isAdmin && (
                     <>
-                      {' · '}
+                      {issue.kind !== 'PRODUCT_RULE' && ' · '}
                       <button
                         type="button"
                         onClick={() => navigate(companyRulesPath(issue.ruleId))}
@@ -553,7 +540,7 @@ export function DocumentCheckScreen() {
                   )}
                 </div>
                 {issue.quote && (
-                  <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '3px solid var(--divider-primary)', color: 'var(--text-secondary)' }}>
+                  <blockquote style={{ margin: 0, padding: '8px 12px', borderRadius: 'var(--ds-radius-s)', background: 'var(--ds-surface)', color: 'var(--text-secondary)' }}>
                     «{issue.quote}»{issue.page !== null ? `, стр. ${issue.page}` : ''}
                   </blockquote>
                 )}

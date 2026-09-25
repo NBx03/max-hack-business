@@ -3,7 +3,7 @@ import { Input } from '@maxhub/max-ui';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { getDocuments, getDocumentTypes, type DocumentListFilters } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
-import type { DocumentListItem, DocumentStatus, DocumentType, UserRef } from '../../api/types';
+import type { DisplayStatus, DocumentListItem, DocumentType, UserRef } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
 import {
@@ -33,10 +33,10 @@ import {
 } from '../../ui';
 
 /** Какие статусы вообще бывают в разделе: у чужих документов нет черновиков, у «на согласовании» — только он. */
-const LIST_STATUSES: Record<DocumentListKey, DocumentStatus[]> = {
+const LIST_STATUSES: Record<DocumentListKey, DisplayStatus[]> = {
   waiting: [],
-  mine: ['DRAFT', 'IN_APPROVAL', 'RETURNED', 'APPROVED', 'REJECTED'],
-  shared: ['IN_APPROVAL', 'RETURNED', 'APPROVED', 'REJECTED'],
+  mine: ['DRAFT', 'IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
+  shared: ['IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
 };
 
 /** Пустой раздел объясняет, что здесь появится и что сделать (принцип 7). */
@@ -175,7 +175,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
               // переносилось на три строки. На согласовании у всех один статус — там вместо метки срок ожидания.
               subtitle={
                 <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
-                  {list !== 'waiting' && <DocumentStatusBadge status={item.status} />}
+                  {list !== 'waiting' && <DocumentStatusBadge status={item.displayStatus} />}
                   <span>
                     {[
                       item.type.name,
