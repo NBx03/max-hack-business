@@ -515,6 +515,17 @@ class DocumentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(documentId));
+        // Период создания: раньше даты уходили в драйвер как Instant и запрос падал с 500 (ни разу не проверялся).
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Europe/Moscow"));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE")
+                        .param("from", today.minusDays(6).toString()).param("to", today.plusDays(1).toString())
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("from", today.plusDays(2).toString())
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
         // NAV-3: поиск по части названия и по номеру документа; ACL — тот же, что у списка
         mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "прика")
                         .header("Authorization", AUTHOR_AUTH))

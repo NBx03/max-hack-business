@@ -427,10 +427,10 @@ public class DocumentReadRepository {
             statement = statement.param("authorId", authorId);
         }
         if (from != null) {
-            statement = statement.param("from", from);
+            statement = statement.param("from", from.atOffset(ZoneOffset.UTC));
         }
         if (toExclusive != null) {
-            statement = statement.param("toExclusive", toExclusive);
+            statement = statement.param("toExclusive", toExclusive.atOffset(ZoneOffset.UTC));
         }
         return statement;
     }
