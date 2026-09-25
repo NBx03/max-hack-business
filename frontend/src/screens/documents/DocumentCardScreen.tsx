@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
+import { CellList, CellSimple, Spinner, Textarea, Typography } from '@maxhub/max-ui';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createDocumentVersion,
@@ -13,14 +13,10 @@ import {
 import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentTypeField, FileRef, RouteStage, RouteView, StepView, VersionChanges } from '../../api/types';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
-import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
-import { DocumentStatusBadge, StepDecisionBadge } from '../../components/base/StatusBadge';
-import { AccessErrorState, ErrorState, ErrorText } from '../../components/base/StateCard';
-import { Toast } from '../../components/base/Toast';
+import { BottomSheet, ConfirmSheet, Button, DocumentStatusBadge, StepDecisionBadge, AccessErrorState, ErrorState, InlineError as ErrorText, Toast, BackLink } from '../../ui';
 import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
-import { BackLink } from '../../components/base/BackLink';
 import { ROUTE_PATTERNS, documentCheckPath, routePreviewPath } from '../../routes/paths';
 
 function formatDateTime(iso: string): string {
@@ -72,6 +68,12 @@ export function DocumentCardScreen() {
   const types = useAsync(() => (isForm ? getDocumentTypes() : Promise.resolve([])), [isForm]);
 
   const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
+  // Куда «назад»: в список, из которого открыли карточку, иначе (уведомление бота, ссылка) — на главную.
+  // Запоминаем при открытии: состояние перехода стирается вместе с тостом.
+  const [back] = useState(() => {
+    const state = location.state as { from?: string; fromLabel?: string } | null;
+    return state?.from ? { to: state.from, label: state.fromLabel ?? 'Назад' } : { to: ROUTE_PATTERNS.home, label: 'Главная' };
+  });
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialog | null>(null);
   const [rejectStep2, setRejectStep2] = useState(false);
   const [comment, setComment] = useState('');
@@ -159,8 +161,8 @@ export function DocumentCardScreen() {
         <CenteredColumn style={{ padding: 16 }}>
           <AccessErrorState
             text="Документ недоступен или удалён"
-            actionLabel="К документам"
-            onAction={() => navigate(ROUTE_PATTERNS.documents, { replace: true })}
+            actionLabel="На главную"
+            onAction={() => navigate(ROUTE_PATTERNS.home, { replace: true })}
           />
         </CenteredColumn>
       );
@@ -226,7 +228,7 @@ export function DocumentCardScreen() {
   return (
     <ScreenShell>
       <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-        <BackLink to={ROUTE_PATTERNS.documents} label="Документы" />
+        <BackLink to={back.to} label={back.label} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <Typography.Headline variant="large-strong">{doc.title}</Typography.Headline>
@@ -369,7 +371,7 @@ export function DocumentCardScreen() {
                   </Button>
                   <Button
                     stretched
-                    variant="destructive"
+                    variant="danger"
                     disabled={decisionBusy}
                     onClick={() => {
                       setDecisionDialog({ stepId: step.id, role: step.role.name, action: 'REJECT' });
@@ -452,7 +454,7 @@ export function DocumentCardScreen() {
           <div style={{ flex: 1 }}>
             <Button
               stretched
-              variant={decisionDialog?.action === 'REJECT' ? 'destructive' : 'primary'}
+              variant={decisionDialog?.action === 'REJECT' ? 'danger' : 'primary'}
               disabled={!comment.trim() || decisionBusy}
               onClick={() => {
                 if (decisionDialog?.action === 'REJECT') {

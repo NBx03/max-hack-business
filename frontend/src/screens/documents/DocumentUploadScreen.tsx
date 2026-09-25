@@ -1,11 +1,11 @@
-import { Button, Input, Radio, Switch, Typography } from '@maxhub/max-ui';
+import { Input, Radio, Switch, Typography } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
 import { FilePicker } from '../../components/base/FilePicker';
-import { ErrorState } from '../../components/base/StateCard';
+import { ErrorState, Button } from '../../ui';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
   DocumentScreen,
@@ -21,7 +21,7 @@ import {
 } from './DocumentFormParts';
 
 const FORM_ID = 'document-upload-form';
-const UPLOAD_BACK = { to: ROUTE_PATTERNS.documents, label: 'Документы' };
+const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
 const AUTO = 'auto';
 
 /**
@@ -124,7 +124,7 @@ export function DocumentUploadScreen() {
             <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Служебную записку можно заполнить прямо здесь.</span>
           </span>
           <div style={{ flex: 'none' }}>
-            <Button size="small" variant="secondary" type="button" onClick={() => navigate(ROUTE_PATTERNS.memoForm)}>
+            <Button compact variant="secondary" type="button" onClick={() => navigate(ROUTE_PATTERNS.memoForm)}>
               Заполнить
             </Button>
           </div>

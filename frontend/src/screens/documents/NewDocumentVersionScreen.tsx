@@ -1,11 +1,11 @@
-import { Button, Switch, Typography } from '@maxhub/max-ui';
+import { Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
 import { FilePicker, formatFileSize } from '../../components/base/FilePicker';
-import { ErrorState } from '../../components/base/StateCard';
+import { ErrorState, Button } from '../../ui';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import {
   DocumentScreen,
@@ -115,7 +115,7 @@ export function NewDocumentVersionScreen() {
           <SubmitButton form={FORM_ID} busy={submitting} disabled={!canSubmit}>
             Загрузить и проверить
           </SubmitButton>
-          <Button stretched type="button" variant="secondary" size="large" disabled={submitting} onClick={() => navigate(documentCheckPath(card.id))}>
+          <Button stretched type="button" variant="secondary" disabled={submitting} onClick={() => navigate(documentCheckPath(card.id))}>
             Отмена
           </Button>
         </div>

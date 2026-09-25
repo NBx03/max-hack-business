@@ -1,13 +1,12 @@
-import { Button, Switch, Typography } from '@maxhub/max-ui';
+import { Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { approveJoinRequest, getJoinRequests, getRoles, rejectJoinRequest } from '../../api/admin';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { JoinRequestView, RoleRef } from '../../api/types';
 import { RolePicker } from '../../components/base/RolePicker';
-import { EmptyState } from '../../components/base/StateCard';
-import { Toast } from '../../components/base/Toast';
+import { EmptyState, Button, Toast } from '../../ui';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
-import { ADMIN_BACK, AdminLoadError, AdminTabs, formatDateTime } from './AdminFormParts';
+import { ADMIN_BACK, AdminLoadError, formatDateTime } from './AdminFormParts';
 
 interface RowChoice {
   roleIds: number[];
@@ -100,20 +99,17 @@ export function JoinRequestsScreen() {
   if (loading) return <LoadingState />;
   if (loadError !== null || !requests) {
     return (
-      <AdminScreen title="Заявки" back={ADMIN_BACK} nav>
+      <AdminScreen title="Заявки" back={ADMIN_BACK}>
         <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
 
   return (
-    <AdminScreen title="Заявки" back={ADMIN_BACK} nav>
-      <div style={{ marginTop: 12, marginBottom: 20 }}>
-        <AdminTabs active="requests" requestsCount={requests.length} />
-      </div>
+    <AdminScreen title="Заявки" back={ADMIN_BACK}>
 
       {requests.length === 0 ? (
-        <EmptyState text="Новых заявок нет" />
+        <EmptyState title="Новых заявок нет" text="Когда сотрудник подаст заявку по коду компании, она появится здесь, а бот пришлёт вам сообщение." />
       ) : (
         <div style={stackStyle}>
           {requests.map((request) => {
@@ -144,6 +140,11 @@ export function JoinRequestsScreen() {
                   />
                   <Typography.Text>Права администратора</Typography.Text>
                 </label>
+
+                {!canApprove && (
+                  // Почему «Принять» недоступна — рядом с ней, а не догадкой (принцип 9).
+                  <p className="ds-section__hint" style={{ margin: 0 }}>Чтобы принять, отметьте роль или права администратора.</p>
+                )}
 
                 {rowErrors[request.id] && <Notice tone="danger">{rowErrors[request.id]}</Notice>}
 

@@ -1,5 +1,5 @@
 // Общие объекты и ответ GET /me - см. docs/API_CONTRACTS.md.
-import type { AutoReason, DocumentStatus, StepDecision } from '../theme/status';
+import type { AutoReason, DocumentStatus, StepDecision } from '../ui/status';
 
 export type { DocumentStatus, StepDecision };
 

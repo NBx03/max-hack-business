@@ -7,7 +7,7 @@ import { ROUTE_PATTERNS } from './paths';
 // не было вовсе: из «Приглашения» или карточки нельзя было уйти без кнопки MAX.
 //
 // Правило: «назад» — это всегда логический родитель экрана (карточка для проверки,
-// список для карточки, «Компания» для экранов администрирования), и переход к нему заменяет
+// главная для списков и карточки, «Компания» для экранов администрирования), и переход к нему заменяет
 // текущий экран. Так не бывает петель, когда «назад» после ссылки «‹ Документы»
 // возвращал бы на ту же карточку.
 
@@ -16,8 +16,8 @@ import { ROUTE_PATTERNS } from './paths';
  * entryRoute — запасной вариант для путей, у которых родителя нет.
  */
 export function parentRoute(pathname: string, entryRoute: string): string {
-  if (pathname === ROUTE_PATTERNS.documentUpload) {
-    return ROUTE_PATTERNS.documents;
+  if (pathname === ROUTE_PATTERNS.documentUpload || pathname.startsWith('/documents/list/') || pathname === ROUTE_PATTERNS.company) {
+    return ROUTE_PATTERNS.home;
   }
   if (pathname === ROUTE_PATTERNS.memoForm) {
     return ROUTE_PATTERNS.documentUpload;
@@ -26,8 +26,9 @@ export function parentRoute(pathname: string, entryRoute: string): string {
   if (documentSubPath) {
     return documentSubPath[1];
   }
+  // Карточка: по умолчанию — главная; экран, знающий, из какого списка пришли, передаёт свою цель сам (BackLink).
   if (/^\/documents\/\d+$/.test(pathname)) {
-    return ROUTE_PATTERNS.documents;
+    return ROUTE_PATTERNS.home;
   }
   if (pathname.startsWith('/admin/') || pathname === ROUTE_PATTERNS.companyRules) {
     return ROUTE_PATTERNS.company;

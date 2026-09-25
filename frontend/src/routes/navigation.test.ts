@@ -33,13 +33,13 @@ const inSandbox: MeResponse = {
 };
 
 describe('resolveEntryRoute', () => {
-  it('без компании и ссылки - приветствие, с компанией - список', () => {
+  it('без компании и ссылки - приветствие, с компанией - главная', () => {
     expect(resolveEntryRoute(base)).toBe('/welcome');
-    expect(resolveEntryRoute(member)).toBe('/documents');
+    expect(resolveEntryRoute(member)).toBe('/home');
   });
 
   it('проверяющий в песочнице - к документам, хотя реальной компании нет', () => {
-    expect(resolveEntryRoute(inSandbox)).toBe('/documents');
+    expect(resolveEntryRoute(inSandbox)).toBe('/home');
   });
 
   it('песочница есть, но участник не выбран - приветствие («Вернуться в демо»)', () => {
@@ -53,12 +53,12 @@ describe('resolveEntryRoute', () => {
   });
 
   it('приглашение игнорируется, если человек уже в компании или ждёт решения', () => {
-    expect(resolveEntryRoute({ ...member, startParam: 'c_KX7M2PQR' })).toBe('/documents');
+    expect(resolveEntryRoute({ ...member, startParam: 'c_KX7M2PQR' })).toBe('/home');
     expect(resolveEntryRoute({ ...pending, startParam: 'p_token' })).toBe('/pending');
   });
 
   it('отработавший startParam больше не учитывается', () => {
-    expect(resolveEntryRoute({ ...member, startParam: 'd_5' }, false)).toBe('/documents');
+    expect(resolveEntryRoute({ ...member, startParam: 'd_5' }, false)).toBe('/home');
     expect(resolveEntryRoute({ ...base, startParam: 'c_KX7M2PQR' }, false)).toBe('/welcome');
   });
 });
@@ -66,8 +66,8 @@ describe('resolveEntryRoute', () => {
 describe('guardTarget', () => {
   it('экраны подключения: компания появилась - к документам, подана заявка - к ожиданию', () => {
     expect(guardTarget('onboarding', base, '/welcome')).toBeNull();
-    expect(guardTarget('onboarding', member, '/documents')).toBe('/documents');
-    expect(guardTarget('onboarding', inSandbox, '/documents')).toBe('/documents');
+    expect(guardTarget('onboarding', member, '/home')).toBe('/home');
+    expect(guardTarget('onboarding', inSandbox, '/home')).toBe('/home');
     expect(guardTarget('onboarding', pending, '/pending')).toBe('/pending');
   });
 
@@ -78,7 +78,7 @@ describe('guardTarget', () => {
 
   it('ожидание решения: заявку одобрили - к документам, отменили или отклонили - по /me', () => {
     expect(guardTarget('pending', pending, '/pending')).toBeNull();
-    expect(guardTarget('pending', member, '/documents')).toBe('/documents');
+    expect(guardTarget('pending', member, '/home')).toBe('/home');
     expect(guardTarget('pending', base, '/welcome')).toBe('/welcome');
   });
 
@@ -90,25 +90,29 @@ describe('guardTarget', () => {
 });
 
 describe('parentRoute — куда ведут «назад» и ссылки «‹ …»', () => {
-  it('экраны документа - к карточке, карточка и загрузка - к списку', () => {
-    expect(parentRoute('/documents/5/check', '/documents')).toBe('/documents/5');
-    expect(parentRoute('/documents/5/route', '/documents')).toBe('/documents/5');
-    expect(parentRoute('/documents/5/new-version', '/documents')).toBe('/documents/5');
-    expect(parentRoute('/documents/5', '/documents')).toBe('/documents');
-    expect(parentRoute('/documents/new', '/documents')).toBe('/documents');
-    expect(parentRoute('/documents/new/memo', '/documents')).toBe('/documents/new');
+  it('экраны документа - к карточке; карточка, списки, загрузка и «Компания» - на главную', () => {
+    expect(parentRoute('/documents/5/check', '/home')).toBe('/documents/5');
+    expect(parentRoute('/documents/5/route', '/home')).toBe('/documents/5');
+    expect(parentRoute('/documents/5/new-version', '/home')).toBe('/documents/5');
+    expect(parentRoute('/documents/5', '/home')).toBe('/home');
+    expect(parentRoute('/documents/list/waiting', '/home')).toBe('/home');
+    expect(parentRoute('/documents/new', '/home')).toBe('/home');
+    expect(parentRoute('/documents/new/memo', '/home')).toBe('/documents/new');
+    expect(parentRoute('/company', '/home')).toBe('/home');
   });
 
   it('администрирование - к разделу «Компания», подключение - к приветствию', () => {
-    expect(parentRoute('/admin/invite', '/documents')).toBe('/company');
-    expect(parentRoute('/admin/members', '/documents')).toBe('/company');
+    expect(parentRoute('/admin/invite', '/home')).toBe('/company');
+    expect(parentRoute('/admin/members', '/home')).toBe('/company');
+    expect(parentRoute('/company/rules', '/home')).toBe('/company');
     expect(parentRoute('/company/create', '/welcome')).toBe('/welcome');
     expect(parentRoute('/join', '/welcome')).toBe('/welcome');
     expect(parentRoute('/join/personal/abc', '/welcome')).toBe('/welcome');
   });
 
   it('у корневых экранов родителя нет - туда, куда ведёт /me', () => {
-    expect(parentRoute('/company', '/documents')).toBe('/documents');
+    expect(parentRoute('/home', '/home')).toBe('/home');
+    expect(parentRoute('/pending', '/pending')).toBe('/pending');
   });
 });
 

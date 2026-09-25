@@ -1,4 +1,4 @@
-import { Button, Typography } from '@maxhub/max-ui';
+import { Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -22,9 +22,7 @@ import type {
   Severity,
   ValidationIssue,
 } from '../../api/types';
-import { BottomSheet } from '../../components/base/BottomSheet';
-import { scrollScreenToTop } from '../../components/base/Layout';
-import { ErrorState } from '../../components/base/StateCard';
+import { BottomSheet, Button, scrollScreenToTop, ErrorState, SelectField } from '../../ui';
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
@@ -34,7 +32,6 @@ import {
   FieldInputs,
   LoadingState,
   Notice,
-  inputStyle,
   linkStyle,
   sectionStyle,
   stackStyle,
@@ -407,11 +404,11 @@ export function DocumentCheckScreen() {
   const canReplaceFile = card.permissions.canUploadVersion && !editing && !isForm;
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
-      <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>К маршруту</Button>
-      <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
+      <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>К маршруту</Button>
+      <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
     </div>
   ) : isDraft && canEdit ? (
-    <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
+    <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
   ) : null;
 
   return (
@@ -422,8 +419,7 @@ export function DocumentCheckScreen() {
           {card.type.autoDetected ? ' · определён автоматически' : ''} · версия {card.currentVersionNo}
         </span>
         {canChangeType && (
-          <Button
-            size="small"
+          <Button compact
             variant="secondary"
             onClick={() => {
               setNextTypeId(card.type.id);
@@ -434,7 +430,7 @@ export function DocumentCheckScreen() {
           </Button>
         )}
         {canReplaceFile && (
-          <Button size="small" variant="secondary" onClick={() => navigate(documentNewVersionPath(card.id))}>
+          <Button compact variant="secondary" onClick={() => navigate(documentNewVersionPath(card.id))}>
             Заменить файл
           </Button>
         )}
@@ -498,7 +494,7 @@ export function DocumentCheckScreen() {
           {/* У возвращённого — тоже (ревью #103, п. 2): проверяется новая версия-черновик, возвращённая остаётся в истории. */}
           {(isDraft || isReturned) && card.permissions.canUploadVersion && !editing && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-              <Button size="small" variant="secondary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void recheck()}>
+              <Button compact variant="secondary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void recheck()}>
                 Проверить заново
               </Button>
             </div>
@@ -572,7 +568,7 @@ export function DocumentCheckScreen() {
           <Typography.Headline variant="medium">Данные документа</Typography.Headline>
           {canEdit && !editing && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-              <Button size="small" variant={mustFix || isReturned ? 'primary' : 'secondary'} onClick={startEditing}>Изменить</Button>
+              <Button compact variant={mustFix || isReturned ? 'primary' : 'secondary'} onClick={startEditing}>Изменить</Button>
             </div>
           )}
         </div>
@@ -603,7 +599,7 @@ export function DocumentCheckScreen() {
             {actionError && <Notice tone="danger">{actionError}</Notice>}
             <div style={{ ...stackStyle, gap: 8 }}>
               {card.permissions.canCorrectFile && (
-                <Button stretched variant="primary" size="large" loading={busy === 'file'} disabled={busy !== null} onClick={() => void writeIntoFile()}>
+                <Button stretched variant="primary" loading={busy === 'file'} disabled={busy !== null} onClick={() => void writeIntoFile()}>
                   Исправить и проверить
                 </Button>
               )}
@@ -612,7 +608,6 @@ export function DocumentCheckScreen() {
                   <Button
                     stretched
                     variant={card.permissions.canCorrectFile ? 'secondary' : 'primary'}
-                    size="large"
                     loading={busy === 'fields'}
                     disabled={busy !== null}
                     onClick={() => void saveFieldsOnly()}
@@ -627,11 +622,11 @@ export function DocumentCheckScreen() {
                 </>
               )}
               {!card.permissions.canCorrectFile && card.permissions.canUploadVersion && !isForm && (
-                <Button stretched variant="secondary" size="large" disabled={busy !== null} onClick={() => navigate(documentNewVersionPath(card.id))}>
+                <Button stretched variant="secondary" disabled={busy !== null} onClick={() => navigate(documentNewVersionPath(card.id))}>
                   Заменить файл
                 </Button>
               )}
-              <Button stretched variant="secondary" size="large" disabled={busy !== null} onClick={cancelEditing}>
+              <Button stretched variant="secondary" disabled={busy !== null} onClick={cancelEditing}>
                 Отмена
               </Button>
             </div>
@@ -670,13 +665,13 @@ export function DocumentCheckScreen() {
         <Typography.Text style={{ color: 'var(--text-secondary)' }}>
           От типа зависят поля, правила и маршрут. Документ проверится заново.
         </Typography.Text>
-        <select
-          style={inputStyle}
-          value={nextTypeId ?? ''}
-          onChange={(event) => setNextTypeId(Number(event.target.value))}
-        >
-          {sortTypes(types).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        <SelectField
+          placeholder="Выберите тип"
+          sheetTitle="Тип документа"
+          options={sortTypes(types).map((item) => ({ value: item.id, label: item.name }))}
+          value={nextTypeId ?? null}
+          onChange={setNextTypeId}
+        />
         <Button stretched variant="primary" loading={busy === 'type'} disabled={busy !== null} onClick={() => void applyType()}>
           Проверить по этому типу
         </Button>

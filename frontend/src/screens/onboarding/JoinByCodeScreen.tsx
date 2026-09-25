@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Button, Input, Typography } from '@maxhub/max-ui';
+import { Button } from '../../ui';
+import { Input, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { previewInviteCode, submitJoinRequest } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
@@ -107,15 +108,15 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
       footer={
         <>
           {orgName ? (
-            <Button size="large" stretched disabled={!complete} loading={sending} onClick={() => void send()}>
+            <Button variant="primary" stretched disabled={!complete} loading={sending} onClick={() => void send()}>
               Отправить заявку
             </Button>
           ) : (
-            <Button size="large" stretched disabled={!complete} loading={checking} onClick={() => void check()}>
+            <Button variant="primary" stretched disabled={!complete} loading={checking} onClick={() => void check()}>
               Найти компанию
             </Button>
           )}
-          <Button size="large" variant="ghost" stretched disabled={sending} onClick={onBack}>
+          <Button variant="ghost" stretched disabled={sending} onClick={onBack}>
             Назад
           </Button>
         </>

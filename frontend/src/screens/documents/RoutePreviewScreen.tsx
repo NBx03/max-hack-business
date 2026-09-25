@@ -1,17 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
+import { Spinner, Typography } from '@maxhub/max-ui';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument, type RouteSelection } from '../../api/documents';
 import { getColleagues } from '../../api/organization';
 import type { DocumentStatus, MemberView, RoutePreview, RoutePreviewParticipant, RoutePreviewStage } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
-import { BottomSheet } from '../../components/base/BottomSheet';
+import { BottomSheet, Button, ErrorState, InlineError as ErrorText, BackLink } from '../../ui';
 import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
-import { ErrorState, ErrorText } from '../../components/base/StateCard';
 import { useAsync } from '../../hooks/useAsync';
 import { errorMessage } from '../../api/errors';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
-import { BackLink } from '../../components/base/BackLink';
 import { inputStyle } from './DocumentFormParts';
 
 function selectionKey(stageOrder: number, roleId: number): string {
@@ -324,7 +322,7 @@ function ExtraRow({ extra, onRemove }: { extra: Extra; onRemove: () => void }) {
       </div>
       {/* Кнопка не сжимается: иначе на узком экране от неё оставалось «Убр…» (как «Изме…» на приёмке). */}
       <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-        <Button size="small" variant="secondary" onClick={onRemove} aria-label={`Убрать ${extra.userName}`}>
+        <Button compact variant="secondary" onClick={onRemove} aria-label={`Убрать ${extra.userName}`}>
           Убрать
         </Button>
       </div>

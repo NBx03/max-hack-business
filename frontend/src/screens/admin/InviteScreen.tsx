@@ -1,4 +1,4 @@
-import { Button, Typography } from '@maxhub/max-ui';
+import { Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
 import {
   createPersonalInvite,
@@ -11,12 +11,11 @@ import {
 } from '../../api/admin';
 import { errorMessage } from '../../api/errors';
 import type { InviteCodeInfo, PersonalInviteView, RoleRef } from '../../api/types';
-import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
+import { BottomSheet, ConfirmSheet, Button, Toast } from '../../ui';
 import { RolePicker } from '../../components/base/RolePicker';
-import { Toast } from '../../components/base/Toast';
 import { copyToClipboard, shareOrCopy } from '../../lib/share';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
-import { ADMIN_BACK, AdminLoadError, AdminTabs, formatTimeLeft, roleNames } from './AdminFormParts';
+import { ADMIN_BACK, AdminLoadError, formatTimeLeft, roleNames } from './AdminFormParts';
 
 export function InviteScreen() {
   const [code, setCode] = useState<InviteCodeInfo | null>(null);
@@ -135,17 +134,14 @@ export function InviteScreen() {
   if (loading) return <LoadingState />;
   if (loadError !== null || !code) {
     return (
-      <AdminScreen title="Приглашение" back={ADMIN_BACK} nav>
+      <AdminScreen title="Приглашение" back={ADMIN_BACK}>
         <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
 
   return (
-    <AdminScreen title="Приглашение" back={ADMIN_BACK} nav>
-      <div style={{ marginTop: 12, marginBottom: 20 }}>
-        <AdminTabs active="invite" />
-      </div>
+    <AdminScreen title="Приглашение" back={ADMIN_BACK}>
       <div style={{ ...stackStyle, marginTop: 4 }}>
         {soloAdmin && (
           <Notice>
@@ -161,7 +157,7 @@ export function InviteScreen() {
           </Typography.Text>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1 }}>
-              <Button stretched onClick={() => void share(code.link, 'Приглашение в компанию')}>Поделиться</Button>
+              <Button variant="primary" stretched onClick={() => void share(code.link, 'Приглашение в компанию')}>Поделиться</Button>
             </div>
             <div style={{ flex: 1 }}>
               <Button stretched variant="secondary" onClick={() => void copyCode()}>Скопировать код</Button>
@@ -212,10 +208,10 @@ export function InviteScreen() {
                       {invite.link}
                     </span>
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <Button size="small" variant="secondary" onClick={() => void share(invite.link, 'Личное приглашение в компанию')}>
+                      <Button compact variant="secondary" onClick={() => void share(invite.link, 'Личное приглашение в компанию')}>
                         Поделиться
                       </Button>
-                      <Button size="small" variant="secondary" onClick={() => void revoke(invite)}>Отозвать</Button>
+                      <Button compact variant="secondary" onClick={() => void revoke(invite)}>Отозвать</Button>
                     </div>
                   </div>
                 ))}
@@ -242,7 +238,7 @@ export function InviteScreen() {
             <Typography.Text style={{ overflowWrap: 'anywhere', color: 'var(--text-tertiary)' }}>
               {createdInvite.link}
             </Typography.Text>
-            <Button stretched onClick={() => void share(createdInvite.link, 'Личное приглашение в компанию')}>
+            <Button variant="primary" stretched onClick={() => void share(createdInvite.link, 'Личное приглашение в компанию')}>
               Поделиться
             </Button>
             <Button stretched variant="secondary" onClick={closeCreateSheet}>Готово</Button>

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { createFormDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
-import { ErrorState } from '../../components/base/StateCard';
+import { ErrorState } from '../../ui';
 import { useSession } from '../../app/SessionContext';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {

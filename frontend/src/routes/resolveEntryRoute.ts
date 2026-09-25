@@ -21,7 +21,7 @@ export function hasCompany(me: MeResponse): boolean {
  *  2. startParam c_/p_ - только пока пользователь ещё не подключён к компании и не подал
  *     заявку: если он уже участник, ссылка-приглашение устарела и её нужно игнорировать.
  *  3. Заявка на рассмотрении - блокирует остальное, пока не решена.
- *  4. Есть компания - обычный список документов.
+ *  4. Есть компания - главная с плитками разделов (NAV-1).
  *  5. Иначе - приветствие.
  */
 export function resolveEntryRoute(me: MeResponse, withStartParam = true): string {
@@ -51,7 +51,7 @@ export function resolveEntryRoute(me: MeResponse, withStartParam = true): string
   }
 
   if (hasCompany(me)) {
-    return ROUTE_PATTERNS.documents;
+    return ROUTE_PATTERNS.home;
   }
 
   return ROUTE_PATTERNS.welcome;

@@ -1,6 +1,5 @@
-import { Typography } from '@maxhub/max-ui';
 import type { OrganizationMetrics } from '../../api/types';
-import { sectionStyle, stackStyle } from '../documents/DocumentFormParts';
+import { Muted, Section } from '../../ui';
 
 function documentsLabel(count: number): string {
   const mod10 = count % 10;
@@ -9,47 +8,63 @@ function documentsLabel(count: number): string {
   return `${count} документам`;
 }
 
-/** Меньше часа — словами: «0 ч» читалось как «мгновенно» или как ошибка (приёмка 24.09). */
-function formatDuration(hours: number | null): string {
+/**
+ * Значение — коротко и в одну строку (LAY-4): «меньше часа» переносилось на две строки и сдвигало плитку.
+ * Чистая функция — покрыта тестом.
+ */
+export function formatDuration(hours: number | null): string {
   if (hours === null) return '—';
-  if (hours < 1) return 'меньше часа';
+  if (hours < 1) return '< 1 ч';
   if (hours < 48) return `${Math.round(hours)} ч`;
-  return `${Math.round(hours / 24)} дн.`;
+  return `${Math.round(hours / 24)} дн`;
 }
 
-function formatRate(value: number | null): string {
+export function formatRate(value: number | null): string {
   return value === null ? '—' : `${Math.round(value * 100)}%`;
 }
 
+function MetricTile({ value, label }: { value: string; label: string }) {
+  return (
+    <div
+      style={{
+        flex: '1 1 0',
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-start',
+        gap: 4,
+        padding: 'var(--ds-space-m)',
+        borderRadius: 'var(--ds-radius-m)',
+        background: 'var(--ds-surface)',
+      }}
+    >
+      {/* Значение не переносится; на узком экране уменьшается шрифт, а не ломается раскладка. */}
+      <span style={{ fontSize: 'clamp(20px, 7vw, 28px)', lineHeight: '34px', fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>
+        {value}
+      </span>
+      <span style={{ fontSize: 'var(--ds-text-xs)', lineHeight: '18px', color: 'var(--text-secondary)' }}>{label}</span>
+    </div>
+  );
+}
+
 /**
- * Показатели согласования в компании — ровно то, что сервис обещает улучшить: срок согласования
- * и долю возвратов на доработку. Раньше блок назывался «Эффект согласования» и стоял над списком
- * документов; название было непонятно без пояснений (приёмка 24.09), а список уезжал вниз.
+ * Показатели согласования в компании — ровно то, что сервис обещает улучшить: срок согласования и долю возвратов.
+ * Плитки одной высоты, значение сверху, подпись под ним (LAY-4).
  */
 export function MetricsCard({ metrics }: { metrics: OrganizationMetrics }) {
-  const item = { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 } as const;
   return (
-    <section aria-labelledby="metrics-title" style={sectionStyle}>
-      <div style={{ ...stackStyle, gap: 4 }}>
-        <Typography.Headline id="metrics-title" variant="small">Показатели согласования</Typography.Headline>
-        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          {metrics.documentsCount === 0
-            ? 'Появятся, когда в компании отправят первый документ на согласование.'
-            : `По ${documentsLabel(metrics.documentsCount)}, отправленным на согласование.`}
-        </span>
-      </div>
+    <Section title="Показатели согласования">
+      <Muted>
+        {metrics.documentsCount === 0
+          ? 'Появятся, когда в компании отправят первый документ на согласование.'
+          : `По ${documentsLabel(metrics.documentsCount)}, отправленным на согласование.`}
+      </Muted>
       {metrics.documentsCount > 0 && (
-        <div style={{ display: 'flex', gap: 16 }}>
-          <div style={item}>
-            <Typography.Headline variant="large-strong">{formatDuration(metrics.medianApprovalHours)}</Typography.Headline>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>обычно проходит от отправки до «Согласован»</span>
-          </div>
-          <div style={item}>
-            <Typography.Headline variant="large-strong">{formatRate(metrics.returnRate)}</Typography.Headline>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>документов хотя бы раз вернули на доработку</span>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 'var(--ds-space-xs)' }}>
+          <MetricTile value={formatDuration(metrics.medianApprovalHours)} label="обычно от отправки до итогового решения" />
+          <MetricTile value={formatRate(metrics.returnRate)} label="документов хотя бы раз вернули на доработку" />
         </div>
       )}
-    </section>
+    </Section>
   );
 }

@@ -1,38 +1,65 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, CellList, CellSimple, Input, Spinner, Typography } from '@maxhub/max-ui';
-import { useNavigate } from 'react-router-dom';
-import { getDocuments, getDocumentTypes, type DocumentTab, type DocumentListFilters } from '../../api/documents';
+import { Input } from '@maxhub/max-ui';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { getDocuments, getDocumentTypes, type DocumentListFilters } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentListItem, DocumentStatus, DocumentType, UserRef } from '../../api/types';
-import { BottomSheet } from '../../components/base/BottomSheet';
-import { AppNav } from '../../components/base/AppNav';
-import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
-import { DocumentStatusBadge } from '../../components/base/StatusBadge';
-import { Tabs, type TabItem } from '../../components/base/Tabs';
-import { EmptyState, ErrorState } from '../../components/base/StateCard';
-import { documentStatusMeta } from '../../theme/status';
-import { useAsync } from '../../hooks/useAsync';
 import { useSession } from '../../app/SessionContext';
-import { ROUTE_PATTERNS, documentCardPath } from '../../routes/paths';
+import { useAsync } from '../../hooks/useAsync';
+import {
+  DOCUMENT_LISTS,
+  ROUTE_PATTERNS,
+  documentCardPath,
+  documentListPath,
+  isDocumentListKey,
+  type DocumentListKey,
+} from '../../routes/paths';
+import {
+  BottomSheet,
+  Button,
+  Chip,
+  Chips,
+  DocumentStatusBadge,
+  EmptyState,
+  ErrorState,
+  List,
+  Loading,
+  Page,
+  PageHeader,
+  Row,
+  SelectField,
+  documentStatusMeta,
+  type SelectOption,
+} from '../../ui';
 
-const STATUS_OPTIONS: DocumentStatus[] = ['DRAFT', 'IN_APPROVAL', 'RETURNED', 'REJECTED', 'APPROVED'];
+/** Какие статусы вообще бывают в разделе: у чужих документов нет черновиков, у «на согласовании» — только он. */
+const LIST_STATUSES: Record<DocumentListKey, DocumentStatus[]> = {
+  waiting: [],
+  mine: ['DRAFT', 'IN_APPROVAL', 'RETURNED', 'APPROVED', 'REJECTED'],
+  shared: ['IN_APPROVAL', 'RETURNED', 'APPROVED', 'REJECTED'],
+};
 
-const TAB_EMPTY_TEXT: Record<DocumentTab, string> = {
-  WAITING_ME: 'Ничего не ждёт вашего решения',
-  MINE: 'Документов пока нет',
-  AVAILABLE: 'Нет доступных документов',
+/** Пустой раздел объясняет, что здесь появится и что сделать (принцип 7). */
+const EMPTY: Record<DocumentListKey, { title: string; text: string }> = {
+  waiting: {
+    title: 'Ничего не ждёт вашего решения',
+    text: 'Когда подойдёт ваша очередь согласовать документ, он появится здесь, а бот пришлёт сообщение.',
+  },
+  mine: {
+    title: 'Вы ещё не создавали документы',
+    text: 'Загрузите файл или заполните служебную записку — сервис проверит документ и поможет отправить его на согласование.',
+  },
+  shared: {
+    title: 'Пока нет общих документов',
+    text: 'Здесь появятся документы коллег, открытые для всей компании, и те, в согласовании которых вы участвовали.',
+  },
 };
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
-function daysWaiting(iso: string): number {
-  const ms = Date.now() - new Date(iso).getTime();
-  return Math.max(0, Math.floor(ms / (24 * 60 * 60 * 1000)));
-}
-
-/** "день"/"дня"/"дней" - обычные русские правила (11-14 всегда "дней"). */
+/** «день»/«дня»/«дней» — обычные русские правила (11–14 всегда «дней»). */
 function pluralDays(n: number): string {
   const mod10 = n % 10;
   const mod100 = n % 100;
@@ -42,269 +69,193 @@ function pluralDays(n: number): string {
 }
 
 function waitingText(iso: string): string {
-  const days = daysWaiting(iso);
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000)));
   return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
 }
 
-/**
- * Вкладка и фильтры запоминаются на время работы с приложением (приёмка 24.09, п. 3): вернувшись
- * из карточки, человек видит тот же список, откуда ушёл. Раньше список всегда открывался на «Ждут меня»,
- * и автор, листавший «Мои», каждый раз переключался заново. «Ждут меня» — только при первом открытии.
- */
-const TAB_KEY = 'approval.documentsTab';
-const TABS: DocumentTab[] = ['WAITING_ME', 'MINE', 'AVAILABLE'];
-// Фильтры — по тому, от чьего имени работа: у демо-компании свои авторы и типы.
-let rememberedFilters: { actor: string; filters: DocumentListFilters } | null = null;
+/** Фильтры, кроме статуса, — в панели «Ещё фильтры»; помним на время работы, отдельно для каждого раздела. */
+const remembered = new Map<string, DocumentListFilters>();
 
-function readTab(): DocumentTab {
-  try {
-    const saved = sessionStorage.getItem(TAB_KEY);
-    return TABS.find((tab) => tab === saved) ?? 'WAITING_ME';
-  } catch {
-    return 'WAITING_ME';
+/** Раздел документов (NAV-1, NAV-2): «На моём согласовании», «Мои документы», «Общие документы». */
+export function DocumentListRoute() {
+  const { list } = useParams<{ list: string }>();
+  if (!isDocumentListKey(list)) {
+    return <Navigate to={ROUTE_PATTERNS.home} replace />;
   }
+  return <DocumentListScreen key={list} list={list} />;
 }
 
-function writeTab(tab: DocumentTab): void {
-  try {
-    sessionStorage.setItem(TAB_KEY, tab);
-  } catch {
-    // Без sessionStorage вкладка просто не запомнится.
-  }
-}
-
-/**
- * 8. Список документов - главный экран (docs/SCREENS.md). Администрирование переехало
- * в раздел «Компания» нижнего меню (AppNav).
- */
-export function DocumentListScreen() {
+function DocumentListScreen({ list }: { list: DocumentListKey }) {
   const navigate = useNavigate();
-  const [tab, setTabState] = useState<DocumentTab>(readTab);
   const { me } = useSession();
+  const meta = DOCUMENT_LISTS[list];
   const actor = me?.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me?.user.id ?? 0}`;
-  const [filters, setFiltersState] = useState<DocumentListFilters>(() =>
-    rememberedFilters?.actor === actor ? rememberedFilters.filters : {});
-  const setTab = (next: DocumentTab) => {
-    writeTab(next);
-    setTabState(next);
-  };
+  const memoryKey = `${actor}:${list}`;
+  const [filters, setFiltersState] = useState<DocumentListFilters>(() => remembered.get(memoryKey) ?? {});
   const setFilters = (next: DocumentListFilters) => {
-    rememberedFilters = { actor, filters: next };
+    remembered.set(memoryKey, next);
     setFiltersState(next);
   };
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  // Известные авторы - накапливаются из уже загруженных документов, отдельного
-  // эндпоинта "все авторы" для не-админа нет (GET /orgs/current/members - только ADMIN).
+  const [moreOpen, setMoreOpen] = useState(false);
+  // Авторы — из уже загруженных документов: отдельного «все авторы» для не-администратора нет.
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
 
-  const docTab = tab;
-  const listQuery = useAsync(() => getDocuments(docTab, { ...filters, size: 50 }), [docTab, filters]);
-  // "Ждут меня" со счётчиком - total отдельного запроса с size=1, независимо от фильтров текущей вкладки.
-  const waitingCountQuery = useAsync(() => getDocuments('WAITING_ME', { size: 1 }), []);
+  const query = useAsync(() => getDocuments(meta.tab, { ...filters, size: 50 }), [meta.tab, filters]);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
 
   useEffect(() => {
-    if (listQuery.status !== 'ready') {
-      return;
-    }
+    if (query.status !== 'ready') return;
     setKnownAuthors((prev) => {
       const next = new Map(prev);
-      listQuery.data.items.forEach((item) => next.set(item.author.id, item.author));
+      query.data.items.forEach((item) => next.set(item.author.id, item.author));
       return next;
     });
-  }, [listQuery]);
+  }, [query]);
 
-  const tabs = useMemo<TabItem<DocumentTab>[]>(
-    () => [
-      { key: 'WAITING_ME', label: 'Ждут меня', count: waitingCountQuery.status === 'ready' ? waitingCountQuery.data.total : undefined },
-      { key: 'MINE', label: 'Мои' },
-      { key: 'AVAILABLE', label: 'Доступные мне' },
-    ],
-    [waitingCountQuery],
-  );
+  const statuses = LIST_STATUSES[list];
+  const moreCount = [filters.typeId, filters.authorId, filters.from, filters.to].filter((value) => value !== undefined).length;
+  const filtered = moreCount > 0 || filters.status !== undefined;
 
-  const activeFiltersCount = Object.values(filters).filter((value) => value !== undefined).length;
+  const openCard = (item: DocumentListItem) =>
+    navigate(documentCardPath(item.id), { state: { from: documentListPath(list), fromLabel: meta.title } });
 
   return (
-    // ScreenShell + flex:1 на CenteredColumn - чтобы BottomActionBar не повисал сразу
-    // под коротким контентом, а стоял у края экрана; BottomActionBar - не внутри этого
-    // CenteredColumn, а рядом с ним (см. components/base/Layout.tsx, BottomActionBar).
-    <ScreenShell>
-      <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-        <Typography.Headline variant="large-strong">Документы</Typography.Headline>
+    <Page
+      header={<PageHeader back={{ to: ROUTE_PATTERNS.home, label: 'Главная' }} title={meta.title} subtitle={meta.hint} />}
+      footer={
+        list === 'mine' ? (
+          <Button variant="primary" stretched icon="plus" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
+            Новый документ
+          </Button>
+        ) : undefined
+      }
+    >
+      <Chips label="Фильтры">
+        <Chip selected={moreCount > 0} onClick={() => setMoreOpen(true)}>
+          {moreCount > 0 ? `Фильтры · ${moreCount}` : 'Фильтры'}
+        </Chip>
+        {statuses.length > 0 && (
+          <Chip selected={filters.status === undefined} onClick={() => setFilters({ ...filters, status: undefined })}>
+            Все
+          </Chip>
+        )}
+        {statuses.map((status) => (
+          <Chip
+            key={status}
+            selected={filters.status === status}
+            onClick={() => setFilters({ ...filters, status: filters.status === status ? undefined : status })}
+          >
+            {documentStatusMeta(status).text}
+          </Chip>
+        ))}
+      </Chips>
 
-        <Tabs tabs={tabs} activeKey={tab} onChange={setTab} />
+      {query.status === 'loading' && <Loading />}
+      {query.status === 'error' && <ErrorState message={errorMessage(query.error)} onRetry={query.refresh} />}
+      {query.status === 'ready' && query.data.items.length === 0 && (
+        filtered ? (
+          <EmptyState
+            icon="search"
+            title="Ничего не нашлось"
+            text="По выбранным фильтрам документов нет."
+            actionLabel="Сбросить фильтры"
+            onAction={() => setFilters({})}
+          />
+        ) : (
+          <EmptyState title={EMPTY[list].title} text={EMPTY[list].text} />
+        )
+      )}
+      {query.status === 'ready' && query.data.items.length > 0 && (
+        <List label={meta.title}>
+          {query.data.items.map((item) => (
+            <Row
+              key={item.id}
+              title={item.title}
+              // Метка — под названием, а не справа: на 360 px справа она отнимала ширину, и название
+              // переносилось на три строки. На согласовании у всех один статус — там вместо метки срок ожидания.
+              subtitle={
+                <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
+                  {list !== 'waiting' && <DocumentStatusBadge status={item.status} />}
+                  <span>
+                    {[
+                      item.type.name,
+                      item.author.fullName,
+                      list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt),
+                    ].join(' · ')}
+                  </span>
+                </span>
+              }
+              onClick={() => openCard(item)}
+            />
+          ))}
+        </List>
+      )}
 
-        <>
-            {/* Родитель - flex-column без alignItems, поэтому по умолчанию (stretch) кнопка
-                растянулась бы на всю ширину колонки, хотя это второстепенное действие,
-                а не главная кнопка экрана - alignSelf возвращает ей размер по содержимому. */}
-            <Button variant="secondary" size="small" style={{ alignSelf: 'flex-start' }} onClick={() => setFiltersOpen(true)}>
-              {activeFiltersCount > 0 ? `Фильтры (${activeFiltersCount})` : 'Фильтры'}
-            </Button>
-
-            {listQuery.status === 'loading' && (
-              <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
-                <Spinner />
-              </div>
-            )}
-
-            {listQuery.status === 'error' && <ErrorState message={errorMessage(listQuery.error)} onRetry={listQuery.refresh} />}
-
-            {listQuery.status === 'ready' && listQuery.data.items.length === 0 && (
-              // docs/SCREENS.md для "Мои" называет и текст, и кнопку "Новый документ" в
-              // пустом состоянии - но она внизу экрана есть всегда (BottomActionBar), так
-              // что повторять её в самой карточке - чистое дублирование без пользы, только
-              // текст без действия.
-              <EmptyState text={TAB_EMPTY_TEXT[docTab]} />
-            )}
-
-            {listQuery.status === 'ready' && listQuery.data.items.length > 0 && (
-              <CellList mode="full-width" style={{ marginBottom: 16 }}>
-                {listQuery.data.items.map((item, index) => (
-                  <DocumentRow
-                    key={item.id}
-                    item={item}
-                    showWaiting={docTab === 'WAITING_ME'}
-                    // .CellSimple_separator рисует border-top, не border-bottom - черта
-                    // нужна перед КАЖДЫМ элементом, кроме первого, а не после каждого, кроме последнего.
-                    separator={index > 0}
-                    onOpen={() => navigate(documentCardPath(item.id))}
-                  />
-                ))}
-              </CellList>
-            )}
-        </>
-      </CenteredColumn>
-
-      <BottomActionBar nav={<AppNav />}>
-        <Button stretched variant="primary" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
-          Новый документ
-        </Button>
-      </BottomActionBar>
-
-      <BottomSheet open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Фильтры">
-        <FiltersForm
+      <BottomSheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Фильтры">
+        <MoreFilters
           filters={filters}
           types={typesQuery.status === 'ready' ? typesQuery.data : []}
           authors={[...knownAuthors.values()]}
+          showAuthor={list !== 'mine'}
           onApply={(next) => {
             setFilters(next);
-            setFiltersOpen(false);
+            setMoreOpen(false);
           }}
         />
       </BottomSheet>
-    </ScreenShell>
+    </Page>
   );
 }
 
-function DocumentRow({
-  item,
-  showWaiting,
-  separator,
-  onOpen,
-}: {
-  item: DocumentListItem;
-  showWaiting: boolean;
-  separator: boolean;
-  onOpen: () => void;
-}) {
-  const dateOrWaiting = showWaiting && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt);
-
-  return (
-    <CellSimple
-      as="button"
-      onClick={onOpen}
-      separator={separator}
-      title={item.title}
-      subtitle={`${item.type.name} · ${item.author.fullName} · ${dateOrWaiting}`}
-      after={<DocumentStatusBadge status={item.status} />}
-    />
-  );
-}
-
-function FiltersForm({
+function MoreFilters({
   filters,
   types,
   authors,
+  showAuthor,
   onApply,
 }: {
   filters: DocumentListFilters;
   types: DocumentType[];
   authors: UserRef[];
+  showAuthor: boolean;
   onApply: (filters: DocumentListFilters) => void;
 }) {
-  const [status, setStatus] = useState<DocumentStatus | ''>(filters.status ?? '');
-  const [typeId, setTypeId] = useState<number | ''>(filters.typeId ?? '');
-  const [authorId, setAuthorId] = useState<number | ''>(filters.authorId ?? '');
+  const [typeId, setTypeId] = useState<number>(filters.typeId ?? 0);
+  const [authorId, setAuthorId] = useState<number>(filters.authorId ?? 0);
   const [from, setFrom] = useState(filters.from ?? '');
   const [to, setTo] = useState(filters.to ?? '');
 
-  const selectStyle = {
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: '1px solid var(--divider-primary)',
-    background: 'var(--background-primary)',
-    color: 'var(--text-primary)',
-    fontSize: 14,
-  } as const;
+  const typeOptions = useMemo<SelectOption<number>[]>(
+    () => [{ value: 0, label: 'Все виды' }, ...types.map((type) => ({ value: type.id, label: type.name }))],
+    [types],
+  );
+  const authorOptions = useMemo<SelectOption<number>[]>(
+    () => [{ value: 0, label: 'Все авторы' }, ...authors.map((author) => ({ value: author.id, label: author.fullName }))],
+    [authors],
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <Typography.Text>Статус</Typography.Text>
-        <select style={selectStyle} value={status} onChange={(event) => setStatus(event.target.value as DocumentStatus | '')}>
-          <option value="">Все</option>
-          {STATUS_OPTIONS.map((value) => (
-            <option key={value} value={value}>
-              {documentStatusMeta(value).text}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <Typography.Text>Тип документа</Typography.Text>
-        <select style={selectStyle} value={typeId} onChange={(event) => setTypeId(event.target.value ? Number(event.target.value) : '')}>
-          <option value="">Все</option>
-          {types.map((type) => (
-            <option key={type.id} value={type.id}>
-              {type.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <Typography.Text>Автор</Typography.Text>
-        <select style={selectStyle} value={authorId} onChange={(event) => setAuthorId(event.target.value ? Number(event.target.value) : '')}>
-          <option value="">Все</option>
-          {authors.map((author) => (
-            <option key={author.id} value={author.id}>
-              {author.fullName}
-            </option>
-          ))}
-        </select>
-      </label>
-
+    <>
+      <SelectField label="Вид документа" placeholder="Все виды" options={typeOptions} value={typeId} onChange={setTypeId} />
+      {showAuthor && (
+        <SelectField label="Автор" placeholder="Все авторы" options={authorOptions} value={authorId} onChange={setAuthorId} searchable />
+      )}
       <div style={{ display: 'flex', gap: 8 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-          <Typography.Text>С</Typography.Text>
+        <label className="ds-field" style={{ flex: 1 }}>
+          <span className="ds-field__label">Создан с</span>
           <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-          <Typography.Text>По</Typography.Text>
+        <label className="ds-field" style={{ flex: 1 }}>
+          <span className="ds-field__label">по</span>
           <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         </label>
       </div>
-
       <Button
-        stretched
         variant="primary"
+        stretched
         onClick={() =>
           onApply({
-            status: status || undefined,
+            status: filters.status,
             typeId: typeId || undefined,
             authorId: authorId || undefined,
             from: from || undefined,
@@ -312,8 +263,11 @@ function FiltersForm({
           })
         }
       >
-        Применить
+        Показать
       </Button>
-    </div>
+      <Button stretched onClick={() => onApply({ status: filters.status })}>
+        Сбросить
+      </Button>
+    </>
   );
 }

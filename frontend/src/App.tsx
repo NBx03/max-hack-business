@@ -1,10 +1,8 @@
-import { Spinner } from '@maxhub/max-ui';
 import { BrowserRouter } from 'react-router-dom';
 import { useSession } from './app/SessionContext';
 import { GENERIC_ERROR_MESSAGE } from './api/errors';
 import { DemoSwitcher } from './components/base/DemoSwitcher';
-import { FullscreenCenter } from './components/base/Layout';
-import { ErrorState } from './components/base/StateCard';
+import { ErrorState, Loading, Page } from './ui';
 import { AppRoutes } from './routes/AppRoutes';
 
 /**
@@ -17,20 +15,20 @@ export function App() {
 
   if (status === 'loading') {
     return (
-      <FullscreenCenter>
-        <Spinner />
-      </FullscreenCenter>
+      <Page center>
+        <Loading />
+      </Page>
     );
   }
 
   if (status === 'error' || !me) {
     return (
-      <FullscreenCenter>
+      <Page center>
         <ErrorState
           message={error?.message ?? GENERIC_ERROR_MESSAGE}
           onRetry={() => void refresh()}
         />
-      </FullscreenCenter>
+      </Page>
     );
   }
 

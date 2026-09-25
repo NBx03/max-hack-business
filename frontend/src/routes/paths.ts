@@ -9,8 +9,13 @@ export const ROUTE_PATTERNS = {
   pending: '/pending',
   adminRequests: '/admin/requests',
   adminMembers: '/admin/members',
+  /** Главная (NAV-1): плитки разделов и «Новый документ». */
+  home: '/home',
+  /** Прежний адрес списка документов — ведёт на главную (старые ссылки и закладки). */
   documents: '/documents',
-  /** Раздел «Компания» нижнего меню: сведения о компании, администрирование, демо. */
+  /** Список документов одного раздела: waiting | mine | shared (NAV-2). */
+  documentList: '/documents/list/:list',
+  /** Раздел «Компания» (плитка главной): сотрудники, администрирование, правила, демо. */
   company: '/company',
   /** «Правила проверки» (#91): внутри раздела «Компания». */
   companyRules: '/company/rules',
@@ -29,8 +34,7 @@ export const ROUTE_PATTERNS = {
 // Рядом с ROUTE_PATTERNS, а не в самом хуке - иначе новый корневой экран можно
 // добавить в паттерны и забыть про этот список, ничто не укажет на связь.
 export const ROOT_ROUTE_PATTERNS: ReadonlySet<string> = new Set([
-  ROUTE_PATTERNS.documents,
-  ROUTE_PATTERNS.company,
+  ROUTE_PATTERNS.home,
   ROUTE_PATTERNS.welcome,
   ROUTE_PATTERNS.pending,
 ]);
@@ -62,4 +66,21 @@ export function companyRulesPath(ruleId?: number): string {
 
 export function routePreviewPath(id: number | string): string {
   return ROUTE_PATTERNS.routePreview.replace(':id', String(id));
+}
+
+/** Разделы документов (NAV-1, NAV-2) — одни и те же названия на плитках, в заголовках списков и в текстах бота. */
+export type DocumentListKey = 'waiting' | 'mine' | 'shared';
+
+export const DOCUMENT_LISTS: Record<DocumentListKey, { title: string; hint: string; tab: 'WAITING_ME' | 'MINE' | 'AVAILABLE' }> = {
+  waiting: { title: 'На моём согласовании', hint: 'Ждут вашего решения', tab: 'WAITING_ME' },
+  mine: { title: 'Мои документы', hint: 'Созданные вами, включая черновики', tab: 'MINE' },
+  shared: { title: 'Общие документы', hint: 'Открытые для вас в компании', tab: 'AVAILABLE' },
+};
+
+export function isDocumentListKey(value: string | undefined): value is DocumentListKey {
+  return value === 'waiting' || value === 'mine' || value === 'shared';
+}
+
+export function documentListPath(list: DocumentListKey): string {
+  return ROUTE_PATTERNS.documentList.replace(':list', list);
 }

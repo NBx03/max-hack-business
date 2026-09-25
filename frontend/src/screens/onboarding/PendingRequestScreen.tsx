@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Button, Typography } from '@maxhub/max-ui';
+import { Button } from '../../ui';
+import { Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { cancelJoinRequest } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
@@ -47,19 +48,19 @@ export function PendingRequestScreen({ request }: { request: PendingJoinRequestR
         confirming ? (
           <>
             <Typography.Body variant="medium-strong">Отменить заявку в „{request.orgName}“?</Typography.Body>
-            <Button size="large" variant="destructive" stretched loading={busy} onClick={() => void cancel()}>
+            <Button variant="danger" stretched loading={busy} onClick={() => void cancel()}>
               Да, отменить
             </Button>
-            <Button size="large" variant="ghost" stretched disabled={busy} onClick={() => setConfirming(false)}>
+            <Button variant="ghost" stretched disabled={busy} onClick={() => setConfirming(false)}>
               Нет
             </Button>
           </>
         ) : (
           <>
-            <Button size="large" variant="secondary" stretched onClick={() => void refresh()}>
+            <Button variant="secondary" stretched onClick={() => void refresh()}>
               Проверить решение
             </Button>
-            <Button size="large" variant="ghost" stretched onClick={() => setConfirming(true)}>
+            <Button variant="ghost" stretched onClick={() => setConfirming(true)}>
               Отменить заявку
             </Button>
           </>

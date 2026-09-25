@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
+import { Button } from '../../ui';
+import { Spinner, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { acceptPersonalInvite, previewPersonalInvite } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
@@ -74,7 +75,7 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       <OnboardingLayout
         title="Приглашение"
         footer={
-          <Button size="large" stretched onClick={() => void load()}>
+          <Button variant="primary" stretched onClick={() => void load()}>
             Повторить
           </Button>
         }
@@ -89,7 +90,7 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       <OnboardingLayout
         title="Ссылка недействительна"
         footer={
-          <Button size="large" stretched onClick={onJoinByCode}>
+          <Button variant="primary" stretched onClick={onJoinByCode}>
             Присоединиться по коду
           </Button>
         }
@@ -107,7 +108,7 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       title={invite.orgName}
       subtitle="Вас пригласили в компанию. После вступления вы получите роли:"
       footer={
-        <Button size="large" stretched loading={busy} onClick={() => void join()}>
+        <Button variant="primary" stretched loading={busy} onClick={() => void join()}>
           Вступить
         </Button>
       }
