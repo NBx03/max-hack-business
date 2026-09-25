@@ -57,8 +57,8 @@ class RouteTemplateServiceTest {
         // служебная записка: руководитель отдела (необязательно) -> директор
         assertRoute(routes, 100, 1, DefaultRoles.DEPARTMENT_HEAD, false);
         assertRoute(routes, 100, 2, DefaultRoles.DIRECTOR, true);
-        // любой файл: директор
-        assertRoute(routes, 400, 1, DefaultRoles.DIRECTOR, true);
+        // «Другой документ»: директор лишь подставляется, обязательных нет (D3)
+        assertRoute(routes, 400, 1, DefaultRoles.DIRECTOR, false);
         assertThat(routes).allSatisfy(route -> assertThat(route.orgId()).isEqualTo(ORG));
     }
 
@@ -87,8 +87,12 @@ class RouteTemplateServiceTest {
     }
 
     @Test
-    void everyTemplateEndsWithMandatoryDirector() {
+    void everyTemplateEndsWithDirectorMandatoryExceptTheGenericDocument() {
         DefaultRouteTemplates.TEMPLATES.forEach((type, rows) -> {
+            if (type.equals(DefaultRouteTemplates.GENERIC)) {
+                assertThat(rows).as(type).noneMatch(DefaultRouteTemplates.Row::mandatory);
+                return;
+            }
             int lastStage = rows.stream().mapToInt(DefaultRouteTemplates.Row::stageOrder).max().orElseThrow();
             assertThat(rows).as(type).anySatisfy(row -> {
                 assertThat(row.stageOrder()).isEqualTo(lastStage);

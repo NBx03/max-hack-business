@@ -109,7 +109,7 @@ public class DocumentViewService {
     public DocumentListResponse list(
             CurrentUser currentUser,
             DocumentListTab tab,
-            Document.Status status,
+            DisplayStatus status,
             Long typeId,
             Long authorId,
             LocalDate from,
@@ -129,6 +129,7 @@ public class DocumentViewService {
                         row.title(),
                         new DocumentListResponse.TypeRef(row.typeId(), row.typeName()),
                         row.status(),
+                        row.displayStatus(),
                         new UserRef(row.authorId(), row.authorName()),
                         row.currentVersionNo(),
                         row.currentStage(),
@@ -213,6 +214,7 @@ public class DocumentViewService {
                 new DocumentCardResponse.TypeRef(
                         type.getId(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
                 document.getStatus(),
+                readRepository.displayStatus(documentId),
                 document.getVisibility(),
                 user(users, document.getAuthorId()),
                 document.getCurrentVersionNo(),
@@ -316,6 +318,7 @@ public class DocumentViewService {
                 new UserRef(row.approverId(), row.approverName()),
                 row.origin(),
                 row.decision(),
+                row.kind(),
                 row.comment(),
                 row.activatedAt(),
                 row.decidedAt(),

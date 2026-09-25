@@ -46,9 +46,12 @@ public class BotUpdateHandler {
     /** Больше - неудобно читать одним сообщением в мессенджере, меньше - можно не найти нужный. */
     private static final int SEARCH_LIMIT = 5;
 
+    // Показываемые статусы (D4): «На утверждении» и «Утверждён» вычисляет DocumentReadRepository.DISPLAY_STATUS.
     private static final Map<String, String> STATUS_LABELS = Map.of(
             "DRAFT", "черновик",
             "IN_APPROVAL", "на согласовании",
+            "IN_ENDORSEMENT", "на утверждении",
+            "ENDORSED", "утверждён",
             "APPROVED", "согласован",
             "RETURNED", "возвращён",
             "REJECTED", "отклонён");

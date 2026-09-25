@@ -444,6 +444,68 @@ class ApprovalIntegrationTest {
     }
 
     @Test
+    void authorBuildsTheRouteWithAnEndorserAndEveryScreenShowsTheSameStatus() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        long head = company.roles.get("DEPARTMENT_HEAD");
+        long lawyer = company.roles.get("LAWYER");
+        long director = company.roles.get("DIRECTOR");
+        String submit = "/api/v1/documents/" + memo + "/submit";
+
+        // D3: обязательного директора убрать нельзя, человека дважды поставить нельзя
+        Resp withoutDirector = call(company.frank, "POST", submit,
+                Map.of("stages", List.of(stage(person(company.bob, head)))));
+        assertThat(withoutDirector.status()).isEqualTo(400);
+        assertThat(withoutDirector.code()).isEqualTo("MANDATORY_ROLE_MISSING");
+        Resp twice = call(company.frank, "POST", submit, Map.of(
+                "stages", List.of(stage(person(company.carol, lawyer))),
+                "endorser", person(company.carol, lawyer)));
+        assertThat(twice.status()).isEqualTo(400);
+
+        // юрист первым, руководитель вторым, директор утверждает — порядок шаблона автор поменял
+        JsonNode submitted = ok(call(company.frank, "POST", submit, Map.of(
+                "stages", List.of(stage(person(company.carol, lawyer)), stage(person(company.bob, head))),
+                "endorser", person(company.alice, director))));
+        assertThat(submitted.path("displayStatus").asText()).isEqualTo("IN_APPROVAL");
+        assertThat(stageStates(submitted)).containsExactly("ACTIVE", "WAITING", "WAITING");
+
+        ok(decide(company.carol, stepOf(submitted, company.carol), "APPROVE", null));
+        JsonNode atEndorsement = ok(decide(company.bob, stepOf(submitted, company.bob), "APPROVE", null));
+        assertThat(atEndorsement.path("status").asText()).isEqualTo("IN_APPROVAL");
+        assertThat(atEndorsement.path("displayStatus").asText()).isEqualTo("IN_ENDORSEMENT");
+        JsonNode endorseStep = atEndorsement.path("route").path("stages").get(2).path("steps").get(0);
+        assertThat(endorseStep.path("kind").asText()).isEqualTo("ENDORSEMENT");
+        // список и фильтр видят тот же статус, что карточка
+        JsonNode list = ok(call(company.frank, "GET", "/api/v1/documents?tab=MINE&status=IN_ENDORSEMENT", null));
+        assertThat(list.path("total").asLong()).isEqualTo(1);
+        assertThat(list.path("items").get(0).path("displayStatus").asText()).isEqualTo("IN_ENDORSEMENT");
+
+        JsonNode endorsed = ok(decide(company.alice, endorseStep.path("id").asLong(), "APPROVE", null));
+        assertThat(endorsed.path("status").asText()).isEqualTo("APPROVED");
+        assertThat(endorsed.path("displayStatus").asText()).isEqualTo("ENDORSED");
+    }
+
+    @Test
+    void afterAReturnThePreviewOffersThePreviousRoute() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        long lawyer = company.roles.get("LAWYER");
+        long director = company.roles.get("DIRECTOR");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", Map.of(
+                "stages", List.of(stage(person(company.carol, lawyer))),
+                "endorser", person(company.alice, director))));
+
+        JsonNode returned = ok(decide(company.carol, stepOf(submitted, company.carol), "RETURN", "Уточните сумму"));
+        long fileId = returned.path("versions").get(0).path("files").get(0).path("id").asLong();
+        ok(newVersion(company.frank, memo, fileId, "OFFICIAL_MEMO"));
+
+        // RTE-6: конструктор новой версии заполняется маршрутом прошлой, а не шаблоном
+        JsonNode previous = ok(call(company.frank, "GET", "/api/v1/documents/" + memo + "/route-preview", null)).path("previous");
+        assertThat(previous.path("versionNo").asInt()).isEqualTo(1);
+        assertThat(previous.path("stages")).hasSize(1);
+        assertThat(previous.path("stages").get(0).path("participants").get(0).path("userId").asLong()).isEqualTo(company.carol.dbId);
+        assertThat(previous.path("endorser").path("userId").asLong()).isEqualTo(company.alice.dbId);
+    }
+
+    @Test
     void rejectionIsFinal() throws Exception {
         long memo = createDocument(company.frank, "OFFICIAL_MEMO");
         JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null));
@@ -1270,6 +1332,15 @@ class ApprovalIntegrationTest {
             body.put("comment", comment);
         }
         return call(person, "POST", "/api/v1/approval-steps/" + stepId + "/decision", body);
+    }
+
+    private static Map<String, Object> person(Person person, long roleId) {
+        return Map.of("userId", person.dbId, "roleId", roleId);
+    }
+
+    @SafeVarargs
+    private static Map<String, Object> stage(Map<String, Object>... participants) {
+        return Map.of("participants", List.of(participants));
     }
 
     private static Map<String, Object> choice(int stage, long roleId, long userId) {

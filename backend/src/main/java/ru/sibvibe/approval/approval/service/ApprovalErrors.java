@@ -47,6 +47,12 @@ final class ApprovalErrors {
                 Map.of("stageOrder", stageOrder, "role", roleName));
     }
 
+    static DomainException mandatoryRoleMissing(String roleName) {
+        return new DomainException("MANDATORY_ROLE_MISSING", HttpStatus.BAD_REQUEST,
+                "«" + roleName + "» обязателен для этого вида документа — верните его в маршрут",
+                Map.of("role", roleName));
+    }
+
     static DomainException routeNotConfigured() {
         return new DomainException("INVALID_STATE", HttpStatus.CONFLICT,
                 "Для этого типа документа маршрут согласования не настроен");

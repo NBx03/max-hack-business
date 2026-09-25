@@ -87,6 +87,19 @@ public class RoleService {
     }
 
     /**
+     * Есть ли в компании кто-то, кроме этого человека, с хотя бы одной ролью — то есть кому вообще согласовывать.
+     * Нужен отправке: пустой маршрут допустим, только если согласовать документ, кроме автора, некому (D3).
+     */
+    @Transactional(readOnly = true)
+    public boolean anyCarrierExcept(long orgId, long userId) {
+        List<OrganizationMember> active = memberRepository.findByOrgIdAndStatusOrderById(orgId, OrganizationMember.Status.ACTIVE)
+                .stream().filter(member -> member.getUserId() != userId).toList();
+        if (active.isEmpty()) {
+            return false;
+        }
+        return !memberRoleRepository.findByMemberIdIn(active.stream().map(OrganizationMember::getId).toList()).isEmpty();
+    }
+    /**
      * Все активные носители роли компании, включая автора документа: разрешение маршрута само решает, кого
      * исключить. Роль чужой компании даёт пустой список, а не ошибку доступа: вызывающий уже проверил права.
      */

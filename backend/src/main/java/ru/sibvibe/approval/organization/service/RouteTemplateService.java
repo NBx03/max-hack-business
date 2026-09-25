@@ -158,15 +158,15 @@ public class RouteTemplateService {
         return created;
     }
 
-    /** Маршрут демо-записки из Issue #11: юрист и бухгалтер параллельно, затем директор. */
+    /** Маршрут демо-записки из Issue #11: юрист и бухгалтер параллельно, затем директор. Обязателен только директор (D3). */
     void createDemoMemoRoute(long orgId, Map<String, Long> roleIdsByCode) {
         Long typeId = typeDirectory.idsByCode(Set.of(DefaultRouteTemplates.OFFICIAL_MEMO))
                 .get(DefaultRouteTemplates.OFFICIAL_MEMO);
         if (typeId == null) {
             throw new IllegalStateException("Не найден тип документа " + DefaultRouteTemplates.OFFICIAL_MEMO);
         }
-        routeRepository.insertIfAbsent(orgId, typeId, 1, requiredRole(roleIdsByCode, DefaultRoles.LAWYER), true);
-        routeRepository.insertIfAbsent(orgId, typeId, 1, requiredRole(roleIdsByCode, DefaultRoles.ACCOUNTANT), true);
+        routeRepository.insertIfAbsent(orgId, typeId, 1, requiredRole(roleIdsByCode, DefaultRoles.LAWYER), false);
+        routeRepository.insertIfAbsent(orgId, typeId, 1, requiredRole(roleIdsByCode, DefaultRoles.ACCOUNTANT), false);
         routeRepository.insertIfAbsent(orgId, typeId, 2, requiredRole(roleIdsByCode, DefaultRoles.DIRECTOR), true);
     }
 

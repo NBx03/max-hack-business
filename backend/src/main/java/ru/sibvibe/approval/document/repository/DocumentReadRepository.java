@@ -3,6 +3,7 @@ package ru.sibvibe.approval.document.repository;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import ru.sibvibe.approval.document.entity.Document;
+import ru.sibvibe.approval.document.service.DisplayStatus;
 import ru.sibvibe.approval.document.service.DocumentListTab;
 
 import java.time.Instant;
@@ -45,6 +46,30 @@ public class DocumentReadRepository {
                   and active_step.activated_at is not null
             )
             """;
+
+    /**
+     * Показываемый статус (D4) — единственное место, где он вычисляется: список, фильтр, карточка и бот берут его
+     * отсюда. «На утверждении» — документ на согласовании, и текущий этап — утверждение; «Утверждён» — согласован,
+     * и в текущей версии утверждающий утвердил. Остальные — как в базе.
+     */
+    public static final String DISPLAY_STATUS = """
+            case
+                when d.status = 'IN_APPROVAL' and exists (
+                    select 1 from approval_step endorse_step
+                    where endorse_step.document_id = d.id
+                      and endorse_step.version_no = d.current_version_no
+                      and endorse_step.stage_order = d.current_stage
+                      and endorse_step.kind = 'ENDORSEMENT'
+                ) then 'IN_ENDORSEMENT'
+                when d.status = 'APPROVED' and exists (
+                    select 1 from approval_step endorse_step
+                    where endorse_step.document_id = d.id
+                      and endorse_step.version_no = d.current_version_no
+                      and endorse_step.kind = 'ENDORSEMENT'
+                      and endorse_step.decision = 'APPROVED'
+                ) then 'ENDORSED'
+                else d.status
+            end""";
 
     private final JdbcClient jdbc;
 
@@ -127,7 +152,7 @@ public class DocumentReadRepository {
             DocumentListTab tab,
             long orgId,
             long userId,
-            Document.Status status,
+            DisplayStatus status,
             Long typeId,
             Long authorId,
             Instant from,
@@ -142,7 +167,7 @@ public class DocumentReadRepository {
             case AVAILABLE -> where.append(" and d.author_id <> :userId and not ").append(ACTIVE_STEP);
         }
         if (status != null) {
-            where.append(" and d.status = :status");
+            where.append(" and (").append(DISPLAY_STATUS).append(") = :status");
         }
         if (typeId != null) {
             where.append(" and d.document_type_id = :typeId");
@@ -164,6 +189,8 @@ public class DocumentReadRepository {
 
         String sql = """
                 select d.id, d.title, d.status, d.current_version_no, d.current_stage, d.updated_at,
+                       """ + DISPLAY_STATUS + """
+                        as display_status,
                        dt.id as type_id, dt.name as type_name,
                        author.id as author_id, author.full_name as author_name,
                        (
@@ -189,6 +216,7 @@ public class DocumentReadRepository {
                 rs.getLong("type_id"),
                 rs.getString("type_name"),
                 Document.Status.valueOf(rs.getString("status")),
+                DisplayStatus.valueOf(rs.getString("display_status")),
                 rs.getLong("author_id"),
                 rs.getString("author_name"),
                 rs.getInt("current_version_no"),
@@ -261,13 +289,13 @@ public class DocumentReadRepository {
      */
     public List<TitleMatch> findByTitleFragment(long orgId, long userId, String fragment, int limit) {
         return jdbc.sql("""
-                        select d.id, d.title, d.status, d.current_stage
+                        select d.id, d.title, d.status, d.current_stage, %s as display_status
                         from document d
                         where %s
                           and d.title ilike :fragment escape '\\'
                         order by d.updated_at desc, d.id desc
                         limit :limit
-                        """.formatted(READABLE))
+                        """.formatted(DISPLAY_STATUS, READABLE))
                 .param("orgId", orgId)
                 .param("userId", userId)
                 .param("fragment", "%" + escapeLike(fragment) + "%")
@@ -276,8 +304,17 @@ public class DocumentReadRepository {
                         rs.getLong("id"),
                         rs.getString("title"),
                         Document.Status.valueOf(rs.getString("status")),
+                        DisplayStatus.valueOf(rs.getString("display_status")),
                         rs.getObject("current_stage", Integer.class)))
                 .list();
+    }
+
+    /** Показываемый статус одного документа — для карточки; то же выражение, что у списков. */
+    public DisplayStatus displayStatus(long documentId) {
+        return DisplayStatus.valueOf(jdbc.sql("select " + DISPLAY_STATUS + " from document d where d.id = :documentId")
+                .param("documentId", documentId)
+                .query(String.class)
+                .single());
     }
 
     /** {@code %}, {@code _} и {@code \} в пользовательском тексте - буквально, не как символы шаблона LIKE. */
@@ -287,7 +324,7 @@ public class DocumentReadRepository {
 
     public List<StepRow> findSteps(long documentId) {
         return jdbc.sql("""
-                        select step.id, step.version_no, step.stage_order, step.origin, step.decision,
+                        select step.id, step.version_no, step.stage_order, step.origin, step.decision, step.kind,
                                step.comment, step.activated_at, step.decided_at, step.auto_reason,
                                role.id as role_id, role.code as role_code, role.name as role_name,
                                approver.id as approver_id, approver.full_name as approver_name
@@ -304,6 +341,7 @@ public class DocumentReadRepository {
                         rs.getInt("stage_order"),
                         rs.getString("origin"),
                         rs.getString("decision"),
+                        rs.getString("kind"),
                         rs.getString("comment"),
                         instant(rs, "activated_at"),
                         instant(rs, "decided_at"),
@@ -320,7 +358,7 @@ public class DocumentReadRepository {
             JdbcClient.StatementSpec statement,
             long orgId,
             long userId,
-            Document.Status status,
+            DisplayStatus status,
             Long typeId,
             Long authorId,
             Instant from,
@@ -356,7 +394,7 @@ public class DocumentReadRepository {
 
     public record PageRows(List<ListRow> items, long total) {}
 
-    public record TitleMatch(long id, String title, Document.Status status, Integer currentStage) {}
+    public record TitleMatch(long id, String title, Document.Status status, DisplayStatus displayStatus, Integer currentStage) {}
 
     public record MetricsRow(Double medianApprovalHours, Double returnRate, long documentsCount) {}
 
@@ -366,6 +404,7 @@ public class DocumentReadRepository {
             long typeId,
             String typeName,
             Document.Status status,
+            DisplayStatus displayStatus,
             long authorId,
             String authorName,
             int currentVersionNo,
@@ -391,6 +430,7 @@ public class DocumentReadRepository {
             int stageOrder,
             String origin,
             String decision,
+            String kind,
             String comment,
             Instant activatedAt,
             Instant decidedAt,

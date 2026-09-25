@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import ru.sibvibe.approval.common.security.CurrentUser;
+import ru.sibvibe.approval.document.service.DisplayStatus;
 import ru.sibvibe.approval.document.dto.ChangeTypeRequest;
 import ru.sibvibe.approval.document.dto.CreateDocumentRequest;
 import ru.sibvibe.approval.document.dto.CreateFormDocumentRequest;
@@ -91,7 +92,7 @@ public class DocumentController {
     public DocumentListResponse documents(
             @AuthenticationPrincipal CurrentUser currentUser,
             @RequestParam DocumentListTab tab,
-            @RequestParam(required = false) Document.Status status,
+            @RequestParam(required = false) DisplayStatus status,
             @RequestParam(required = false) Long typeId,
             @RequestParam(required = false) Long authorId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
