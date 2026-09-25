@@ -1,5 +1,5 @@
 import type { DocumentListFilters } from '../../api/documents';
-import type { DisplayStatus } from '../../api/types';
+import type { DisplayStatus, DocumentListItem, UserRef } from '../../api/types';
 
 // Фильтры списков документов (NAV-3) — чистые функции, покрыты listFilters.test.ts.
 
@@ -59,3 +59,31 @@ export const LIST_STATUSES: Record<'waiting' | 'mine' | 'shared', DisplayStatus[
   mine: ['DRAFT', 'IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
   shared: ['IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
 };
+
+/**
+ * Следующие страницы списка: номер следующей страницы — отдельным счётчиком, а не из числа строк. Иначе дубль между
+ * страницами (документ обновился и поднялся наверх между запросами) давал 59 строк, floor(59/30) = 1, и «Показать ещё»
+ * вечно запрашивала ту же страницу (ревью Ильи на #110). Дубли не показываются дважды.
+ */
+export interface MorePages {
+  extra: DocumentListItem[];
+  nextPage: number;
+}
+
+export const NO_MORE_PAGES: MorePages = { extra: [], nextPage: 1 };
+
+export function withPage(state: MorePages, firstPage: DocumentListItem[], incoming: DocumentListItem[]): MorePages {
+  const seen = new Set([...firstPage, ...state.extra].map((item) => item.id));
+  return { extra: [...state.extra, ...incoming.filter((item) => !seen.has(item.id))], nextPage: state.nextPage + 1 };
+}
+
+/**
+ * Варианты фильтра «Автор»: все коллеги компании сразу, а не только авторы уже загруженных строк — иначе автор, чьи
+ * документы на второй странице или отсеяны другим фильтром, в списке не появлялся (ревью Ильи). Плюс авторы из
+ * загруженных строк: бывший сотрудник в коллегах не числится, но его документы видны.
+ */
+export function authorOptions(colleagues: UserRef[], seenAuthors: UserRef[]): UserRef[] {
+  const byId = new Map<number, UserRef>();
+  [...colleagues, ...seenAuthors].forEach((user) => byId.set(user.id, user));
+  return [...byId.values()].sort((left, right) => left.fullName.localeCompare(right.fullName, 'ru'));
+}

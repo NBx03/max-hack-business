@@ -159,7 +159,8 @@ describe('launchDataToReloadFor', () => {
 });
 
 describe('relaunchMark — перезагрузка только ради нового параметра ссылки (ревью #112, п. 2)', () => {
-  const launch = (param: string, authDate: number) => `query_id=1&auth_date=${authDate}${param ? `&start_param=${param}` : ''}&hash=x${authDate}`;
+  const launch = (param: string, authDate: number, queryId = 'q1') =>
+    `query_id=${queryId}&auth_date=${authDate}${param ? `&start_param=${param}` : ''}&hash=x${authDate}`;
 
   it('те же данные — не перезагружаем', () => {
     expect(relaunchMark(launch('d_5', 1), launch('d_5', 1), null)).toBeNull();
@@ -175,6 +176,15 @@ describe('relaunchMark — перезагрузка только ради нов
     expect(mark).not.toBeNull();
     expect(relaunchMark(launch('d_5', 1), launch('d_7', 2), mark)).toBeNull();
     expect(relaunchMark(launch('', 1), launch('a_requests', 2), null)).not.toBeNull();
+  });
+
+  it('та же ссылка открыта заново (новый query_id) — перезагружаем: открыть d_5 → уйти → снова d_5', () => {
+    expect(relaunchMark(launch('d_5', 1, 'q1'), launch('d_5', 2, 'q2'), null)).not.toBeNull();
+    expect(relaunchMark(launch('a_requests', 1, 'q1'), launch('a_requests', 2, 'q2'), null)).not.toBeNull();
+  });
+
+  it('без query_id повторное открытие не отличить от обновления подписи — не перезагружаем', () => {
+    expect(relaunchMark('auth_date=1&start_param=d_5', 'auth_date=2&start_param=d_5', null)).toBeNull();
   });
 
   it('пустой мост — не трогаем', () => {

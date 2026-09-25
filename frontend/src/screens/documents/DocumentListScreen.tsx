@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getDocuments, getDocumentTypes } from '../../api/documents';
+import { getColleagues } from '../../api/organization';
 import { errorMessage } from '../../api/errors';
 import type { DisplayStatus, DocumentListItem, DocumentType, UserRef } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
@@ -40,7 +41,11 @@ import {
 import { isOutsideTemplates, kindLabel } from './documentKind';
 import {
   LIST_STATUSES,
+  NO_MORE_PAGES,
   PERIODS,
+  authorOptions,
+  withPage,
+  type MorePages,
   moreFiltersCount,
   toQuery,
   waitingText,
@@ -90,52 +95,57 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
   const actor = me?.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me?.user.id ?? 0}`;
   const memoryKey = `${actor}:${list}`;
   const [filters, setFiltersState] = useState<ListFilters>(() => remembered.get(memoryKey) ?? {});
-  const setFilters = (next: ListFilters) => {
-    remembered.set(memoryKey, next);
-    setFiltersState(next);
-  };
+  // Функциональное обновление: отложенный поиск меняет только q поверх актуальных фильтров и не откатывает статус или
+  // период, выбранные за эти 300 мс (ревью Ильи на #110).
+  const setFilters = useCallback((next: ListFilters | ((current: ListFilters) => ListFilters)) => {
+    setFiltersState((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      remembered.set(memoryKey, value);
+      return value;
+    });
+  }, [memoryKey]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   // Поиск (NAV-3): поле — сразу, запрос — через паузу в наборе, чтобы не дёргать сервер на каждую букву.
   const [searchText, setSearchText] = useState(filters.q ?? '');
   useEffect(() => {
     const q = searchText.trim() || undefined;
-    if (q === filters.q) return;
-    const timer = setTimeout(() => setFilters({ ...filters, q }), 300);
+    const timer = setTimeout(() => setFilters((current) => (current.q === q ? current : { ...current, q })), 300);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchText]);
+  }, [searchText, setFilters]);
   const location = useLocation();
   const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
-  // Авторы — из уже загруженных документов: отдельного «все авторы» для не-администратора нет.
+  // Авторы для фильтра — все коллеги сразу плюс авторы загруженных строк (бывшие сотрудники).
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
+  const colleaguesQuery = useAsync(() => (list === 'mine' ? Promise.resolve([]) : getColleagues()), [list]);
 
   const query = useAsync(() => getDocuments(meta.tab, toQuery(filters, 0, PAGE_SIZE)), [meta.tab, filters]);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
 
   // Следующие страницы — дописываются к первой; новые фильтры начинают список заново.
-  const [more, setMore] = useState<DocumentListItem[]>([]);
+  const [more, setMore] = useState<MorePages>(NO_MORE_PAGES);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => {
-    setMore([]);
+    setMore(NO_MORE_PAGES);
     setMoreError(null);
   }, [filters]);
-  const items = useMemo(() => (query.status === 'ready' ? [...query.data.items, ...more] : []), [query, more]);
+  const firstPage = useMemo(() => (query.status === 'ready' ? query.data.items : []), [query]);
+  const items = useMemo(() => [...firstPage, ...more.extra], [firstPage, more]);
   const total = query.status === 'ready' ? query.data.total : 0;
 
   const loadMore = useCallback(async () => {
     setLoadingMore(true);
     setMoreError(null);
     try {
-      const next = await getDocuments(meta.tab, toQuery(filters, Math.floor(items.length / PAGE_SIZE), PAGE_SIZE));
-      setMore((current) => [...current, ...next.items.filter((item) => !items.some((known) => known.id === item.id))]);
+      const next = await getDocuments(meta.tab, toQuery(filters, more.nextPage, PAGE_SIZE));
+      setMore((current) => withPage(current, firstPage, next.items));
     } catch (error) {
       setMoreError(errorMessage(error));
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, items, meta.tab]);
+  }, [filters, firstPage, more.nextPage, meta.tab]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -210,7 +220,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
               <DocumentRow key={item.id} item={item} list={list} onOpen={() => openCard(item)} />
             ))}
           </List>
-          {items.length < total && (
+          {more.nextPage * PAGE_SIZE < total && (
             <>
               <Muted>Показаны {items.length} из {total}</Muted>
               {moreError && <InlineError>{moreError}</InlineError>}
@@ -237,7 +247,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
         <MoreFilters
           filters={filters}
           types={typesQuery.status === 'ready' ? typesQuery.data : []}
-          authors={[...knownAuthors.values()]}
+          authors={authorOptions(colleaguesQuery.status === 'ready' ? colleaguesQuery.data.map((member) => member.user) : [], [...knownAuthors.values()])}
           showAuthor={list !== 'mine'}
           onApply={(next) => {
             setFilters(next);

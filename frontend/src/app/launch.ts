@@ -73,24 +73,35 @@ export function launchDataToReloadFor(hash: string, bridgeInitData: string | und
   return relaunchMark(bridgeInitData, next, reloadedFor);
 }
 
-/** Параметр ссылки (startapp) из строки данных запуска; пусто — открыли без параметра. */
-export function startParamOf(initData: string): string {
+/** Поле строки данных запуска (start_param, query_id); пусто — нет. */
+function launchField(initData: string, name: string): string {
   try {
-    return new URLSearchParams(initData).get('start_param') ?? '';
+    return new URLSearchParams(initData).get(name) ?? '';
   } catch {
     return '';
   }
 }
 
+/** Параметр ссылки (startapp) из строки данных запуска; пусто — открыли без параметра. */
+export function startParamOf(initData: string): string {
+  return launchField(initData, 'start_param');
+}
+
 /**
- * Перезагружать ли страницу ради новых данных запуска — и по какой отметке это запомнить. Только если пришёл параметр
- * ссылки и он другой: обновление одной подписи или времени (MAX может освежить их, когда человек возвращается из чата)
- * — не новый запуск, и перезагрузка стёрла бы введённое в форме (ревью #112, п. 2). Не больше одного раза на строку.
+ * Перезагружать ли страницу ради новых данных запуска — и по какой отметке это запомнить. Новый запуск — пришёл параметр
+ * ссылки и он другой, либо та же ссылка открыта заново: у каждого открытия свой query_id (повторное нажатие «Открыть
+ * документ» по d_5, когда человек уже ушёл с карточки, ревью Ильи на #110). Обновление одной подписи или времени
+ * (auth_date, hash) при том же query_id — не новый запуск: перезагрузка стёрла бы введённое (ревью #112, п. 2).
+ * Без query_id отличить повторное открытие от обновления подписи нельзя — тогда не перезагружаем. Не больше одного
+ * раза на строку.
  */
 export function relaunchMark(current: string, next: string, reloadedFor: string | null): string | null {
   if (!next || next === current) return null;
   const param = startParamOf(next);
-  if (!param || param === startParamOf(current)) return null;
+  if (!param) return null;
+  const queryId = launchField(next, 'query_id');
+  const reopened = param !== startParamOf(current) || (queryId !== '' && queryId !== launchField(current, 'query_id'));
+  if (!reopened) return null;
   const mark = fingerprint(next);
   return mark === reloadedFor ? null : mark;
 }
