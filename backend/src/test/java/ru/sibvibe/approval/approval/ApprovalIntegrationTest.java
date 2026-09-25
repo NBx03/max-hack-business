@@ -497,12 +497,58 @@ class ApprovalIntegrationTest {
         long fileId = returned.path("versions").get(0).path("files").get(0).path("id").asLong();
         ok(newVersion(company.frank, memo, fileId, "OFFICIAL_MEMO"));
 
+        // DOC-4: снова черновик, но уже отправлялся — у него история, удалить нельзя
+        assertThat(call(company.frank, "DELETE", "/api/v1/documents/" + memo, null).status()).isEqualTo(409);
+
         // RTE-6: конструктор новой версии заполняется маршрутом прошлой, а не шаблоном
         JsonNode previous = ok(call(company.frank, "GET", "/api/v1/documents/" + memo + "/route-preview", null)).path("previous");
         assertThat(previous.path("versionNo").asInt()).isEqualTo(1);
         assertThat(previous.path("stages")).hasSize(1);
         assertThat(previous.path("stages").get(0).path("participants").get(0).path("userId").asLong()).isEqualTo(company.carol.dbId);
         assertThat(previous.path("endorser").path("userId").asLong()).isEqualTo(company.alice.dbId);
+    }
+
+    @Test
+    void adminDecidesWhichRolesAreMandatoryAndTheAuthorCannotDropThem() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        long memoType = jdbc.queryForObject("select document_type_id from document where id = ?", Long.class, memo);
+        long head = company.roles.get("DEPARTMENT_HEAD");
+        long director = company.roles.get("DIRECTOR");
+        String toggle = "/api/v1/orgs/current/routes/" + memoType + "/roles/" + head;
+
+        // #109: только администратор
+        assertThat(call(company.frank, "PATCH", toggle, Map.of("mandatory", true)).status()).isEqualTo(403);
+        JsonNode routes = ok(call(company.alice, "PATCH", toggle, Map.of("mandatory", true)));
+        assertThat(routes.toString()).contains("\"mandatory\":true");
+        assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + company.roles.get("LAWYER"),
+                Map.of("mandatory", true)).status()).as("роли нет в шаблоне вида").isEqualTo(404);
+
+        // руководитель стал обязательным — без него отправить нельзя; директор больше не обязателен — без него можно
+        Resp withoutHead = call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit",
+                Map.of("stages", List.of(stage(person(company.alice, director)))));
+        assertThat(withoutHead.code()).isEqualTo("MANDATORY_ROLE_MISSING");
+        ok(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + director, Map.of("mandatory", false)));
+        ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit",
+                Map.of("stages", List.of(stage(person(company.bob, head))))));
+    }
+
+    @Test
+    void returningMemberComesBackWithTheirPreviousRolesPreselected() throws Exception {
+        String code = ok(call(company.alice, "GET", "/api/v1/orgs/current/invite-code", null)).path("code").asText();
+        ok(call(company.alice, "POST", "/api/v1/orgs/current/members/" + memberId(company.erin) + "/disable", null));
+
+        ok(call(company.erin, "POST", "/api/v1/join-requests", Map.of("code", code)), 201);
+
+        // D5: заявка бывшего участника — с его прежними ролями, администратору остаётся «Принять»
+        JsonNode requests = ok(call(company.alice, "GET", "/api/v1/orgs/current/join-requests?status=PENDING", null));
+        JsonNode erinRequest = null;
+        for (JsonNode request : requests) {
+            if (request.path("user").path("id").asLong() == company.erin.dbId) {
+                erinRequest = request;
+            }
+        }
+        assertThat(erinRequest).isNotNull();
+        assertThat(erinRequest.path("previousRoles").get(0).path("code").asText()).isEqualTo("ACCOUNTANT");
     }
 
     @Test

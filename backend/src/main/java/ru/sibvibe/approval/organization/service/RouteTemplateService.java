@@ -96,6 +96,25 @@ public class RouteTemplateService {
         return result;
     }
 
+    /**
+     * Обязательные роли — единственная настройка шаблона администратором (#109, D3): обязательную роль автор не может
+     * убрать из маршрута. Только администратор своей компании; действует на новые отправки, идущие согласования не
+     * меняются (шаги уже созданы). Роль, которой нет в шаблоне вида, — «не найдено». Шаблон без обязательных допустим.
+     */
+    @Transactional
+    public List<RouteOverview> setMandatory(CurrentUser actor, long documentTypeId, long roleId, boolean mandatory) {
+        long orgId = OrganizationAccess.requireAdminOrg(actor);
+        ensureDefaultRoutes(orgId);
+        List<ApprovalRoute> rows = routeRepository.findByOrgIdAndDocumentTypeIdOrderByStageOrderAscIdAsc(orgId, documentTypeId)
+                .stream().filter(route -> route.getRoleId() == roleId).toList();
+        if (rows.isEmpty()) {
+            throw OrganizationErrors.notFound();
+        }
+        rows.forEach(route -> route.setMandatory(mandatory));
+        routeRepository.saveAll(rows);
+        return overview(actor);
+    }
+
     /** Строка шаблона: роль на этапе; {@code mandatory = false} — пропускается, если носителей роли нет. */
     public record TemplateRow(int stageOrder, long roleId, boolean mandatory) {
     }

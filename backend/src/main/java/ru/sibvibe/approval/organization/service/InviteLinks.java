@@ -35,6 +35,11 @@ public class InviteLinks {
         return link(payload);
     }
 
+    /** Экран «Заявки» администратора — кнопка уведомления о новой заявке (LNK-4). */
+    public String joinRequestsLink() {
+        return link("a_requests");
+    }
+
     /** Без startParam - для ответов бота вне какого-либо конкретного контекста ({@code /start}, приветствие). */
     public String appLink() {
         return "https://max.ru/" + BOT_USERNAME;

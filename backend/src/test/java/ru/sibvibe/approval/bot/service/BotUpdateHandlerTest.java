@@ -151,8 +151,10 @@ class BotUpdateHandlerTest {
     }
 
     @Test
-    void messageMatchingSeveralDocumentsListsThemWithoutAButton() throws Exception {
-        when(links.appLink()).thenReturn(APP_LINK);
+    void messageMatchingSeveralDocumentsListsThemAndOpensTheSearchInTheApp() throws Exception {
+        // LNK-3: кнопка несёт сам запрос (base64url от «заявление»), приложение откроет результаты поиска
+        String searchLink = APP_LINK + "?startapp=s_0LfQsNGP0LLQu9C10L3QuNC1";
+        when(links.startLink("s_0LfQsNGP0LLQu9C10L3QuNC1")).thenReturn(searchLink);
         when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.of(new Membership(7L, 1L)));
         when(documents.findByTitleFragment(1L, 7L, "заявление", 5)).thenReturn(List.of(
                 new DocumentLookup.Match(500L, "Заявление на отпуск", "APPROVED", null),
@@ -161,7 +163,7 @@ class BotUpdateHandlerTest {
         handler.handle(message("заявление"));
 
         org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(notifier).send(eq(910000042L), text.capture(), anyString(), eq(APP_LINK));
+        verify(notifier).send(eq(910000042L), text.capture(), eq("Показать все"), eq(searchLink));
         assertThat(text.getValue()).contains("Заявление на отпуск").contains("Заявление на командировку");
     }
 

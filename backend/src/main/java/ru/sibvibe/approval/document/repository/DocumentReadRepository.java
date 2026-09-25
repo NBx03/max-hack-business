@@ -77,6 +77,14 @@ public class DocumentReadRepository {
         this.jdbc = jdbc;
     }
 
+    /** Уходил ли документ хоть раз на согласование — у такого есть история решений (DOC-4). */
+    public boolean everSubmitted(long documentId) {
+        return Boolean.TRUE.equals(jdbc.sql("select exists (select 1 from approval_step where document_id = :documentId)")
+                .param("documentId", documentId)
+                .query(Boolean.class)
+                .single());
+    }
+
     public boolean canRead(long documentId, long orgId, long userId) {
         Boolean result = jdbc.sql("""
                         select exists (
@@ -157,10 +165,27 @@ public class DocumentReadRepository {
             Long authorId,
             Instant from,
             Instant toExclusive,
+            String searchText,
             int page,
             int size
     ) {
         StringBuilder where = new StringBuilder(" where ").append(READABLE);
+        String search = searchText == null || searchText.isBlank() ? null : searchText.strip();
+        if (search != null) {
+            // NAV-3: название, автор, номер документа в приложении или регистрационный номер из самого документа.
+            where.append("""
+                     and (d.title ilike :search escape '\\'
+                          or exists (select 1 from app_user search_author
+                                     where search_author.id = d.author_id and search_author.full_name ilike :search escape '\\')
+                          or cast(d.id as text) = :searchExact
+                          or exists (select 1 from document_version search_version,
+                                            jsonb_array_elements(search_version.extracted_fields -> 'fields') search_field
+                                     where search_version.document_id = d.id
+                                       and search_version.version_no = d.current_version_no
+                                       and search_field ->> 'name' = 'reg_number'
+                                       and search_field ->> 'value' ilike :search escape '\\'))
+                    """);
+        }
         switch (tab) {
             case WAITING_ME -> where.append(" and ").append(ACTIVE_STEP);
             case MINE -> where.append(" and d.author_id = :userId");
@@ -184,7 +209,7 @@ public class DocumentReadRepository {
 
         JdbcClient.StatementSpec count = bind(jdbc.sql(
                 "select count(*) from document d" + where), orgId, userId,
-                status, typeId, authorId, from, toExclusive);
+                status, typeId, authorId, from, toExclusive, search);
         long total = count.query(Long.class).single();
 
         String sql = """
@@ -201,13 +226,34 @@ public class DocumentReadRepository {
                              and waiting.approver_id = :userId
                              and waiting.stage_order = d.current_stage
                              and waiting.decision = 'PENDING'
-                       ) as waiting_since
+                       ) as waiting_since,
+                       (
+                           select kind_field ->> 'value'
+                           from document_version kind_version,
+                                jsonb_array_elements(kind_version.extracted_fields -> 'fields') kind_field
+                           where dt.is_generic
+                             and kind_version.document_id = d.id
+                             and kind_version.version_no = d.current_version_no
+                             and kind_field ->> 'name' = 'doc_kind'
+                             and coalesce(kind_field ->> 'value', '') <> ''
+                           limit 1
+                       ) as recognized_kind,
+                       (
+                           select kind_field ->> 'source'
+                           from document_version kind_version,
+                                jsonb_array_elements(kind_version.extracted_fields -> 'fields') kind_field
+                           where dt.is_generic
+                             and kind_version.document_id = d.id
+                             and kind_version.version_no = d.current_version_no
+                             and kind_field ->> 'name' = 'doc_kind'
+                           limit 1
+                       ) as recognized_kind_source
                 from document d
                 join document_type dt on dt.id = d.document_type_id
                 join app_user author on author.id = d.author_id
                 """ + where + " order by d.updated_at desc, d.id desc limit :size offset :offset";
         JdbcClient.StatementSpec query = bind(jdbc.sql(sql), orgId, userId,
-                status, typeId, authorId, from, toExclusive)
+                status, typeId, authorId, from, toExclusive, search)
                 .param("size", size)
                 .param("offset", (long) page * size);
         List<ListRow> items = query.query((rs, rowNum) -> new ListRow(
@@ -224,7 +270,9 @@ public class DocumentReadRepository {
                 rs.getObject("updated_at", java.time.OffsetDateTime.class).toInstant(),
                 Optional.ofNullable(rs.getObject("waiting_since", java.time.OffsetDateTime.class))
                         .map(java.time.OffsetDateTime::toInstant)
-                        .orElse(null)
+                        .orElse(null),
+                rs.getString("recognized_kind"),
+                "MODEL".equals(rs.getString("recognized_kind_source"))
         )).list();
         return new PageRows(items, total);
     }
@@ -362,9 +410,13 @@ public class DocumentReadRepository {
             Long typeId,
             Long authorId,
             Instant from,
-            Instant toExclusive
+            Instant toExclusive,
+            String search
     ) {
         statement = statement.param("orgId", orgId).param("userId", userId);
+        if (search != null) {
+            statement = statement.param("search", "%" + escapeLike(search) + "%").param("searchExact", search);
+        }
         if (status != null) {
             statement = statement.param("status", status.name());
         }
@@ -410,7 +462,11 @@ public class DocumentReadRepository {
             int currentVersionNo,
             Integer currentStage,
             Instant updatedAt,
-            Instant waitingSince
+            Instant waitingSince,
+            /** Вид «Другого документа», как его назвал документ (поле doc_kind, D2/DOC-7); null у видов из шаблонов. */
+            String recognizedKind,
+            /** Вид нашёл ИИ, а не ввёл автор — рядом значок ✦. */
+            boolean recognizedKindFromAi
     ) {}
 
     public record FileAccess(

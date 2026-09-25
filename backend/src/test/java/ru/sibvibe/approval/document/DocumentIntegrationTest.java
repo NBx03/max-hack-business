@@ -39,6 +39,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -369,6 +370,26 @@ class DocumentIntegrationTest {
     }
 
     @Test
+    void onlyTheAuthorDeletesADraftAndItIsGoneEverywhere() throws Exception {
+        long documentId = createPrivateDocument(pdf()).path("id").asLong();
+
+        // DOC-4: чужой — «не найдено», коллега без прав — тоже не автор
+        mvc.perform(delete("/api/v1/documents/{id}", documentId).header("Authorization", FOREIGN_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/v1/documents/{id}", documentId).header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(delete("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", Long.toString(documentId))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+    }
+
+    @Test
     void sameCompanyReaderCanViewButCannotModifyDocument() throws Exception {
         JsonNode created = createPrivateDocument(pdf());
         long documentId = created.path("id").asLong();
@@ -465,6 +486,19 @@ class DocumentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(documentId));
+        // NAV-3: поиск по части названия и по номеру документа; ACL — тот же, что у списка
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "прика")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", Long.toString(documentId))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(documentId));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "100%_\\")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
 
         JsonNode versioned = json(mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
                         .file(jsonPart("meta", Map.of(

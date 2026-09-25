@@ -49,14 +49,14 @@ class NotificationListenerTest {
         when(directory.find(77L)).thenReturn(Optional.of(new Recipient(910000077L, "Иван Заявитель")));
         when(directory.activeAdmins(1L)).thenReturn(List.of(
                 new Recipient(910000001L, "Админ Один"), new Recipient(910000002L, "Админ Два")));
-        when(links.appLink()).thenReturn("https://max.ru/t354_hakaton_max_bot");
+        String requestsLink = "https://max.ru/t354_hakaton_max_bot?startapp=a_requests";
+        when(links.joinRequestsLink()).thenReturn(requestsLink);
 
         listener.on(new JoinRequestSubmittedEvent(1L, 300L, 77L));
 
-        verify(notifier).send(eq(910000001L), contains("Иван Заявитель"),
-                eq("Открыть"), eq("https://max.ru/t354_hakaton_max_bot"));
-        verify(notifier).send(eq(910000002L), contains("Иван Заявитель"),
-                eq("Открыть"), eq("https://max.ru/t354_hakaton_max_bot"));
+        // LNK-4: кнопка ведёт сразу на «Заявки», а не на главную
+        verify(notifier).send(eq(910000001L), contains("Иван Заявитель"), eq("Открыть заявки"), eq(requestsLink));
+        verify(notifier).send(eq(910000002L), contains("Иван Заявитель"), eq("Открыть заявки"), eq(requestsLink));
     }
 
     @Test

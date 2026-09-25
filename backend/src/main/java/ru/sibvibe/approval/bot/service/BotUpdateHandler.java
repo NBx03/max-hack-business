@@ -41,6 +41,7 @@ public class BotUpdateHandler {
     private static final String OPEN_BUTTON = "Открыть мини-приложение";
     /** Наши параметры запуска: c_ — код компании, p_ — личное приглашение, d_ — документ (API_CONTRACTS.md). */
     private static final java.util.regex.Pattern PAYLOAD = java.util.regex.Pattern.compile("^(c|p|d)_[A-Za-z0-9_-]{1,500}$");
+    // a_ (экран заявок) и s_ (поиск) бот сам кладёт в свои кнопки, а по ссылке в чат они не приходят.
     private static final String OPEN_DOCUMENT = "Открыть документ";
     private static final String NOT_FOUND = "Не нашёл документ с таким названием. "
             + "Напишите часть названия точнее или откройте мини-приложение.";
@@ -167,8 +168,14 @@ public class BotUpdateHandler {
             String listing = matches.stream()
                     .map(match -> "«" + match.title() + "» — " + statusLabel(match))
                     .collect(Collectors.joining("\n"));
-            notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing + "\nУточните название.",
-                    OPEN_BUTTON, links.appLink());
+            // LNK-3: кнопка открывает в приложении результаты этого же поиска, а не главную. Запрос — в параметре
+            // запуска (base64url: MAX пропускает только A-Z a-z 0-9 _ -); слишком длинный — просто приложение.
+            String search = "s_" + java.util.Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            boolean fits = search.length() <= 500;
+            notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing
+                            + (fits ? "\nВсе — по кнопке ниже." : "\nУточните название."),
+                    fits ? "Показать все" : OPEN_BUTTON, fits ? links.startLink(search) : links.appLink());
         }
     }
 

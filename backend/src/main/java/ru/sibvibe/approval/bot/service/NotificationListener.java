@@ -59,8 +59,9 @@ public class NotificationListener {
                 .map(Recipient::displayName)
                 .orElse("Новый сотрудник");
         String text = "Новая заявка на вступление от " + applicantName + ".";
+        // Кнопка ведёт сразу на «Заявки» (LNK-4), а не на главную, где заявку ещё надо искать.
         directory.activeAdmins(event.orgId())
-                .forEach(admin -> notifier.send(admin.maxUserId(), text, OPEN, links.appLink()));
+                .forEach(admin -> notifier.send(admin.maxUserId(), text, "Открыть заявки", links.joinRequestsLink()));
     }
 
     /** По заявке принято решение - уведомляется заявитель. */

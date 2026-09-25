@@ -22,6 +22,7 @@ import ru.sibvibe.approval.organization.dto.MemberView;
 import ru.sibvibe.approval.organization.service.MemberService;
 import ru.sibvibe.approval.organization.service.RoleService;
 import ru.sibvibe.approval.organization.service.RouteTemplateService;
+import ru.sibvibe.approval.organization.dto.RouteMandatoryRequest;
 import ru.sibvibe.approval.organization.dto.RouteOverview;
 
 import java.util.List;
@@ -90,6 +91,17 @@ public class CompanyController {
     @GetMapping("/orgs/current/routes")
     public List<RouteOverview> routes(@AuthenticationPrincipal CurrentUser currentUser) {
         return routeTemplates.overview(currentUser);
+    }
+
+    /** #109: администратор делает роль в шаблоне вида документа обязательной или нет. */
+    @PatchMapping("/orgs/current/routes/{documentTypeId}/roles/{roleId}")
+    public List<RouteOverview> setRouteRoleMandatory(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable long documentTypeId,
+            @PathVariable long roleId,
+            @Valid @RequestBody RouteMandatoryRequest request
+    ) {
+        return routeTemplates.setMandatory(currentUser, documentTypeId, roleId, request.mandatory());
     }
 
     @GetMapping("/orgs/current/roles/{id}/members")
