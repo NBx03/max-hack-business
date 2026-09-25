@@ -164,11 +164,15 @@ public class DecisionService {
                     .map(ApprovalStep::getApproverId)
                     .collect(Collectors.toSet());
             documents.advanceStage(document.id(), next.getAsInt());
+            boolean endorsement = versionSteps.stream().anyMatch(other -> other.getStageOrder() == next.getAsInt()
+                    && other.getKind() == ApprovalStep.Kind.ENDORSEMENT);
             events.publishEvent(new ApprovalRequestedEvent(document.id(), document.currentVersionNo(),
-                    next.getAsInt(), approvers, document.authorId(), document.title()));
+                    next.getAsInt(), approvers, document.authorId(), document.title(), endorsement));
         } else {
             documents.approve(document.id());
-            publish(document, DocumentDecidedEvent.Outcome.APPROVED, step.getApproverId());
+            events.publishEvent(new DocumentDecidedEvent(document.id(), document.currentVersionNo(), document.authorId(),
+                    DocumentDecidedEvent.Outcome.APPROVED, step.getApproverId(), document.title(),
+                    step.getKind() == ApprovalStep.Kind.ENDORSEMENT));
         }
     }
 

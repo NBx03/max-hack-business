@@ -39,6 +39,8 @@ public class BotUpdateHandler {
     private static final String MEMBERS_ONLY = "Статус документа по названию доступен сотрудникам компании. "
             + "Откройте мини-приложение: там можно создать компанию, вступить по коду или открыть демо-компанию.";
     private static final String OPEN_BUTTON = "Открыть мини-приложение";
+    /** Наши параметры запуска: c_ — код компании, p_ — личное приглашение, d_ — документ (API_CONTRACTS.md). */
+    private static final java.util.regex.Pattern PAYLOAD = java.util.regex.Pattern.compile("^(c|p|d)_[A-Za-z0-9_-]{1,500}$");
     private static final String OPEN_DOCUMENT = "Открыть документ";
     private static final String NOT_FOUND = "Не нашёл документ с таким названием. "
             + "Напишите часть названия точнее или откройте мини-приложение.";
@@ -81,7 +83,7 @@ public class BotUpdateHandler {
         switch (type) {
             case "bot_started" -> {
                 Long userId = userId(update.path("user"));
-                if (userId != null) {
+                if (userId != null && !openByPayload(userId, update.path("payload").asText(""))) {
                     greet(userId, membership(userId));
                 }
             }
@@ -107,6 +109,9 @@ public class BotUpdateHandler {
         // bot_started) - это не название документа. Без проверки первый же ручной /start участника
         // компании получил бы «Не нашёл документ» вместо приветствия (PR #83, ревью, блокирующее).
         Optional<Membership> membership = membership(userId);
+        if (text.startsWith("/start ") && openByPayload(userId, text.substring("/start ".length()).strip())) {
+            return;
+        }
         if (text.isEmpty() || text.startsWith("/")) {
             greet(userId, membership);
         } else if (membership.isEmpty()) {
@@ -114,6 +119,29 @@ public class BotUpdateHandler {
         } else {
             replyWithDocumentStatus(userId, membership.get(), text);
         }
+    }
+
+    /**
+     * Человек пришёл по ссылке с параметром в чат с ботом, а не в мини-приложение (ссылка {@code ?start=}, первый
+     * запуск бота, клиент MAX открыл чат) — бот отвечает кнопкой, которая открывает мини-приложение с тем же
+     * параметром (LNK-1, LNK-2). Иначе человек нажал бы «Открыть» у приветствия и попал на приветственный экран.
+     * Параметр — только наших видов и только разрешённые MAX символы; остальное — обычное приветствие.
+     */
+    private boolean openByPayload(long userId, String payload) {
+        if (payload == null || !PAYLOAD.matcher(payload).matches()) {
+            return false;
+        }
+        String link = links.startLink(payload);
+        if (payload.startsWith("c_")) {
+            notifier.send(userId, "Приглашение в компанию. Нажмите кнопку — откроется мини-приложение, и заявка "
+                    + "на вступление отправится администратору сама.", "Вступить в компанию", link);
+        } else if (payload.startsWith("p_")) {
+            notifier.send(userId, "Личное приглашение в компанию. Нажмите кнопку и подтвердите вступление.",
+                    "Открыть приглашение", link);
+        } else {
+            notifier.send(userId, "Документ по ссылке — откройте его в мини-приложении.", OPEN_DOCUMENT, link);
+        }
+        return true;
     }
 
     private Optional<Membership> membership(long maxUserId) {

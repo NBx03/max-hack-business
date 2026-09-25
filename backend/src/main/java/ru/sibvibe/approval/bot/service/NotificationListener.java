@@ -97,7 +97,9 @@ public class NotificationListener {
     @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(ApprovalRequestedEvent event) {
-        String text = "«" + event.documentTitle() + "» ждёт вашего решения.";
+        // Те же слова, что в приложении (NAV-2): раздел «На моём согласовании»; у утверждающего — «утверждения» (D4).
+        String text = "«" + event.documentTitle() + "» ждёт вашего " + (event.endorsement() ? "утверждения" : "решения")
+                + ". Он в разделе «На моём согласовании».";
         String url = links.documentLink(event.documentId());
         Map<Long, Recipient> approvers = directory.find(event.approverUserIds());
         approvers.values().forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, url));
@@ -147,7 +149,7 @@ public class NotificationListener {
                     : directory.find(event.deciderUserId()).map(Recipient::displayName).orElse(null);
             String title = "«" + event.documentTitle() + "»";
             String text = switch (event.outcome()) {
-                case APPROVED -> title + " согласован." + deciderSuffix(decider);
+                case APPROVED -> title + (event.endorsed() ? " утверждён." : " согласован.") + deciderSuffix(decider);
                 case RETURNED -> title + " возвращён на доработку." + deciderSuffix(decider);
                 case REJECTED -> title + " отклонён." + deciderSuffix(decider);
             };

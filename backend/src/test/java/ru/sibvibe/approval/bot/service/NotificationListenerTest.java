@@ -149,6 +149,21 @@ class NotificationListenerTest {
     }
 
     @Test
+    void endorsementIsAskedAndReportedInItsOwnWords() {
+        when(directory.find(Set.of(11L))).thenReturn(Map.of(11L, new Recipient(910000011L, "Директор")));
+        when(directory.find(99L)).thenReturn(Optional.of(new Recipient(910000099L, "Автор")));
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Директор")));
+        when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
+
+        // D4: утверждающего просят утвердить, автору сообщают «утверждён», а не «согласован»
+        listener.on(new ApprovalRequestedEvent(500L, 1, 2, Set.of(11L), 99L, "Закупка ноутбуков", true));
+        listener.on(new DocumentDecidedEvent(500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, 11L, "Закупка ноутбуков", true));
+
+        verify(notifier).send(eq(910000011L), contains("ждёт вашего утверждения"), anyString(), anyString());
+        verify(notifier).send(eq(910000099L), contains("утверждён"), anyString(), anyString());
+    }
+
+    @Test
     void documentDecidedNotifiesAuthorWithTitleOutcomeTextAndDeciderName() {
         when(directory.find(99L)).thenReturn(Optional.of(new Recipient(910000099L, "Автор")));
         when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Иванов")));

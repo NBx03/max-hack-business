@@ -14,7 +14,15 @@ public record DocumentDecidedEvent(
         long authorUserId,
         Outcome outcome,
         Long deciderUserId,
-        String documentTitle
+        String documentTitle,
+        /** Итог «Утверждён», а не «Согласован» — последним решал утверждающий (D4). */
+        boolean endorsed
 ) {
+    public DocumentDecidedEvent(
+            long documentId, int versionNo, long authorUserId, Outcome outcome, Long deciderUserId, String documentTitle
+    ) {
+        this(documentId, versionNo, authorUserId, outcome, deciderUserId, documentTitle, false);
+    }
+
     public enum Outcome { APPROVED, RETURNED, REJECTED }
 }

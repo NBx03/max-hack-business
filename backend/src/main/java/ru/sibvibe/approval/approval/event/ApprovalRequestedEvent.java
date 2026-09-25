@@ -17,9 +17,17 @@ public record ApprovalRequestedEvent(
         int stageOrder,
         Set<Long> approverUserIds,
         long authorUserId,
-        String documentTitle
+        String documentTitle,
+        /** Активный этап — утверждение (D4): текст «ждёт вашего утверждения», а не «решения». */
+        boolean endorsement
 ) {
     public ApprovalRequestedEvent {
         approverUserIds = Set.copyOf(approverUserIds);
+    }
+
+    public ApprovalRequestedEvent(
+            long documentId, int versionNo, int stageOrder, Set<Long> approverUserIds, long authorUserId, String documentTitle
+    ) {
+        this(documentId, versionNo, stageOrder, approverUserIds, authorUserId, documentTitle, false);
     }
 }

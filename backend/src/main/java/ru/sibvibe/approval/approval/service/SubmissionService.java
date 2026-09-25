@@ -116,8 +116,10 @@ public class SubmissionService {
                             && step.getStageOrder() == firstStage.getAsInt())
                     .map(ApprovalStep::getApproverId)
                     .collect(Collectors.toSet());
+            boolean endorsement = planned.stream().anyMatch(step -> step.getStageOrder() == firstStage.getAsInt()
+                    && step.getKind() == ApprovalStep.Kind.ENDORSEMENT);
             events.publishEvent(new ApprovalRequestedEvent(documentId, document.currentVersionNo(),
-                    firstStage.getAsInt(), approvers, document.authorId(), document.title()));
+                    firstStage.getAsInt(), approvers, document.authorId(), document.title(), endorsement));
         } else {
             // Решать некому: обязательные роли только у автора, остальных нет. Согласуется сразу.
             documents.moveToApproval(documentId, null);

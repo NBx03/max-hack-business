@@ -27,6 +27,14 @@ public class InviteLinks {
         return link("d_" + documentId);
     }
 
+    /**
+     * Ссылка с готовым параметром запуска — бот повторяет её кнопкой, если человек пришёл по ссылке в чат, а не в
+     * мини-приложение ({@code bot_started} с payload, LNK-1). Параметр проверяет вызывающий.
+     */
+    public String startLink(String payload) {
+        return link(payload);
+    }
+
     /** Без startParam - для ответов бота вне какого-либо конкретного контекста ({@code /start}, приветствие). */
     public String appLink() {
         return "https://max.ru/" + BOT_USERNAME;

@@ -53,6 +53,44 @@ class BotUpdateHandlerTest {
     }
 
     @Test
+    void botStartedWithOurPayloadRepliesWithTheSameLinkToTheMiniApp() throws Exception {
+        String link = "https://max.ru/t354_hakaton_max_bot?startapp=c_KX7M2PQR";
+        when(links.startLink("c_KX7M2PQR")).thenReturn(link);
+
+        // LNK-1: пришёл по ссылке в чат, а не в мини-приложение — кнопка несёт тот же параметр, а не приветствие
+        handler.handle(json("""
+                { "update_type": "bot_started", "payload": "c_KX7M2PQR", "user": { "user_id": 910000042 } }
+                """));
+
+        org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000042L), text.capture(), eq("Вступить в компанию"), eq(link));
+        assertThat(text.getValue()).contains("заявка");
+        verify(links, never()).appLink();
+    }
+
+    @Test
+    void typedStartWithADocumentPayloadOpensThatDocument() throws Exception {
+        when(links.startLink("d_500")).thenReturn(DOCUMENT_LINK);
+
+        handler.handle(message("/start d_500"));
+
+        verify(notifier).send(eq(910000042L), anyString(), eq("Открыть документ"), eq(DOCUMENT_LINK));
+    }
+
+    @Test
+    void foreignOrMalformedPayloadFallsBackToTheGreeting() throws Exception {
+        when(links.appLink()).thenReturn(APP_LINK);
+        when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.empty());
+
+        handler.handle(json("""
+                { "update_type": "bot_started", "payload": "x_<script>", "user": { "user_id": 910000042 } }
+                """));
+
+        verify(notifier).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+        verify(links, never()).startLink(anyString());
+    }
+
+    @Test
     void messageFromSomeoneOutsideAnyCompanyGetsTheOpenAppButton() throws Exception {
         when(links.appLink()).thenReturn(APP_LINK);
         when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.empty());
