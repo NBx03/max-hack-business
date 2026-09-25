@@ -216,7 +216,7 @@ public class DocumentViewService {
                 document.getId(),
                 document.getTitle(),
                 new DocumentCardResponse.TypeRef(
-                        type.getId(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
+                        type.getId(), type.getCode(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
                 document.getStatus(),
                 readRepository.displayStatus(documentId),
                 document.getVisibility(),

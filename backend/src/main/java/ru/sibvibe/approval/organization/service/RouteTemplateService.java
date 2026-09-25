@@ -104,6 +104,11 @@ public class RouteTemplateService {
     @Transactional
     public List<RouteOverview> setMandatory(CurrentUser actor, long documentTypeId, long roleId, boolean mandatory) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
+        // D3: у «Другого документа» маршрут составляет автор — обязательных там нет.
+        Long genericTypeId = typeDirectory.idsByCode(Set.of(DefaultRouteTemplates.GENERIC)).get(DefaultRouteTemplates.GENERIC);
+        if (mandatory && genericTypeId != null && genericTypeId == documentTypeId) {
+            throw OrganizationErrors.validation("У «Другого документа» обязательных согласующих нет: маршрут составляет автор");
+        }
         ensureDefaultRoutes(orgId);
         List<ApprovalRoute> rows = routeRepository.findByOrgIdAndDocumentTypeIdOrderByStageOrderAscIdAsc(orgId, documentTypeId)
                 .stream().filter(route -> route.getRoleId() == roleId).toList();

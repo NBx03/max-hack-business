@@ -265,6 +265,17 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.permissions.canCorrectFile").value(false))
                 .andReturn().getResponse().getContentAsString());
         long documentId = created.path("id").asLong();
+        assertThat(created.path("type").path("code").asText()).isEqualTo("GENERIC");
+
+        // DOC-7: вид, который назвал сам документ, — в списке рядом с названием; признак — код GENERIC, а не is_generic.
+        jdbc.update("""
+                update document_version set extracted_fields = '{"fields": [{"name": "doc_kind", "value": "Приказ", "source": "MODEL"}]}'::jsonb
+                where document_id = ?
+                """, documentId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].recognizedKind.value").value("Приказ"))
+                .andExpect(jsonPath("$.items[0].recognizedKind.fromAi").value(true));
 
         mvc.perform(put("/api/v1/documents/{id}/versions/1/type", documentId)
                         .contentType(MediaType.APPLICATION_JSON)

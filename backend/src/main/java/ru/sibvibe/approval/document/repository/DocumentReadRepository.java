@@ -231,7 +231,7 @@ public class DocumentReadRepository {
                            select kind_field ->> 'value'
                            from document_version kind_version,
                                 jsonb_array_elements(kind_version.extracted_fields -> 'fields') kind_field
-                           where dt.is_generic
+                           where dt.code = 'GENERIC'
                              and kind_version.document_id = d.id
                              and kind_version.version_no = d.current_version_no
                              and kind_field ->> 'name' = 'doc_kind'
@@ -242,7 +242,7 @@ public class DocumentReadRepository {
                            select kind_field ->> 'source'
                            from document_version kind_version,
                                 jsonb_array_elements(kind_version.extracted_fields -> 'fields') kind_field
-                           where dt.is_generic
+                           where dt.code = 'GENERIC'
                              and kind_version.document_id = d.id
                              and kind_version.version_no = d.current_version_no
                              and kind_field ->> 'name' = 'doc_kind'

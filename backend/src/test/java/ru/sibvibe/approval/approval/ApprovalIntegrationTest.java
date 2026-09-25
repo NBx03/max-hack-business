@@ -522,6 +522,9 @@ class ApprovalIntegrationTest {
         assertThat(routes.toString()).contains("\"mandatory\":true");
         assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + company.roles.get("LAWYER"),
                 Map.of("mandatory", true)).status()).as("роли нет в шаблоне вида").isEqualTo(404);
+        long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);
+        assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + genericType + "/roles/" + director,
+                Map.of("mandatory", true)).status()).as("D3: у «Другого документа» обязательных нет").isEqualTo(400);
 
         // руководитель стал обязательным — без него отправить нельзя; директор больше не обязателен — без него можно
         Resp withoutHead = call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit",
