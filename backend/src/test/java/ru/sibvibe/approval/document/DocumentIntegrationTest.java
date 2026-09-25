@@ -391,9 +391,25 @@ class DocumentIntegrationTest {
 
         jdbc.update("update document set visibility = 'ORG' where id = ?", documentId);
 
+        // DOC-5: «видно всей компании» не открывает черновик — ни карточку, ни файл, ни строку в списке.
+        mvc.perform(get("/api/v1/documents/{id}", documentId)
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/documents").param("tab", "AVAILABLE")
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+
+        // Отправленный документ компания уже видит.
+        jdbc.update("update document set status = 'IN_APPROVAL' where id = ?", documentId);
+
         mvc.perform(get("/api/v1/documents/{id}", documentId)
                         .header("Authorization", COLLEAGUE_AUTH))
                 .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/documents").param("tab", "AVAILABLE")
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
         mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
                         .file(textJsonPart("meta", Map.of(
                                 "containsSensitive", false,

@@ -13,6 +13,10 @@ import java.util.Optional;
 /**
  * Проекции чтения документов. ACL входит в SQL до фильтров, count и pagination,
  * поэтому недоступные документы не влияют даже на total.
+ *
+ * Видимость «вся компания» действует только на отправленные документы: черновик видит лишь автор (и те, кто уже
+ * согласовывал его прошлые версии, — ради истории), даже если автор заранее выбрал «видно всем» (DOC-5). Одно и то же
+ * условие в списке, карточке и скачивании файла — иначе черновик можно было бы открыть по прямому адресу.
  */
 @Repository
 public class DocumentReadRepository {
@@ -21,7 +25,7 @@ public class DocumentReadRepository {
             d.org_id = :orgId
             and (
                 d.author_id = :userId
-                or d.visibility = 'ORG'
+                or (d.visibility = 'ORG' and d.status <> 'DRAFT')
                 or exists (
                     select 1 from approval_step access_step
                     where access_step.document_id = d.id
@@ -233,7 +237,7 @@ public class DocumentReadRepository {
                             where f.id = :fileId
                               and (
                                   d.author_id = :userId
-                                  or d.visibility = 'ORG'
+                                  or (d.visibility = 'ORG' and d.status <> 'DRAFT')
                                   or exists (
                                       select 1 from approval_step access_step
                                       where access_step.document_id = d.id
