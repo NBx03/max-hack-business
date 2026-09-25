@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Input } from '@maxhub/max-ui';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getDocuments, getDocumentTypes, type DocumentListFilters } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DisplayStatus, DocumentListItem, DocumentType, UserRef } from '../../api/types';
@@ -15,6 +15,7 @@ import {
   type DocumentListKey,
 } from '../../routes/paths';
 import {
+  AiMark,
   BottomSheet,
   Button,
   Chip,
@@ -27,10 +28,13 @@ import {
   Page,
   PageHeader,
   Row,
+  SearchField,
   SelectField,
+  Toast,
   documentStatusMeta,
   type SelectOption,
 } from '../../ui';
+import { isOutsideTemplates, kindLabel } from './documentKind';
 
 /** Какие статусы вообще бывают в разделе: у чужих документов нет черновиков, у «на согласовании» — только он. */
 const LIST_STATUSES: Record<DocumentListKey, DisplayStatus[]> = {
@@ -97,6 +101,17 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
     setFiltersState(next);
   };
   const [moreOpen, setMoreOpen] = useState(false);
+  // Поиск (NAV-3): поле — сразу, запрос — через паузу в наборе, чтобы не дёргать сервер на каждую букву.
+  const [searchText, setSearchText] = useState(filters.q ?? '');
+  useEffect(() => {
+    const q = searchText.trim() || undefined;
+    if (q === filters.q) return;
+    const timer = setTimeout(() => setFilters({ ...filters, q }), 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchText]);
+  const location = useLocation();
+  const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
   // Авторы — из уже загруженных документов: отдельного «все авторы» для не-администратора нет.
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
 
@@ -114,7 +129,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
 
   const statuses = LIST_STATUSES[list];
   const moreCount = [filters.typeId, filters.authorId, filters.from, filters.to].filter((value) => value !== undefined).length;
-  const filtered = moreCount > 0 || filters.status !== undefined;
+  const filtered = moreCount > 0 || filters.status !== undefined || filters.q !== undefined;
 
   const openCard = (item: DocumentListItem) =>
     navigate(documentCardPath(item.id), { state: { from: documentListPath(list), fromLabel: meta.title } });
@@ -130,6 +145,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
         ) : undefined
       }
     >
+      <SearchField value={searchText} onChange={setSearchText} placeholder="Название, автор или номер" />
       <Chips label="Фильтры">
         <Chip selected={moreCount > 0} onClick={() => setMoreOpen(true)}>
           {moreCount > 0 ? `Фильтры · ${moreCount}` : 'Фильтры'}
@@ -157,9 +173,12 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
           <EmptyState
             icon="search"
             title="Ничего не нашлось"
-            text="По выбранным фильтрам документов нет."
-            actionLabel="Сбросить фильтры"
-            onAction={() => setFilters({})}
+            text={filters.q ? `По запросу «${filters.q}» с выбранными фильтрами документов нет.` : 'По выбранным фильтрам документов нет.'}
+            actionLabel={filters.q ? 'Сбросить поиск и фильтры' : 'Сбросить фильтры'}
+            onAction={() => {
+              setSearchText('');
+              setFilters({});
+            }}
           />
         ) : (
           <EmptyState title={EMPTY[list].title} text={EMPTY[list].text} />
@@ -168,25 +187,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
       {query.status === 'ready' && query.data.items.length > 0 && (
         <List label={meta.title}>
           {query.data.items.map((item) => (
-            <Row
-              key={item.id}
-              title={item.title}
-              // Метка — под названием, а не справа: на 360 px справа она отнимала ширину, и название
-              // переносилось на три строки. На согласовании у всех один статус — там вместо метки срок ожидания.
-              subtitle={
-                <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
-                  {list !== 'waiting' && <DocumentStatusBadge status={item.displayStatus} />}
-                  <span>
-                    {[
-                      item.type.name,
-                      item.author.fullName,
-                      list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt),
-                    ].join(' · ')}
-                  </span>
-                </span>
-              }
-              onClick={() => openCard(item)}
-            />
+            <DocumentRow key={item.id} item={item} list={list} onOpen={() => openCard(item)} />
           ))}
         </List>
       )}
@@ -203,7 +204,49 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
           }}
         />
       </BottomSheet>
+      {toast && (
+        <Toast
+          message={toast}
+          onDismiss={() => {
+            setToast(null);
+            navigate(location.pathname, { replace: true });
+          }}
+        />
+      )}
     </Page>
+  );
+}
+
+/** Строка документа — в разделах и в поиске одинаковая. */
+export function DocumentRow({ item, list, onOpen }: { item: DocumentListItem; list: DocumentListKey; onOpen: () => void }) {
+  return (
+    <Row
+      title={item.title}
+      // Метка — под названием, а не справа: на 360 px справа она отнимала ширину, и название
+      // переносилось на три строки. На согласовании у всех один статус — там вместо метки срок ожидания.
+      subtitle={
+        <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
+          {list !== 'waiting' && <DocumentStatusBadge status={item.displayStatus} />}
+          <span>
+            {/* У «Другого документа» — вид, как его назвал документ, со значком ИИ (DOC-7). */}
+            {item.recognizedKind ? (
+              <>
+                {kindLabel(item.recognizedKind.value)}
+                {item.recognizedKind.fromAi && <> <AiMark /></>}
+              </>
+            ) : (
+              item.type.name
+            )}
+            {' · '}
+            {[
+              item.author.fullName,
+              list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt),
+            ].join(' · ')}
+          </span>
+        </span>
+      }
+      onClick={onOpen}
+    />
   );
 }
 
@@ -226,7 +269,14 @@ function MoreFilters({
   const [to, setTo] = useState(filters.to ?? '');
 
   const typeOptions = useMemo<SelectOption<number>[]>(
-    () => [{ value: 0, label: 'Все виды' }, ...types.map((type) => ({ value: type.id, label: type.name }))],
+    // «Другой документ» — отдельной группой «Вне шаблонов» (DOC-7): там договоры, акты и всё, чего нет в шаблонах.
+    () => [
+      { value: 0, label: 'Все виды' },
+      ...types.filter((type) => !isOutsideTemplates(type.code)).map((type) => ({ value: type.id, label: type.name })),
+      ...types
+        .filter((type) => isOutsideTemplates(type.code))
+        .map((type) => ({ value: type.id, label: 'Все вне шаблонов', description: 'Виды, которых нет в шаблонах компании: договор, акт и другие', group: 'Вне шаблонов' })),
+    ],
     [types],
   );
   const authorOptions = useMemo<SelectOption<number>[]>(
@@ -256,6 +306,7 @@ function MoreFilters({
         onClick={() =>
           onApply({
             status: filters.status,
+            q: filters.q,
             typeId: typeId || undefined,
             authorId: authorId || undefined,
             from: from || undefined,
@@ -265,7 +316,7 @@ function MoreFilters({
       >
         Показать
       </Button>
-      <Button stretched onClick={() => onApply({ status: filters.status })}>
+      <Button stretched onClick={() => onApply({ status: filters.status, q: filters.q })}>
         Сбросить
       </Button>
     </>

@@ -570,6 +570,14 @@ button.ds-row:active {
   pointer-events: none;
 }
 
+/* У type=search браузер рисует свой крестик — рядом с нашим «Очистить» их было два. */
+.ds-search__input::-webkit-search-cancel-button,
+.ds-search__input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
 .ds-search__input {
   width: 100%;
   min-height: var(--ds-tap);
@@ -770,6 +778,31 @@ button.ds-row:active {
   color: var(--ds-ai);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Приглушённая пометка-кнопка («вне шаблонов», DOC-7): мелкая, но зона нажатия — не меньше 44 px по высоте. */
+.ds-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--ds-text-xs);
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ds-tag::after {
+  content: '';
+  position: absolute;
+  inset: -12px -4px;
 }
 
 /* ---------- Плашка демо (LAY-3): ровный небольшой отступ без safe-area — шапку рисует сам MAX ---------- */
@@ -1023,4 +1056,164 @@ button.ds-row:active {
   font-size: var(--ds-text-s);
   text-align: left;
   cursor: pointer;
+}
+
+/* ---------- Зона загрузки (UPL-1, UPL-2, UPL-6) ---------- */
+
+.ds-filedrop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-s);
+  padding: var(--ds-space-l) var(--ds-space-m) var(--ds-space-m);
+  border: 1.5px dashed var(--icon-mute);
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-surface);
+  box-sizing: border-box;
+}
+
+.ds-filedrop--filled {
+  border-style: solid;
+  border-color: var(--ds-border);
+}
+
+.ds-filedrop--error {
+  border-style: solid;
+  border-color: var(--text-negative);
+}
+
+.ds-filedrop__help {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-tap);
+  height: var(--ds-tap);
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.ds-filedrop__pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  width: 100%;
+  min-height: 120px;
+  justify-content: center;
+  padding: 0 var(--ds-space-l);
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ds-filedrop__icon {
+  display: inline-flex;
+  color: var(--ds-accent);
+}
+
+.ds-filedrop--error .ds-filedrop__icon {
+  color: var(--text-negative);
+}
+
+.ds-filedrop__title {
+  font-size: var(--ds-text-m);
+  line-height: 22px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.ds-filedrop__file {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-s);
+  width: 100%;
+  padding-right: var(--ds-space-l);
+  box-sizing: border-box;
+}
+
+.ds-filedrop__error {
+  margin: 0;
+  font-size: var(--ds-text-s);
+  line-height: 20px;
+  color: var(--text-negative);
+  text-align: center;
+}
+
+.ds-filedrop__note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-xs);
+  width: 100%;
+  font-size: var(--ds-text-s);
+  line-height: 20px;
+  color: var(--text-secondary);
+}
+
+.ds-filedrop__note > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* ---------- Степпер (UPL-3) ---------- */
+
+.ds-stepper {
+  display: flex;
+  gap: var(--ds-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ds-stepper__step {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 3px solid var(--ds-border);
+  color: var(--text-tertiary);
+  font-size: var(--ds-text-xs);
+}
+
+.ds-stepper__step--done {
+  border-top-color: var(--ds-accent);
+  color: var(--text-secondary);
+}
+
+.ds-stepper__step--current {
+  border-top-color: var(--ds-accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ds-stepper__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ds-surface);
+  font-size: 12px;
+}
+
+.ds-stepper__step--current .ds-stepper__num,
+.ds-stepper__step--done .ds-stepper__num {
+  background: var(--ds-accent);
+  color: #fff;
+}
+
+.ds-stepper__label {
+  overflow-wrap: anywhere;
 }

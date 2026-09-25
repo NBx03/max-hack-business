@@ -6,16 +6,18 @@ import {
   createFormVersion,
   decideStep,
   getDocument,
+  deleteDocument,
   getDocumentTypes,
   withdrawDocument,
   type StepDecisionAction,
 } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentTypeField, FileRef, RouteView, StepView, VersionChanges } from '../../api/types';
-import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
-import { ROUTE_PATTERNS, documentCheckPath, routePreviewPath } from '../../routes/paths';
+import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath } from '../../routes/paths';
+import { recognizedKindOf } from './documentKind';
+import { RecognizedKind } from './RecognizedKind';
 import {
   AccessErrorState,
   BottomSheet,
@@ -39,6 +41,7 @@ import {
   TimelinePerson,
   Toast,
   documentStatusMeta,
+  formatFileSize,
   stepDecisionMeta,
   type StatusMeta,
   type TimelineItem,
@@ -193,6 +196,9 @@ export function DocumentCardScreen() {
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [resendBusy, setResendBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
 
   /**
@@ -287,6 +293,7 @@ export function DocumentCardScreen() {
 
   const doc = query.data;
   const currentVersion = doc.versions.find((v) => v.versionNo === doc.currentVersionNo);
+  const kind = recognizedKindOf(doc.type.code, doc.check);
   const withdrawnAt = doc.status === 'RETURNED' ? currentVersion?.withdrawnAt ?? null : null;
   const removedApprover = doc.status === 'RETURNED' && !withdrawnAt ? findRemovedApprover(doc.route, doc.currentVersionNo) : null;
   const returnReason = doc.status === 'RETURNED' && !withdrawnAt && !removedApprover ? findReturnReason(doc.route) : null;
@@ -314,6 +321,20 @@ export function DocumentCardScreen() {
       setResendError(errorMessage(err));
     } finally {
       setResendBusy(false);
+    }
+  }
+
+  async function removeDraft() {
+    if (!doc) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteDocument(doc.id);
+      navigate(documentListPath('mine'), { replace: true, state: { toast: 'Черновик удалён' } });
+    } catch (error) {
+      setDeleteError(errorMessage(error));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -348,6 +369,8 @@ export function DocumentCardScreen() {
   // Закреплённые действия (DOC-2): у согласующего — главная «Согласовать»/«Утвердить» на всю ширину, ниже поровну
   // «Вернуть на доработку» и тихая «Отклонить»; у автора — то, что можно сделать с документом сейчас.
   let footer = null;
+  // DOC-4: удалить можно только черновик, который ещё ни разу не отправлялся (маршрута нет); сервер проверит то же.
+  const canDelete = doc.status === 'DRAFT' && doc.route === null && (doc.permissions.canEditFields || doc.permissions.canUploadVersion);
   if (myStep) {
     footer = (
       <>
@@ -384,17 +407,22 @@ export function DocumentCardScreen() {
     );
   } else if (doc.status === 'DRAFT' && doc.permissions.canSubmit) {
     footer = (
-      <Button variant="primary" stretched onClick={() => navigate(routePreviewPath(doc.id))}>
-        Далее: выбрать согласующих
-      </Button>
+      <>
+        <Button variant="primary" stretched onClick={() => navigate(routePreviewPath(doc.id))}>
+          Далее: выбрать согласующих
+        </Button>
+      </>
     );
   } else if (doc.status === 'DRAFT' && doc.check) {
     // canSubmit = false на черновике — из-за блокирующих замечаний; без этой кнопки карточка была бы тупиком (#71).
     footer = (
-      <Button variant="primary" stretched onClick={() => navigate(documentCheckPath(doc.id))}>
-        Исправить замечания
-      </Button>
+      <>
+        <Button variant="primary" stretched onClick={() => navigate(documentCheckPath(doc.id))}>
+          Исправить замечания
+        </Button>
+      </>
     );
+
   } else if (doc.status === 'RETURNED' && doc.permissions.canUploadVersion) {
     footer = (
       <>
@@ -418,7 +446,14 @@ export function DocumentCardScreen() {
           subtitle={
             <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 4 }}>
               <DocumentStatusBadge status={doc.displayStatus} />
-              <span>{doc.type.name} · {doc.author.fullName} · версия {doc.currentVersionNo}</span>
+              {kind ? (
+                <>
+                  <RecognizedKind value={kind.value} fromAi={kind.fromAi} />
+                  <span>{doc.author.fullName} · версия {doc.currentVersionNo}</span>
+                </>
+              ) : (
+                <span>{doc.type.name} · {doc.author.fullName} · версия {doc.currentVersionNo}</span>
+              )}
             </span>
           }
         />
@@ -484,6 +519,13 @@ export function DocumentCardScreen() {
 
       <HistoryAndVersions doc={doc} />
 
+      {/* DOC-4: редкое и необратимое действие — в конце карточки, тихой кнопкой, не рядом с главным. */}
+      {canDelete && (
+        <Button stretched variant="ghost" icon="cross" onClick={() => setDeleteOpen(true)}>
+          Удалить черновик
+        </Button>
+      )}
+
       {toast && <Toast message={toast} onDismiss={dismissToast} />}
 
       <BottomSheet
@@ -538,6 +580,21 @@ export function DocumentCardScreen() {
         busy={withdrawBusy}
         error={withdrawError}
         onConfirm={() => void withdraw()}
+      />
+
+      <ConfirmSheet
+        open={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteError(null);
+        }}
+        title="Удалить черновик?"
+        description="Черновик и его файлы исчезнут из приложения. Его ещё никто не видел — отменить удаление нельзя."
+        confirmLabel="Удалить"
+        destructive
+        busy={deleteBusy}
+        error={deleteError}
+        onConfirm={() => void removeDraft()}
       />
 
       <ConfirmSheet

@@ -16,7 +16,7 @@ import { ROUTE_PATTERNS } from './paths';
  * entryRoute — запасной вариант для путей, у которых родителя нет.
  */
 export function parentRoute(pathname: string, entryRoute: string): string {
-  if (pathname === ROUTE_PATTERNS.documentUpload || pathname.startsWith('/documents/list/') || pathname === ROUTE_PATTERNS.company) {
+  if (pathname === ROUTE_PATTERNS.documentUpload || pathname.startsWith('/documents/list/') || pathname === ROUTE_PATTERNS.documentSearch || pathname === ROUTE_PATTERNS.company) {
     return ROUTE_PATTERNS.home;
   }
   if (pathname === ROUTE_PATTERNS.memoForm) {

@@ -22,8 +22,10 @@ import {
   PageHeader,
   Row,
   SelectSheet,
+  Stepper,
   type SelectOption,
 } from '../../ui';
+import { CREATE_STEPS } from './DocumentUploadScreen';
 import {
   addPerson,
   contextOf,
@@ -98,7 +100,7 @@ export function RoutePreviewScreen() {
     );
   }
   const [preview, colleagues] = query.data;
-  return <RouteBuilder documentId={documentId} preview={preview} colleagues={colleagues} authorId={authorId} back={back} />;
+  return <RouteBuilder documentId={documentId} preview={preview} colleagues={colleagues} authorId={authorId} back={back} fromCheck={fromCheck} />;
 }
 
 type AddTarget = Target | { kind: 'choice'; slotId: string };
@@ -109,12 +111,15 @@ function RouteBuilder({
   colleagues,
   authorId,
   back,
+  fromCheck,
 }: {
   documentId: number;
   preview: RoutePreview;
   colleagues: MemberView[];
   authorId: number | undefined;
   back: { to: string; label: string };
+  /** Пришли с шага проверки — показываем шаги создания (UPL-3). */
+  fromCheck: boolean;
 }) {
   const navigate = useNavigate();
   const context = useMemo(() => contextOf(preview, colleagues, authorId), [preview, colleagues, authorId]);
@@ -164,11 +169,14 @@ function RouteBuilder({
   return (
     <Page
       header={
-        <PageHeader
-          back={back}
-          title="Маршрут"
-          subtitle="Этапы идут по очереди, люди внутри этапа согласуют одновременно. Последним документ утверждают."
-        />
+        <>
+          <PageHeader
+            back={back}
+            title="Маршрут"
+            subtitle="Этапы идут по очереди, люди внутри этапа согласуют одновременно. Последним документ утверждают."
+          />
+          {fromCheck && <Stepper steps={CREATE_STEPS} current={2} />}
+        </>
       }
       footer={
         <>

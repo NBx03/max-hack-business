@@ -4,8 +4,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
-import { FilePicker, formatFileSize } from '../../components/base/FilePicker';
-import { ErrorState, Button } from '../../ui';
+import { FormatsHelp } from './FormatsHelp';
+import { MAIN_FILE_ACCEPT, MAX_FILE_MB, fileProblem, hasLimitedCheck } from './uploadFormats';
+import { ErrorState, Button, FileDrop, formatFileSize } from '../../ui';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import {
   DocumentScreen,
@@ -28,6 +29,7 @@ export function NewDocumentVersionScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newMain, setNewMain] = useState<File | null>(null);
+  const [newMainError, setNewMainError] = useState<string | null>(null);
   const [keptAttachments, setKeptAttachments] = useState<Set<number>>(new Set());
   const [containsSensitive, setContainsSensitive] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -132,12 +134,23 @@ export function NewDocumentVersionScreen() {
             </span>
           </div>
         )}
-        <FilePicker
-          label="Новый файл"
-          hint="PDF или DOCX, до 10 МБ"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        <FileDrop
           file={newMain}
-          onSelect={setNewMain}
+          accept={MAIN_FILE_ACCEPT}
+          title="Выберите исправленный файл"
+          caption={`PDF, DOCX или DOC · до ${MAX_FILE_MB} МБ`}
+          error={newMainError}
+          note={newMain && hasLimitedCheck(newMain) ? 'Для этого файла автоматическая проверка недоступна — поля заполните вручную.' : undefined}
+          help={<FormatsHelp />}
+          onSelect={(file) => {
+            const problem = fileProblem(file);
+            setNewMainError(problem);
+            setNewMain(problem ? null : file);
+          }}
+          onRemove={() => {
+            setNewMain(null);
+            setNewMainError(null);
+          }}
         />
 
         {attachments.length > 0 && (

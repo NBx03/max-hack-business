@@ -112,7 +112,7 @@ export function CompanyScreen() {
       />
 
       {/* Второстепенные блоки: при ошибке просто не показываем, раздел не должен выглядеть сломанным. */}
-      {routesQuery.status === 'ready' && <RoutesCard routes={routesQuery.data[0]} types={routesQuery.data[1]} />}
+      {routesQuery.status === 'ready' && <RoutesCard routes={routesQuery.data[0]} types={routesQuery.data[1]} isAdmin={isAdmin} />}
 
       {metricsQuery.status === 'ready' && <MetricsCard metrics={metricsQuery.data} />}
 

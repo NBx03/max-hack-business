@@ -52,6 +52,17 @@ describe('resolveEntryRoute', () => {
     expect(resolveEntryRoute({ ...member, startParam: 'd_5' })).toBe('/documents/5');
   });
 
+  it('кнопки бота: s_ — результаты поиска (LNK-3), a_requests — заявки (LNK-4)', () => {
+    // «записка отпуск» в base64url — так бот кладёт запрос в параметр запуска.
+    expect(resolveEntryRoute({ ...member, startParam: 's_0LfQsNC_0LjRgdC60LAg0L7RgtC_0YPRgdC6' })).toBe(
+      `/documents/search?q=${encodeURIComponent('записка отпуск')}`,
+    );
+    expect(resolveEntryRoute({ ...member, startParam: 's_%%%' })).toBe('/documents/search');
+    expect(resolveEntryRoute({ ...member, startParam: 'a_requests' })).toBe('/admin/requests');
+    // Без компании эти кнопки не ведут никуда особенного.
+    expect(resolveEntryRoute({ ...base, startParam: 'a_requests' })).toBe('/welcome');
+  });
+
   it('приглашение игнорируется, если человек уже в компании или ждёт решения', () => {
     expect(resolveEntryRoute({ ...member, startParam: 'c_KX7M2PQR' })).toBe('/home');
     expect(resolveEntryRoute({ ...pending, startParam: 'p_token' })).toBe('/pending');
