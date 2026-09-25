@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -317,21 +318,23 @@ public class SubmissionService {
         // Отдельным этапом после согласующих и перед утверждением — там, где такая роль стоит в шаблоне; в этапе 1 он
         // выглядел бы так, будто автор появился в маршруте сам (ревью #111, п. 3). Активация согласованный этап пропускает.
         int authorStage = route.stages().size() + 1;
-        boolean authorStep = false;
-        for (RouteResolver.Stage stage : template.stages()) {
-            for (RouteResolver.Participant participant : stage.participants()) {
-                if (participant.resolution() == RouteResolver.Resolution.AUTHOR_HOLDS_ROLE) {
-                    authorStep = true;
-                    ApprovalStep step = step(document, authorStage, participant.role().id(), document.authorId(),
-                            ApprovalStep.Origin.TEMPLATE, ApprovalStep.Kind.APPROVAL, now);
-                    step.setDecision(ApprovalStep.Decision.APPROVED);
-                    step.setAutoReason(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
-                    step.setActivatedAt(now);
-                    step.setDecidedAt(now);
-                    planned.add(step);
-                }
-            }
-        }
+        // Один шаг, даже если у автора несколько обязательных ролей, которых больше ни у кого нет: человек — один раз
+        // в маршруте (D6, ревью Ильи на #110). Шаг хранит одну роль — первую по шаблону; остальные закрыты тем же
+        // фактом — они есть у автора (validate их и не требует).
+        Optional<RouteResolver.Participant> authorRole = template.stages().stream()
+                .flatMap(stage -> stage.participants().stream())
+                .filter(participant -> participant.resolution() == RouteResolver.Resolution.AUTHOR_HOLDS_ROLE)
+                .findFirst();
+        boolean authorStep = authorRole.isPresent();
+        authorRole.ifPresent(participant -> {
+            ApprovalStep step = step(document, authorStage, participant.role().id(), document.authorId(),
+                    ApprovalStep.Origin.TEMPLATE, ApprovalStep.Kind.APPROVAL, now);
+            step.setDecision(ApprovalStep.Decision.APPROVED);
+            step.setAutoReason(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
+            step.setActivatedAt(now);
+            step.setDecidedAt(now);
+            planned.add(step);
+        });
         if (route.endorser() != null) {
             planned.add(step(document, authorStep ? authorStage + 1 : authorStage, route.endorser().roleId(), route.endorser().userId(),
                     claims.origin(route.endorser()), ApprovalStep.Kind.ENDORSEMENT, now));

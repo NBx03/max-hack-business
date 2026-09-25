@@ -453,6 +453,35 @@ class SubmissionServiceTest {
     }
 
     @Test
+    void authorHoldingTwoMandatoryRolesAloneIsInTheRouteOnce() {
+        // D6, ревью Ильи: одна строка автора, а не по шагу на каждую роль
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 21, true), row(2, 22, true), row(3, 20, false)),
+                Map.of(21L, List.of(AUTHOR_REF), 22L, List.of(AUTHOR_REF), 20L, List.of(BOB)));
+
+        service.submit(author(), DOC, route(List.of(List.of(p(BOB, 20))), null));
+
+        assertThat(savedSteps()).filteredOn(step -> step.getApproverId() == AUTHOR).singleElement().satisfies(step -> {
+            assertThat(step.getAutoReason()).isEqualTo(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
+            assertThat(step.getStageOrder()).isEqualTo(2);
+        });
+    }
+
+    @Test
+    void endorsementIsNotCarriedIntoAnApprovalOfTheSamePerson() {
+        // ревью Ильи на #111: и в обратную сторону — утвердивший прошлую версию согласует новую сам
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 21, false)), Map.of(21L, List.of(BOB)));
+        when(carried.of(DOC, 3)).thenReturn(Optional.of(new CarriedApprovals.Carried(2,
+                Set.of(new CarriedApprovals.Key(21L, BOB.id(), ApprovalStep.Kind.ENDORSEMENT)))));
+
+        service.submit(author(), DOC, route(List.of(List.of(p(BOB, 21))), null));
+
+        assertThat(savedSteps()).singleElement()
+                .satisfies(step -> assertThat(step.getDecision()).isEqualTo(ApprovalStep.Decision.PENDING));
+    }
+
+    @Test
     void approvalIsNotCarriedIntoTheEndorsementOfTheSamePerson() {
         // ревью #111, п. 1: Боб согласовал прошлую версию, теперь он утверждающий — должен утвердить сам
         givenDocument(DocumentState.DRAFT);
