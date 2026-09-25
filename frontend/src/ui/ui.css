@@ -809,3 +809,218 @@ button.ds-row:active {
   cursor: default;
 }
 
+
+/* ---------- Перетаскивание (RTE-2): ручка, призрак, зоны сброса ---------- */
+
+.ds-drag-handle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-tap);
+  height: var(--ds-tap);
+  margin: -8px 0 -8px -12px;
+  color: var(--text-tertiary);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ds-drag-ghost {
+  position: fixed;
+  z-index: 400;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-xs);
+  max-width: 260px;
+  padding: var(--ds-space-s) var(--ds-space-m);
+  border-radius: var(--ds-radius-m);
+  background: var(--ds-surface-raised);
+  color: var(--text-primary);
+  font-size: var(--ds-text-s);
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translate(-24px, -50%);
+}
+
+.ds-drop-target {
+  transition: box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.ds-drop-target[data-hover='true'] {
+  box-shadow: inset 0 0 0 2px var(--ds-accent);
+  background: var(--status-progress-bg);
+}
+
+.ds-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-xs);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--ds-space-s);
+  border: 1.5px dashed var(--icon-mute);
+  border-radius: var(--ds-radius-m);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--ds-text-s);
+  font-weight: 600;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.ds-dropzone[data-hover='true'] {
+  border-color: var(--ds-accent);
+  background: var(--status-progress-bg);
+  color: var(--text-primary);
+}
+
+/* ---------- Таймлайн отслеживания (DOC-1) ---------- */
+
+.ds-tl {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ds-tl__item {
+  display: flex;
+  gap: var(--ds-space-s);
+}
+
+.ds-tl__rail {
+  flex: none;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ds-tl__dot {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  color: #fff;
+}
+
+.ds-tl__dot--future {
+  width: 12px;
+  height: 12px;
+  margin: 4px 0;
+  border: 2px solid var(--icon-mute);
+  background: var(--background-primary);
+}
+
+.ds-tl__dot--current {
+  width: 24px;
+  height: 24px;
+  border: 2px solid;
+  background: var(--background-primary);
+}
+
+.ds-tl__line {
+  flex: 1;
+  min-height: 16px;
+  width: 0;
+  margin: 2px 0;
+}
+
+.ds-tl__line--done {
+  border-left: 2px solid var(--ds-accent);
+}
+
+.ds-tl__line--future {
+  border-left: 2px dashed var(--icon-mute);
+}
+
+.ds-tl__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-xs);
+  padding-bottom: var(--ds-space-m);
+}
+
+.ds-tl__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--ds-space-xs);
+  min-height: 20px;
+}
+
+.ds-tl__title {
+  font-size: var(--ds-text-m);
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ds-tl__item--future .ds-tl__title,
+.ds-tl__item--future .ds-tl__meta {
+  color: var(--text-tertiary);
+}
+
+.ds-tl__item--current .ds-tl__title {
+  font-size: var(--ds-text-l);
+  line-height: 24px;
+}
+
+.ds-tl__here {
+  padding: 2px 8px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--status-progress-bg);
+  color: var(--status-progress-fg);
+  font-size: var(--ds-text-xs);
+  font-weight: 600;
+}
+
+.ds-tl__meta {
+  margin-top: -4px;
+  font-size: var(--ds-text-xs);
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.ds-tl__person {
+  padding: var(--ds-space-s);
+  border-radius: var(--ds-radius-m);
+  background: var(--ds-surface);
+}
+
+.ds-tl__item--future .ds-tl__person {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--divider-secondary);
+}
+
+.ds-tl__comment {
+  margin: var(--ds-space-xs) 0 0;
+  font-size: var(--ds-text-s);
+  line-height: 20px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.ds-tl__toggle {
+  flex: 1;
+  min-height: var(--ds-tap);
+  margin-top: -12px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--ds-text-s);
+  text-align: left;
+  cursor: pointer;
+}

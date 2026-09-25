@@ -5,6 +5,8 @@ import type { IconName } from './icons';
 // два разных цвета. Цвет тона — токен (ui/tokens.css), не HEX.
 
 export type DocumentStatus = 'DRAFT' | 'IN_APPROVAL' | 'APPROVED' | 'RETURNED' | 'REJECTED';
+/** Показываемый статус (D4): вычисляет бэкенд, экраны показывают его, а не status. */
+export type DisplayStatus = DocumentStatus | 'IN_ENDORSEMENT' | 'ENDORSED';
 export type StepDecision = 'PENDING' | 'APPROVED' | 'RETURNED' | 'REJECTED' | 'SKIPPED';
 /**
  * AUTHOR_HOLDS_ROLE — согласовано автоматически: роль только у автора. CARRIED_OVER — одобрение прошлой версии
@@ -20,9 +22,11 @@ export interface StatusMeta {
   icon: IconName;
 }
 
-const DOCUMENT_STATUS_META: Record<DocumentStatus, StatusMeta> = {
+const DOCUMENT_STATUS_META: Record<DisplayStatus, StatusMeta> = {
   DRAFT: { text: 'Черновик', tone: 'neutral', icon: 'draft' },
   IN_APPROVAL: { text: 'На согласовании', tone: 'progress', icon: 'clock' },
+  IN_ENDORSEMENT: { text: 'На утверждении', tone: 'endorse', icon: 'endorse' },
+  ENDORSED: { text: 'Утверждён', tone: 'success', icon: 'endorse' },
   RETURNED: { text: 'Возвращён', tone: 'warning', icon: 'return' },
   REJECTED: { text: 'Отклонён', tone: 'danger', icon: 'cross' },
   APPROVED: { text: 'Согласован', tone: 'success', icon: 'check' },
@@ -36,9 +40,9 @@ const STEP_DECISION_META: Record<StepDecision, StatusMeta> = {
   SKIPPED: { text: 'Не понадобилось', tone: 'neutral', icon: 'close' },
 };
 
-export const DOCUMENT_STATUSES: DocumentStatus[] = ['DRAFT', 'IN_APPROVAL', 'RETURNED', 'APPROVED', 'REJECTED'];
+export const DOCUMENT_STATUSES: DisplayStatus[] = ['DRAFT', 'IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'APPROVED', 'ENDORSED', 'REJECTED'];
 
-export function documentStatusMeta(status: DocumentStatus): StatusMeta {
+export function documentStatusMeta(status: DisplayStatus): StatusMeta {
   return DOCUMENT_STATUS_META[status];
 }
 

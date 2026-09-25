@@ -8,12 +8,14 @@ export { Page, PageHeader, BackLink, Section, Card, List, Row, Tiles, Tile, Coun
 export { BottomSheet, ConfirmSheet, SelectSheet, SelectField, type SelectOption } from './Sheet';
 export { EmptyState, ErrorState, AccessErrorState, Loading, InlineError, Notice, Toast } from './State';
 export { SearchField, Chips, Chip } from './Controls';
+export { Timeline, TimelinePerson, type TimelineItem, type TimelineState } from './Timeline';
 export { StatusBadge, DocumentStatusBadge, StepDecisionBadge, AiMark, AiExplainer, AiLegend } from './Badge';
 export {
   documentStatusMeta,
   stepDecisionMeta,
   DOCUMENT_STATUSES,
   type DocumentStatus,
+  type DisplayStatus,
   type StepDecision,
   type AutoReason,
   type StatusTone,
