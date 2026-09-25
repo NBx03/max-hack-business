@@ -28,6 +28,13 @@ export type Target = { kind: 'stage'; index: number } | { kind: 'newStage'; inde
 export interface BuilderContext {
   /** Роли, которые нельзя убрать из маршрута (обязательные в шаблоне и есть кому их нести). */
   mandatoryRoleIds: ReadonlySet<number>;
+  /** Названия обязательных ролей — для подсказки «в маршруте нет …». */
+  mandatoryRoleNames: ReadonlyMap<number, string>;
+  /**
+   * Обязательные роли, которые есть только у автора: их шаг согласуется сам (AUTHOR_HOLDS_ROLE). Сервер ставит его
+   * отдельным этапом после согласующих; конструктор показывает его строкой, чтобы автор не появился в карточке «сам».
+   */
+  authorRoles: RoleRef[];
   /** Коллеги, которых можно поставить в маршрут: активные, с ролями, кроме автора. */
   colleagues: MemberView[];
   /** Роли шаблона — добавленному человеку роль выбирается из них, если он её несёт. */
@@ -50,17 +57,25 @@ function personSlot(user: UserRef, role: RoleRef, roles: string): Slot {
 
 export function contextOf(preview: RoutePreview, colleagues: MemberView[], authorId: number | undefined): BuilderContext {
   const mandatory = new Set<number>();
+  const mandatoryNames = new Map<number, string>();
   const templateRoles = new Set<number>();
+  const authorRoles: RoleRef[] = [];
   for (const stage of preview.stages) {
     for (const participant of stage.participants) {
       templateRoles.add(participant.role.id);
       if (participant.mandatory && (participant.resolution === 'AUTO' || participant.resolution === 'SELECT')) {
         mandatory.add(participant.role.id);
+        mandatoryNames.set(participant.role.id, participant.role.name);
+      }
+      if (participant.resolution === 'AUTHOR_HOLDS_ROLE') {
+        authorRoles.push(participant.role);
       }
     }
   }
   return {
     mandatoryRoleIds: mandatory,
+    mandatoryRoleNames: mandatoryNames,
+    authorRoles,
     templateRoleIds: templateRoles,
     colleagues: colleagues.filter((member) => member.user.id !== authorId && member.status !== 'DISABLED' && member.roles.length > 0),
   };
@@ -101,8 +116,14 @@ export function initialState(preview: RoutePreview, context: BuilderContext): Bu
       endorser: preview.previous.endorser ? fromPrevious(preview.previous.endorser) : null,
     };
   } else {
-    const stages: BuilderStage[] = [...preview.stages]
-      .sort((left, right) => left.stageOrder - right.stageOrder)
+    const sorted = [...preview.stages].sort((left, right) => left.stageOrder - right.stageOrder);
+    // Утверждающий по умолчанию — последний этап шаблона, если в нём один человек (D4). Смотрим до того, как пустые
+    // этапы уберутся: если последний этап — сам автор (его шаг согласуется автоматически), утверждающего по умолчанию
+    // нет, а не предпоследний этап (ревью #111, п. 2).
+    const lastTemplate = sorted[sorted.length - 1];
+    const endorseLast = Boolean(lastTemplate && lastTemplate.participants.length === 1
+      && (lastTemplate.participants[0].resolution === 'AUTO' || lastTemplate.participants[0].resolution === 'SELECT'));
+    const stages: BuilderStage[] = sorted
       .map((stage) => ({
         id: stageId(),
         slots: stage.participants.flatMap((participant): Slot[] => {
@@ -122,15 +143,9 @@ export function initialState(preview: RoutePreview, context: BuilderContext): Bu
           }
           return [];
         }),
-      }))
-      .filter((stage) => stage.slots.length > 0);
-    const last = stages[stages.length - 1];
-    let endorser: Slot | null = null;
-    if (last && last.slots.length === 1) {
-      endorser = last.slots[0];
-      stages.pop();
-    }
-    state = { stages, endorser };
+      }));
+    const endorser = endorseLast ? stages.pop()?.slots[0] ?? null : null;
+    state = { stages: stages.filter((stage) => stage.slots.length > 0), endorser };
   }
   return dedupe(normalize(state));
 }
@@ -241,19 +256,39 @@ export function moveStage(state: BuilderState, index: number, delta: -1 | 1): Bu
   return { ...state, stages };
 }
 
-/** Что мешает отправить; пусто — можно. */
-export function problemsOf(state: BuilderState): string[] {
+/**
+ * Что мешает отправить; пусто — можно. Повторяет проверки сервера, чтобы кнопка «Отправить» была неактивна с подсказкой,
+ * а не отвечала ошибкой после нажатия (ревью #111, п. 4): пустой маршрут, когда согласовать есть кому, и обязательная
+ * роль, которой в маршруте ни у кого нет (например, её носитель ушёл из компании, а маршрут взят с прошлой версии).
+ */
+export function problemsOf(state: BuilderState, context: BuilderContext): string[] {
   const problems: string[] = [];
-  const choices = allSlots(state).filter((slot) => slot.kind === 'choice');
+  const slots = allSlots(state);
+  const choices = slots.filter((slot) => slot.kind === 'choice');
   if (choices.length > 0) {
     problems.push(`Выберите сотрудника: ${choices.map((slot) => `«${slot.roleName}»`).join(', ')}`);
+  }
+  if (slots.length === 0 && context.authorRoles.length === 0 && context.colleagues.length > 0) {
+    problems.push('Добавьте хотя бы одного согласующего');
+  }
+  // Обязательная роль закрыта, если в маршруте есть кто угодно с ней (D6), в том числе стоящий под другой ролью.
+  const rolesInRoute = new Set<number>();
+  for (const slot of slots) {
+    rolesInRoute.add(slot.roleId);
+    if (slot.kind === 'person') {
+      context.colleagues.find((member) => member.user.id === slot.userId)?.roles.forEach((role) => rolesInRoute.add(role.id));
+    }
+  }
+  const missing = [...context.mandatoryRoleIds].filter((roleId) => !rolesInRoute.has(roleId));
+  if (missing.length > 0) {
+    problems.push(`Нужен обязательный согласующий: ${missing.map((roleId) => `«${context.mandatoryRoleNames.get(roleId) ?? 'роль'}»`).join(', ')}`);
   }
   return problems;
 }
 
 /** Тело запроса отправки; null — остались роли без выбранного человека. */
-export function toSubmit(state: BuilderState): { stages: { participants: RoutePerson[] }[]; endorser: RoutePerson | null } | null {
-  if (problemsOf(state).length > 0) return null;
+export function toSubmit(state: BuilderState, context: BuilderContext): { stages: { participants: RoutePerson[] }[]; endorser: RoutePerson | null } | null {
+  if (problemsOf(state, context).length > 0) return null;
   const person = (slot: Slot): RoutePerson => {
     if (slot.kind !== 'person') throw new Error('unresolved choice');
     return { userId: slot.userId, roleId: slot.roleId };

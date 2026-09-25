@@ -33,10 +33,13 @@ export function SearchField({
   );
 }
 
-/** Ряд чипов-фильтров; при нехватке ширины прокручивается вбок, подписи не обрезаются (принцип 6). */
-export function Chips({ children, label }: { children: ReactNode; label: string }) {
+/**
+ * Ряд чипов-фильтров; подписи не обрезаются (принцип 6). wrap — переносятся на следующую строку: для выбора варианта,
+ * где скрытый за краем чип просто не заметят.
+ */
+export function Chips({ children, label, wrap }: { children: ReactNode; label: string; wrap?: boolean }) {
   return (
-    <div className="ds-chips" role="group" aria-label={label}>
+    <div className={`ds-chips${wrap ? ' ds-chips--wrap' : ''}`} role="group" aria-label={label}>
       {children}
     </div>
   );

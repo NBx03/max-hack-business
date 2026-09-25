@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Input } from '@maxhub/max-ui';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { getDocuments, getDocumentTypes, type DocumentListFilters } from '../../api/documents';
+import { getDocuments, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DisplayStatus, DocumentListItem, DocumentType, UserRef } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
@@ -23,25 +22,31 @@ import {
   DocumentStatusBadge,
   EmptyState,
   ErrorState,
+  Icon,
+  InlineError,
   List,
   Loading,
+  Muted,
   Page,
   PageHeader,
   Row,
   SearchField,
   SelectField,
+  SelectSheet,
   Toast,
   documentStatusMeta,
   type SelectOption,
 } from '../../ui';
 import { isOutsideTemplates, kindLabel } from './documentKind';
-
-/** Какие статусы вообще бывают в разделе: у чужих документов нет черновиков, у «на согласовании» — только он. */
-const LIST_STATUSES: Record<DocumentListKey, DisplayStatus[]> = {
-  waiting: [],
-  mine: ['DRAFT', 'IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
-  shared: ['IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
-};
+import {
+  LIST_STATUSES,
+  PERIODS,
+  moreFiltersCount,
+  toQuery,
+  waitingText,
+  type ListFilters,
+  type PeriodKey,
+} from './listFilters';
 
 /** Пустой раздел объясняет, что здесь появится и что сделать (принцип 7). */
 const EMPTY: Record<DocumentListKey, { title: string; text: string }> = {
@@ -59,26 +64,15 @@ const EMPTY: Record<DocumentListKey, { title: string; text: string }> = {
   },
 };
 
+/** Сколько документов грузить за раз; дальше — «Показать ещё» (ревью #110, п. 10). */
+const PAGE_SIZE = 30;
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
-/** «день»/«дня»/«дней» — обычные русские правила (11–14 всегда «дней»). */
-function pluralDays(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return 'день';
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'дня';
-  return 'дней';
-}
-
-function waitingText(iso: string): string {
-  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000)));
-  return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
-}
-
-/** Фильтры, кроме статуса, — в панели «Ещё фильтры»; помним на время работы, отдельно для каждого раздела. */
-const remembered = new Map<string, DocumentListFilters>();
+/** Фильтры помним на время работы, отдельно для каждого раздела. */
+const remembered = new Map<string, ListFilters>();
 
 /** Раздел документов (NAV-1, NAV-2): «На моём согласовании», «Мои документы», «Общие документы». */
 export function DocumentListRoute() {
@@ -95,12 +89,13 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
   const meta = DOCUMENT_LISTS[list];
   const actor = me?.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me?.user.id ?? 0}`;
   const memoryKey = `${actor}:${list}`;
-  const [filters, setFiltersState] = useState<DocumentListFilters>(() => remembered.get(memoryKey) ?? {});
-  const setFilters = (next: DocumentListFilters) => {
+  const [filters, setFiltersState] = useState<ListFilters>(() => remembered.get(memoryKey) ?? {});
+  const setFilters = (next: ListFilters) => {
     remembered.set(memoryKey, next);
     setFiltersState(next);
   };
   const [moreOpen, setMoreOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   // Поиск (NAV-3): поле — сразу, запрос — через паузу в наборе, чтобы не дёргать сервер на каждую букву.
   const [searchText, setSearchText] = useState(filters.q ?? '');
   useEffect(() => {
@@ -115,21 +110,49 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
   // Авторы — из уже загруженных документов: отдельного «все авторы» для не-администратора нет.
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
 
-  const query = useAsync(() => getDocuments(meta.tab, { ...filters, size: 50 }), [meta.tab, filters]);
+  const query = useAsync(() => getDocuments(meta.tab, toQuery(filters, 0, PAGE_SIZE)), [meta.tab, filters]);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
 
+  // Следующие страницы — дописываются к первой; новые фильтры начинают список заново.
+  const [more, setMore] = useState<DocumentListItem[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => {
-    if (query.status !== 'ready') return;
+    setMore([]);
+    setMoreError(null);
+  }, [filters]);
+  const items = useMemo(() => (query.status === 'ready' ? [...query.data.items, ...more] : []), [query, more]);
+  const total = query.status === 'ready' ? query.data.total : 0;
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const next = await getDocuments(meta.tab, toQuery(filters, Math.floor(items.length / PAGE_SIZE), PAGE_SIZE));
+      setMore((current) => [...current, ...next.items.filter((item) => !items.some((known) => known.id === item.id))]);
+    } catch (error) {
+      setMoreError(errorMessage(error));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filters, items, meta.tab]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
     setKnownAuthors((prev) => {
       const next = new Map(prev);
-      query.data.items.forEach((item) => next.set(item.author.id, item.author));
+      items.forEach((item) => next.set(item.author.id, item.author));
       return next;
     });
-  }, [query]);
+  }, [items]);
 
   const statuses = LIST_STATUSES[list];
-  const moreCount = [filters.typeId, filters.authorId, filters.from, filters.to].filter((value) => value !== undefined).length;
+  const moreCount = moreFiltersCount(filters);
   const filtered = moreCount > 0 || filters.status !== undefined || filters.q !== undefined;
+  const statusOptions: SelectOption<DisplayStatus | 'ALL'>[] = [
+    { value: 'ALL', label: 'Все статусы' },
+    ...statuses.map((status) => ({ value: status, label: documentStatusMeta(status).text })),
+  ];
 
   const openCard = (item: DocumentListItem) =>
     navigate(documentCardPath(item.id), { state: { from: documentListPath(list), fromLabel: meta.title } });
@@ -146,29 +169,25 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
       }
     >
       <SearchField value={searchText} onChange={setSearchText} placeholder="Название, автор или номер" />
+      {/*
+        Статус — одним чипом с выбором в панели, а не рядом из семи чипов: ряд не помещался в ширину, и последние статусы
+        уходили за край незаметно (замечание Никиты, скриншот 1). Выбранный статус виден на самом чипе.
+      */}
       <Chips label="Фильтры">
+        {statuses.length > 0 && (
+          <Chip selected={filters.status !== undefined} onClick={() => setStatusOpen(true)}>
+            {filters.status ? documentStatusMeta(filters.status).text : 'Все статусы'}
+            <Icon name="chevronDown" size={16} />
+          </Chip>
+        )}
         <Chip selected={moreCount > 0} onClick={() => setMoreOpen(true)}>
           {moreCount > 0 ? `Фильтры · ${moreCount}` : 'Фильтры'}
         </Chip>
-        {statuses.length > 0 && (
-          <Chip selected={filters.status === undefined} onClick={() => setFilters({ ...filters, status: undefined })}>
-            Все
-          </Chip>
-        )}
-        {statuses.map((status) => (
-          <Chip
-            key={status}
-            selected={filters.status === status}
-            onClick={() => setFilters({ ...filters, status: filters.status === status ? undefined : status })}
-          >
-            {documentStatusMeta(status).text}
-          </Chip>
-        ))}
       </Chips>
 
       {query.status === 'loading' && <Loading />}
       {query.status === 'error' && <ErrorState message={errorMessage(query.error)} onRetry={query.refresh} />}
-      {query.status === 'ready' && query.data.items.length === 0 && (
+      {query.status === 'ready' && items.length === 0 && (
         filtered ? (
           <EmptyState
             icon="search"
@@ -184,14 +203,36 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
           <EmptyState title={EMPTY[list].title} text={EMPTY[list].text} />
         )
       )}
-      {query.status === 'ready' && query.data.items.length > 0 && (
-        <List label={meta.title}>
-          {query.data.items.map((item) => (
-            <DocumentRow key={item.id} item={item} list={list} onOpen={() => openCard(item)} />
-          ))}
-        </List>
+      {query.status === 'ready' && items.length > 0 && (
+        <>
+          <List label={meta.title}>
+            {items.map((item) => (
+              <DocumentRow key={item.id} item={item} list={list} onOpen={() => openCard(item)} />
+            ))}
+          </List>
+          {items.length < total && (
+            <>
+              <Muted>Показаны {items.length} из {total}</Muted>
+              {moreError && <InlineError>{moreError}</InlineError>}
+              <Button stretched loading={loadingMore} onClick={() => void loadMore()}>
+                Показать ещё
+              </Button>
+            </>
+          )}
+        </>
       )}
 
+      <SelectSheet
+        open={statusOpen}
+        onClose={() => setStatusOpen(false)}
+        title="Статус"
+        options={statusOptions}
+        value={filters.status ?? 'ALL'}
+        onSelect={(value) => {
+          setFilters({ ...filters, status: value === 'ALL' ? undefined : value });
+          setStatusOpen(false);
+        }}
+      />
       <BottomSheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Фильтры">
         <MoreFilters
           filters={filters}
@@ -257,16 +298,15 @@ function MoreFilters({
   showAuthor,
   onApply,
 }: {
-  filters: DocumentListFilters;
+  filters: ListFilters;
   types: DocumentType[];
   authors: UserRef[];
   showAuthor: boolean;
-  onApply: (filters: DocumentListFilters) => void;
+  onApply: (filters: ListFilters) => void;
 }) {
   const [typeId, setTypeId] = useState<number>(filters.typeId ?? 0);
   const [authorId, setAuthorId] = useState<number>(filters.authorId ?? 0);
-  const [from, setFrom] = useState(filters.from ?? '');
-  const [to, setTo] = useState(filters.to ?? '');
+  const [period, setPeriod] = useState<PeriodKey | 'any'>(filters.period ?? 'any');
 
   const typeOptions = useMemo<SelectOption<number>[]>(
     // «Другой документ» — отдельной группой «Вне шаблонов» (DOC-7): там договоры, акты и всё, чего нет в шаблонах.
@@ -290,15 +330,14 @@ function MoreFilters({
       {showAuthor && (
         <SelectField label="Автор" placeholder="Все авторы" options={authorOptions} value={authorId} onChange={setAuthorId} searchable />
       )}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <label className="ds-field" style={{ flex: 1 }}>
-          <span className="ds-field__label">Создан с</span>
-          <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-        </label>
-        <label className="ds-field" style={{ flex: 1 }}>
-          <span className="ds-field__label">по</span>
-          <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-        </label>
+      <div className="ds-field">
+        <span className="ds-field__label">Создан</span>
+        <Chips label="Когда создан" wrap>
+          <Chip selected={period === 'any'} onClick={() => setPeriod('any')}>Когда угодно</Chip>
+          {PERIODS.map((item) => (
+            <Chip key={item.key} selected={period === item.key} onClick={() => setPeriod(item.key)}>{item.label}</Chip>
+          ))}
+        </Chips>
       </div>
       <Button
         variant="primary"
@@ -309,8 +348,7 @@ function MoreFilters({
             q: filters.q,
             typeId: typeId || undefined,
             authorId: authorId || undefined,
-            from: from || undefined,
-            to: to || undefined,
+            period: period === 'any' ? undefined : period,
           })
         }
       >

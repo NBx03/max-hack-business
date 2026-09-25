@@ -73,6 +73,7 @@ export function HomeScreen() {
           title="Компания"
           hint={isAdmin ? 'Сотрудники, роли, приглашения' : 'Сотрудники, маршруты, правила'}
           count={isAdmin ? requestsCount : undefined}
+          countHint={requestsCount ? `Заявки на вступление: ${requestsCount}` : undefined}
           attention
           onClick={() => navigate(ROUTE_PATTERNS.company)}
         />

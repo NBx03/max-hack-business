@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useGoBack } from '../routes/backNavigation';
 import { Icon, type IconName } from './icons';
 
@@ -20,6 +20,22 @@ export function Page({
   /** Контент по центру по вертикали — загрузка, ошибка, короткие экраны подключения. */
   center?: boolean;
 }) {
+  // Высота закреплённых действий — для тоста: он встаёт над ними, а не на магическом отступе (ревью #110, п. 2).
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const element = footerRef.current;
+    if (!element) {
+      root.style.setProperty('--ds-footer-height', '0px');
+      return undefined;
+    }
+    const apply = () => root.style.setProperty('--ds-footer-height', `${Math.round(element.getBoundingClientRect().height)}px`);
+    apply();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(apply);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [footer]);
   return (
     <div className="ds-page">
       <div className="ds-page__scroll" data-scroll-root>
@@ -28,7 +44,7 @@ export function Page({
           {center ? <div className="ds-page__center">{children}</div> : children}
         </div>
       </div>
-      {footer && <div className="ds-page__footer">{footer}</div>}
+      {footer && <div ref={footerRef} className="ds-page__footer">{footer}</div>}
     </div>
   );
 }
@@ -166,6 +182,7 @@ export function Tile({
   title,
   hint,
   count,
+  countHint,
   attention,
   onClick,
 }: {
@@ -173,6 +190,8 @@ export function Tile({
   title: string;
   hint: string;
   count?: number;
+  /** Что считает счётчик — подписью вместо hint, когда он есть: «3» без слов непонятно (ревью #110, п. 5). */
+  countHint?: string;
   attention?: boolean;
   onClick: () => void;
 }) {
@@ -182,13 +201,13 @@ export function Tile({
       type="button"
       className={`ds-tile ${attention && hasCount ? 'ds-tile--attention' : ''}`}
       onClick={onClick}
-      aria-label={hasCount ? `${title}: ${count}` : title}
+      aria-label={hasCount ? `${title}: ${countHint ?? count}` : title}
     >
       <span className="ds-tile__icon">
         <Icon name={icon} size={28} />
       </span>
       <span className="ds-tile__title">{title}</span>
-      <span className="ds-tile__hint">{hint}</span>
+      <span className="ds-tile__hint">{hasCount && countHint ? countHint : hint}</span>
       {hasCount && (
         <span className="ds-tile__count">
           <Count value={count} accent={attention} />

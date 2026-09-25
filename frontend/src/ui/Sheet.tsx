@@ -40,8 +40,30 @@ export function BottomSheet({
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panelRef.current?.focus();
     function handleKey(event: KeyboardEvent) {
-      if (event.key === 'Escape' && openSheets[openSheets.length - 1] === id && dismissibleRef.current) {
+      const top = openSheets[openSheets.length - 1] === id;
+      if (event.key === 'Escape' && top && dismissibleRef.current) {
         onCloseRef.current();
+      }
+      // Ловушка фокуса (ревью #110, п. 7): Tab не уходит под панель, пока она открыта (веб-версия MAX).
+      if (event.key === 'Tab' && top && panelRef.current) {
+        const focusable = [...panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+        )].filter((element) => element.offsetParent !== null);
+        if (focusable.length === 0) {
+          event.preventDefault();
+          panelRef.current.focus();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const inside = panelRef.current.contains(document.activeElement);
+        if (event.shiftKey && (document.activeElement === first || !inside)) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !inside)) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     }
     document.addEventListener('keydown', handleKey);

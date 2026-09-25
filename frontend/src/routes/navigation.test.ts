@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
-import { launchDataFromHash, launchDataToReloadFor } from '../app/launch';
+import { launchDataFromHash, launchDataToReloadFor, relaunchMark, startParamOf } from '../app/launch';
 import { parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
@@ -137,10 +137,13 @@ describe('launchDataFromHash — данные повторного запуск�
 
 describe('launchDataToReloadFor', () => {
   // Повторное открытие из бота: перезагрузка — только ради новых данных запуска и только один раз (ревью #96).
-  const hash = '#WebAppData=new-launch';
+  // Данные запуска в хэше закодированы целиком: новый запуск с параметром ссылки d_7.
+  const hash = `#WebAppData=${encodeURIComponent('auth_date=2&start_param=d_7')}`;
 
-  it('перезагружает ради новых данных запуска', () => {
+  it('перезагружает ради новых данных запуска с другим параметром ссылки', () => {
     expect(launchDataToReloadFor(hash, 'old-launch', null)).not.toBeNull();
+    // та же ссылка, освежённая подпись — не новый запуск
+    expect(launchDataToReloadFor(hash, 'auth_date=1&start_param=d_7', null)).toBeNull();
   });
 
   it('не перезагружает второй раз ради той же строки — даже если мост её так и не принял', () => {
@@ -152,5 +155,30 @@ describe('launchDataToReloadFor', () => {
     expect(launchDataToReloadFor(hash, undefined, null)).toBeNull();
     expect(launchDataToReloadFor('', 'old-launch', null)).toBeNull();
     expect(launchDataToReloadFor('#WebAppData=same', 'same', null)).toBeNull();
+  });
+});
+
+describe('relaunchMark — перезагрузка только ради нового параметра ссылки (ревью #112, п. 2)', () => {
+  const launch = (param: string, authDate: number) => `query_id=1&auth_date=${authDate}${param ? `&start_param=${param}` : ''}&hash=x${authDate}`;
+
+  it('те же данные — не перезагружаем', () => {
+    expect(relaunchMark(launch('d_5', 1), launch('d_5', 1), null)).toBeNull();
+  });
+
+  it('MAX освежил подпись, параметр тот же или его нет — не перезагружаем, введённое не теряется', () => {
+    expect(relaunchMark(launch('d_5', 1), launch('d_5', 2), null)).toBeNull();
+    expect(relaunchMark(launch('', 1), launch('', 2), null)).toBeNull();
+  });
+
+  it('другой параметр — перезагружаем один раз', () => {
+    const mark = relaunchMark(launch('d_5', 1), launch('d_7', 2), null);
+    expect(mark).not.toBeNull();
+    expect(relaunchMark(launch('d_5', 1), launch('d_7', 2), mark)).toBeNull();
+    expect(relaunchMark(launch('', 1), launch('a_requests', 2), null)).not.toBeNull();
+  });
+
+  it('пустой мост — не трогаем', () => {
+    expect(relaunchMark(launch('d_5', 1), '', null)).toBeNull();
+    expect(startParamOf('')).toBe('');
   });
 });

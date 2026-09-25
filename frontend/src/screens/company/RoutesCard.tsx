@@ -24,14 +24,19 @@ export function RoutesCard({ routes: initialRoutes, types, isAdmin }: { routes: 
   const rows = byName(types).filter((type) => byType.has(type.id));
   if (rows.length === 0) return null;
   return (
+    // Никита не понял, что это и зачем (замечание 26.09): заголовок — вопрос, на который блок отвечает, пояснение —
+    // что с этим делать, этапы — по строкам с номерами, а не стрелками в одну строку.
     <Section
-      title="Маршруты согласования"
+      title="Кто согласует документы"
       hint={
         isAdmin
-          ? 'С этого маршрута начинается документ. Автор может его поменять, но не уберёт обязательных — они с замком. Нажмите на вид, чтобы отметить обязательные роли.'
-          : 'С этого маршрута начинается документ. Автор может его поменять, но не может убрать обязательных — они с замком.'
+          ? 'Так маршрут заполняется сам, когда сотрудник отправляет документ. Перед отправкой автор может поменять людей и порядок, но не уберёт обязательных. Нажмите на вид, чтобы выбрать, кто обязателен.'
+          : 'Так маршрут заполняется сам, когда вы отправляете документ. Перед отправкой людей и порядок можно поменять, кроме обязательных.'
       }
     >
+      <p className="ds-section__hint" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="lock" size={14} /> — обязательный, убрать из маршрута нельзя
+      </p>
       <List label="Маршруты согласования">
         {rows.map((type) => (
           <Row
@@ -52,18 +57,22 @@ export function RoutesCard({ routes: initialRoutes, types, isAdmin }: { routes: 
 }
 
 function RouteLine({ route }: { route: RouteOverview }) {
+  if (route.stages.length === 0) {
+    return <span>Маршрут составляет автор</span>;
+  }
   return (
-    <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 4 }}>
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {route.stages.map((stage, index) => (
-        <span key={stage.stageOrder} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          {index > 0 && <span aria-hidden>→</span>}
+        <span key={stage.stageOrder} style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', columnGap: 4 }}>
+          <span>{index + 1}.</span>
           {stage.participants.map((participant, i) => (
             <span key={participant.role.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-              {i > 0 && ' и '}
+              {i > 0 && 'и '}
               {participant.role.name}
               {participant.mandatory && <Icon name="lock" size={13} label="обязательный" />}
             </span>
           ))}
+          {stage.participants.length > 1 && <span>— одновременно</span>}
         </span>
       ))}
     </span>

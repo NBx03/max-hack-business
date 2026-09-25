@@ -189,7 +189,7 @@ export interface DocumentListItem {
   currentVersionNo: number;
   currentStage: number | null;
   updatedAt: string;
-  /** Только во вкладке "Ждут меня" - activatedAt моего шага, для "ждёт N дней". */
+  /** Только в разделе «На моём согласовании» (WAITING_ME) — activatedAt моего шага, для «ждёт N дней». */
   waitingSince: string | null;
   /** У «Другого документа» — вид, как его назвал документ («Договор аренды»); fromAi — нашёл ИИ (DOC-7). */
   recognizedKind: { value: string; fromAi: boolean } | null;
@@ -403,7 +403,8 @@ export interface RoutePreview {
   stages: RoutePreviewStage[];
   problems: RoutePreviewProblem[];
   /** Кто уже одобрил прошлую версию, если документ с тех пор не менялся — повторно их не спросят. */
-  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number }[] } | null;
+  // kind — одобрение переносится только в шаг того же вида: «согласовал» не становится «утвердил» (ревью #111).
+  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number; kind: StepKind }[] } | null;
   /** Маршрут прошлой отправки — им, а не шаблоном, заполняется конструктор (RTE-6); null — ещё не отправлялся. */
   previous: {
     versionNo: number;

@@ -70,6 +70,27 @@ export function launchDataToReloadFor(hash: string, bridgeInitData: string | und
   if (bridgeInitData === undefined) return null;
   const next = launchDataFromHash(hash);
   if (!next || next === bridgeInitData) return null;
+  return relaunchMark(bridgeInitData, next, reloadedFor);
+}
+
+/** Параметр ссылки (startapp) из строки данных запуска; пусто — открыли без параметра. */
+export function startParamOf(initData: string): string {
+  try {
+    return new URLSearchParams(initData).get('start_param') ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Перезагружать ли страницу ради новых данных запуска — и по какой отметке это запомнить. Только если пришёл параметр
+ * ссылки и он другой: обновление одной подписи или времени (MAX может освежить их, когда человек возвращается из чата)
+ * — не новый запуск, и перезагрузка стёрла бы введённое в форме (ревью #112, п. 2). Не больше одного раза на строку.
+ */
+export function relaunchMark(current: string, next: string, reloadedFor: string | null): string | null {
+  if (!next || next === current) return null;
+  const param = startParamOf(next);
+  if (!param || param === startParamOf(current)) return null;
   const mark = fingerprint(next);
   return mark === reloadedFor ? null : mark;
 }
@@ -105,7 +126,7 @@ export function watchRelaunch(): void {
     const bridgeChanged = bridgeNow !== '' && loadedWith !== '' && bridgeNow !== loadedWith;
     const reloadedFor = readReloadedFor();
     const mark = bridgeChanged
-      ? (fingerprint(bridgeNow) === reloadedFor ? null : fingerprint(bridgeNow))
+      ? relaunchMark(loadedWith, bridgeNow, reloadedFor)
       : launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, reloadedFor);
     if (mark === null) return;
     try {
@@ -136,7 +157,12 @@ export function watchRelaunch(): void {
  */
 export function logLaunch(meStartParam: string | null): void {
   const bridgeParam = getWebApp()?.initDataUnsafe?.start_param ?? null;
-  const kind = (value: string | null) => (value ? value.slice(0, value.indexOf('_') + 1) || 'другой' : 'нет');
+  // Только наши виды; у чужого параметра не печатаем даже начало (ревью #112, п. 4).
+  const kind = (value: string | null) => {
+    if (!value) return 'нет';
+    const prefix = value.slice(0, 2);
+    return ['c_', 'p_', 'd_', 's_', 'a_'].includes(prefix) ? prefix : 'другой';
+  };
   console.info('[approval] запуск: параметр в мосте —', kind(bridgeParam), '; в /me —', kind(meStartParam),
     '; уже обработан —', isLaunchHandled());
 }

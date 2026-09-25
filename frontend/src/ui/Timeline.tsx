@@ -48,12 +48,16 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
   const collapse = !expanded && collapsible.length >= 2;
   const firstCollapsed = collapse ? items.indexOf(collapsible[0]) : -1;
 
-  const visible: (TimelineItem | 'toggle')[] = [];
+  const canCollapse = collapsible.length >= 2;
+  const firstCollapsible = canCollapse ? items.indexOf(collapsible[0]) : -1;
+  const visible: (TimelineItem | 'toggle' | 'collapse')[] = [];
   items.forEach((item, index) => {
     if (collapse && item.collapsible && item.state === 'done') {
       if (index === firstCollapsed) visible.push('toggle');
       return;
     }
+    // «Свернуть» — там, где были свёрнутые этапы, а не в конце списка после итога (ревью #111).
+    if (expanded && index === firstCollapsible) visible.push('collapse');
     visible.push(item);
   });
 
@@ -61,7 +65,19 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
     <ol className="ds-tl" aria-label="Ход согласования">
       {visible.map((entry, index) => {
         const next = visible[index + 1];
-        const nextState = next === 'toggle' ? 'done' : next?.state;
+        const nextState = next === 'toggle' || next === 'collapse' ? 'done' : next?.state;
+        if (entry === 'collapse') {
+          return (
+            <li key="collapse" className="ds-tl__item">
+              <span className="ds-tl__rail">
+                <span className="ds-tl__line ds-tl__line--done" />
+              </span>
+              <button type="button" className="ds-tl__toggle" onClick={() => setExpanded(false)}>
+                Свернуть пройденные этапы
+              </button>
+            </li>
+          );
+        }
         if (entry === 'toggle') {
           return (
             <li key="toggle" className="ds-tl__item">
@@ -96,14 +112,6 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
           </li>
         );
       })}
-      {expanded && collapsible.length >= 2 && (
-        <li className="ds-tl__item">
-          <span className="ds-tl__rail" />
-          <button type="button" className="ds-tl__toggle" onClick={() => setExpanded(false)}>
-            Свернуть пройденные этапы
-          </button>
-        </li>
-      )}
     </ol>
   );
 }
