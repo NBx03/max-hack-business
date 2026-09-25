@@ -1,0 +1,112 @@
+/*
+ * Дизайн-система — токены (docs/review-round-1/REVIEW-ROUND-1.md, §2). Цвета интерфейса берутся из темы
+ * @maxhub/max-ui (--background-*, --text-*, --button-*), здесь — только то, чего в ней нет: отступы, размеры,
+ * скругления и палитра статусов. В компонентах числа и HEX не пишем — только эти переменные.
+ */
+:root {
+  /* Отступы (принцип 11): край экрана 16, внутри группы 8, между группами 16–24. */
+  --ds-space-2xs: 4px;
+  --ds-space-xs: 8px;
+  --ds-space-s: 12px;
+  --ds-space-m: 16px;
+  --ds-space-l: 24px;
+  --ds-space-xl: 32px;
+  --ds-gutter: 16px;
+
+  /* Размеры (принцип 4): минимальная зона нажатия 44, кнопки — 48. */
+  --ds-tap: 44px;
+  --ds-control: 48px;
+  --ds-radius-s: 8px;
+  --ds-radius-m: 12px;
+  --ds-radius-l: 16px;
+  --ds-radius-pill: 999px;
+
+  /* Типографика: второстепенный текст не мельче 13 px (приёмка 24.09). */
+  --ds-text-xs: 13px;
+  --ds-text-s: 14px;
+  --ds-text-m: 16px;
+  --ds-text-l: 20px;
+  --ds-text-xl: 24px;
+}
+
+/*
+ * Псевдонимы цветов темы max-ui. Задаются на корне <MaxUI className="app-root">, а не на :root: цвета темы живут
+ * на этом элементе, и на :root ссылка var(--background-secondary) была бы пустой.
+ */
+.app-root {
+  --ds-surface: var(--background-secondary);
+  --ds-surface-raised: var(--background-card);
+  --ds-border: var(--divider-primary);
+  --ds-accent: var(--button-primary);
+}
+
+/*
+ * Палитра статусов (DOC-6, принцип 10). Один тон — один смысл во всём приложении: метка документа, точки
+ * таймлайна, статусы людей. Стиль метки: фон — цвет тона с низкой непрозрачностью, текст — светлый оттенок того
+ * же цвета. Контраст текста к фону метки поверх --background-primary и --background-card — не ниже 4.5:1
+ * (проверено скриптом, значения — в docs/review-round-1/DECISIONS.md). Тон никогда не единственный признак:
+ * рядом всегда слово и иконка.
+ *
+ *   neutral  — черновик, пропущено
+ *   progress — на согласовании, ждёт
+ *   endorse  — на утверждении
+ *   warning  — возвращён
+ *   danger   — отклонён
+ *   success  — согласован, утверждён
+ *
+ * Вариант A («синий в работе») — в коде. Вариант B («янтарный в работе») включается data-palette="b" на любом
+ * контейнере — только для сравнения на странице /design (dev-сборка); команда выбирает на ревью PR.
+ */
+:root {
+  --status-neutral-fg: #4a4f5a;
+  --status-neutral-bg: #eceef2;
+  --status-progress-fg: #0a58c2;
+  --status-progress-bg: #e3eeff;
+  --status-endorse-fg: #6a3fcf;
+  --status-endorse-bg: #efe8ff;
+  --status-warning-fg: #8a5700;
+  --status-warning-bg: #fff1d1;
+  --status-danger-fg: #b3261e;
+  --status-danger-bg: #fde6e8;
+  --status-success-fg: #1b7a37;
+  --status-success-bg: #e1f5e6;
+
+  /* Значения от ИИ (DOC-7): одна иконка ✦ на всё приложение, спокойный фиолетовый. */
+  --ds-ai: #6a3fcf;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --status-neutral-fg: #c9ccd4;
+    --status-neutral-bg: rgba(201, 204, 212, 0.14);
+    --status-progress-fg: #8cc2ff;
+    --status-progress-bg: rgba(0, 122, 255, 0.2);
+    --status-endorse-fg: #cdb4ff;
+    --status-endorse-bg: rgba(164, 115, 255, 0.2);
+    --status-warning-fg: #ffcf66;
+    --status-warning-bg: rgba(255, 176, 32, 0.16);
+    --status-danger-fg: #ff9aa4;
+    --status-danger-bg: rgba(206, 66, 87, 0.22);
+    --status-success-fg: #7fe29a;
+    --status-success-bg: rgba(43, 198, 68, 0.16);
+
+    --ds-ai: #cdb4ff;
+  }
+}
+
+/* Вариант B — только для сравнения палитр на /design. */
+[data-palette='b'] {
+  --status-progress-fg: #8a5700;
+  --status-progress-bg: #fff1d1;
+  --status-warning-fg: #a3410f;
+  --status-warning-bg: #ffe6da;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-palette='b'] {
+    --status-progress-fg: #ffcf66;
+    --status-progress-bg: rgba(255, 176, 32, 0.16);
+    --status-warning-fg: #ffa47d;
+    --status-warning-bg: rgba(255, 110, 50, 0.2);
+  }
+}
