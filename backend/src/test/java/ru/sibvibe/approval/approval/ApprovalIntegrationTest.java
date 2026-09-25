@@ -373,7 +373,8 @@ class ApprovalIntegrationTest {
                 .isEqualTo(400);
         assertThat(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit", Map.of(
                 "selections", List.of(choice(1, lawyerRole, company.carol.dbId)),
-                "extraApprovers", List.of(choice(1, lawyerRole, company.erin.dbId)))).status()).isEqualTo(404);
+                "extraApprovers", List.of(choice(1, lawyerRole, company.erin.dbId)))).status())
+                .as("человек без этой роли — «обновите экран», а не «не найдено»").isEqualTo(409);
         assertThat(card(company.frank, support).path("permissions").path("canAddApprover").asBoolean()).isTrue();
 
         JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit", Map.of(

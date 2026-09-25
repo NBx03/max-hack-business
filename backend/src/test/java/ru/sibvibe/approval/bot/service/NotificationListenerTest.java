@@ -241,6 +241,18 @@ class NotificationListenerTest {
     }
 
     @Test
+    void stuckStepReminderToEndorserSaysApprovalAndNamesTheSection() {
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Утверждающий")));
+        when(links.documentLink(500L)).thenReturn("url");
+
+        listener.on(new StuckStepReminderEvent(500L, 1, 3, 11L, "Служебная записка", 30, true));
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000011L), text.capture(), anyString(), any());
+        assertThat(text.getValue()).contains("ждёт вашего утверждения уже 1 день").contains("«На моём согласовании»");
+    }
+
+    @Test
     void stuckStepReminderDoesNothingIfApproverIsGone() {
         when(directory.find(11L)).thenReturn(Optional.empty());
 

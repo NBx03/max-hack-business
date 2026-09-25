@@ -431,6 +431,24 @@ class DocumentIntegrationTest {
                         .header("Authorization", COLLEAGUE_AUTH))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
+        mvc.perform(get(tokenService.issue(fileId, colleagueId).url()))
+                .andExpect(status().isNotFound());
+
+        // Решение №9 (DECISIONS.md): согласующий прошлой версии черновик видит — и карточку, и файл.
+        long reviewerRole = jdbc.queryForObject("""
+                insert into role(org_id, code, name) values (?, 'PAST_REVIEWER', 'Прошлый согласующий') returning id
+                """, Long.class, authorOrgId);
+        jdbc.update("""
+                insert into approval_step(document_id, version_no, approver_id, role_id, stage_order,
+                    origin, decision, created_at, decided_at)
+                values (?, 1, ?, ?, 1, 'TEMPLATE', 'APPROVED', current_timestamp, current_timestamp)
+                """, documentId, colleagueId, reviewerRole);
+        mvc.perform(get("/api/v1/documents/{id}", documentId)
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isOk());
+        mvc.perform(get(tokenService.issue(fileId, colleagueId).url()))
+                .andExpect(status().isOk());
+        jdbc.update("delete from approval_step where document_id = ?", documentId);
 
         // Отправленный документ компания уже видит.
         jdbc.update("update document set status = 'IN_APPROVAL' where id = ?", documentId);

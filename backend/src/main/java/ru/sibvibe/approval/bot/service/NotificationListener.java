@@ -170,8 +170,9 @@ public class NotificationListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(StuckStepReminderEvent event) {
         directory.find(event.approverUserId()).ifPresent(approver -> {
-            String text = "«" + event.documentTitle() + "» " + waitingPhrase(event.waitingHours())
-                    + " Откройте документ, чтобы принять решение.";
+            // Те же слова, что в приложении (NAV-2, D4): раздел «На моём согласовании», «утверждения» у утверждающего.
+            String text = "«" + event.documentTitle() + "» " + waitingPhrase(event.waitingHours(), event.endorsement())
+                    + " Он в разделе «На моём согласовании».";
             notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId()));
         });
     }
@@ -182,13 +183,14 @@ public class NotificationListener {
     }
 
     /** Часы, пока не набегут сутки, дальше - дни; ноль и меньше округляем вверх до одного часа. */
-    private static String waitingPhrase(long waitingHours) {
+    private static String waitingPhrase(long waitingHours, boolean endorsement) {
         long hours = Math.max(waitingHours, 1);
+        String waits = endorsement ? "ждёт вашего утверждения уже " : "ждёт вашего решения уже ";
         if (hours < 24) {
-            return "ждёт вашего решения уже " + hours + " " + ruPlural(hours, "час", "часа", "часов") + ".";
+            return waits + hours + " " + ruPlural(hours, "час", "часа", "часов") + ".";
         }
         long days = hours / 24;
-        return "ждёт вашего решения уже " + days + " " + ruPlural(days, "день", "дня", "дней") + ".";
+        return waits + days + " " + ruPlural(days, "день", "дня", "дней") + ".";
     }
 
     /** Русское склонение числительного: 1 день, 2-4 дня, 5-20 и *1 дней (11-14 - всегда «дней»). */

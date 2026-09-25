@@ -258,7 +258,7 @@ class SubmissionServiceTest {
         assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(1, 21, AUTHOR))))
                 .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("VALIDATION_FAILED"));
         assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(1, 21, 999))))
-                .isInstanceOf(NotFoundException.class);
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("INVALID_STATE"));
         // этап вне шаблона и чужая роль
         assertThatThrownBy(() -> service.submit(author(), DOC, extras(choice(9, 21, 2))))
                 .isInstanceOf(NotFoundException.class);
@@ -347,7 +347,7 @@ class SubmissionServiceTest {
         givenRoute(List.of(row(1, 21, true), row(2, 22, true)),
                 Map.of(21L, List.of(BOB), 22L, List.of(CAROL)));
         when(carried.of(DOC, 3)).thenReturn(Optional.of(new CarriedApprovals.Carried(2,
-                Set.of(new CarriedApprovals.Key(21L, BOB.id())))));
+                Set.of(new CarriedApprovals.Key(21L, BOB.id(), ApprovalStep.Kind.APPROVAL)))));
 
         service.submit(author(), DOC, empty());
 
@@ -415,9 +415,9 @@ class SubmissionServiceTest {
         assertThatThrownBy(() -> service.submit(author(), DOC,
                 route(List.of(List.of(p(CAROL, 22)), List.of(p(CAROL, 21))), null)))
                 .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.getMessage()).contains("Карол"));
-        // и в роли, которой у человека нет, — «не найдено»
+        // и в роли, которой у человека нет, — «состав изменился, обновите экран» (ревью #111)
         assertThatThrownBy(() -> service.submit(author(), DOC, route(List.of(List.of(p(BOB, 22))), null)))
-                .isInstanceOf(NotFoundException.class);
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.getMessage()).contains("обновите экран"));
         verify(steps, never()).saveAll(any());
     }
 
@@ -433,6 +433,40 @@ class SubmissionServiceTest {
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(1, BOB.id(), ApprovalStep.Kind.APPROVAL),
                         org.assertj.core.groups.Tuple.tuple(2, CAROL.id(), ApprovalStep.Kind.ENDORSEMENT));
+    }
+
+    @Test
+    void authorStepStandsAfterTheApprovalStagesAndBeforeTheEndorsement() {
+        // ревью #111, п. 3: шаг автора — отдельным этапом после согласующих, утверждение — следующим номером
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 21, false), row(2, 20, true)),
+                Map.of(21L, List.of(BOB), 20L, List.of(AUTHOR_REF), 22L, List.of(CAROL)));
+
+        service.submit(author(), DOC, route(List.of(List.of(p(BOB, 21))), p(CAROL, 22)));
+
+        assertThat(savedSteps()).extracting(ApprovalStep::getStageOrder, ApprovalStep::getApproverId, ApprovalStep::getKind)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(1, BOB.id(), ApprovalStep.Kind.APPROVAL),
+                        org.assertj.core.groups.Tuple.tuple(2, AUTHOR, ApprovalStep.Kind.APPROVAL),
+                        org.assertj.core.groups.Tuple.tuple(3, CAROL.id(), ApprovalStep.Kind.ENDORSEMENT));
+        verify(documents).moveToApproval(DOC, 1);
+    }
+
+    @Test
+    void approvalIsNotCarriedIntoTheEndorsementOfTheSamePerson() {
+        // ревью #111, п. 1: Боб согласовал прошлую версию, теперь он утверждающий — должен утвердить сам
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 21, false)), Map.of(21L, List.of(BOB)));
+        when(carried.of(DOC, 3)).thenReturn(Optional.of(new CarriedApprovals.Carried(2,
+                Set.of(new CarriedApprovals.Key(21L, BOB.id(), ApprovalStep.Kind.APPROVAL)))));
+
+        service.submit(author(), DOC, route(List.of(), p(BOB, 21)));
+
+        assertThat(savedSteps()).singleElement().satisfies(step -> {
+            assertThat(step.getKind()).isEqualTo(ApprovalStep.Kind.ENDORSEMENT);
+            assertThat(step.getDecision()).isEqualTo(ApprovalStep.Decision.PENDING);
+        });
+        verify(documents, never()).approve(anyLong());
     }
 
     @Test

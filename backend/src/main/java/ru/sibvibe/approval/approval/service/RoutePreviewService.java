@@ -93,7 +93,7 @@ public class RoutePreviewService {
                 problems.add(new RoutePreviewResponse.Problem("BLOCKING_ISSUES", reason.message())));
         RoutePreviewResponse.CarryOver carryOver = carriedApprovals.of(documentId, document.currentVersionNo())
                 .map(carried -> new RoutePreviewResponse.CarryOver(carried.fromVersionNo(), carried.approvals().stream()
-                        .map(key -> new RoutePreviewResponse.Approval(key.roleId(), key.userId()))
+                        .map(key -> new RoutePreviewResponse.Approval(key.roleId(), key.userId(), key.kind().name()))
                         .toList()))
                 .orElse(null);
         return new RoutePreviewResponse(stages, problems, carryOver, previousRoute(documentId, document.currentVersionNo()));

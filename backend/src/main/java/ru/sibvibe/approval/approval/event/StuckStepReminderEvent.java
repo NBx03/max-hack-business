@@ -16,6 +16,13 @@ public record StuckStepReminderEvent(
         int stageOrder,
         long approverUserId,
         String documentTitle,
-        long waitingHours
+        long waitingHours,
+        /** Шаг — утверждение (D4): «ждёт вашего утверждения», а не «решения» (ревью #112, п. 6). */
+        boolean endorsement
 ) {
+
+    public StuckStepReminderEvent(long documentId, int versionNo, int stageOrder, long approverUserId,
+                                  String documentTitle, long waitingHours) {
+        this(documentId, versionNo, stageOrder, approverUserId, documentTitle, waitingHours, false);
+    }
 }

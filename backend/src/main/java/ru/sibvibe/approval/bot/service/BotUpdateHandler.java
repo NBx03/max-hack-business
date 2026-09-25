@@ -84,8 +84,11 @@ public class BotUpdateHandler {
         switch (type) {
             case "bot_started" -> {
                 Long userId = userId(update.path("user"));
-                if (userId != null && !openByPayload(userId, update.path("payload").asText(""))) {
-                    greet(userId, membership(userId));
+                if (userId != null) {
+                    Optional<Membership> membership = membership(userId);
+                    if (!openByPayload(userId, update.path("payload").asText(""), membership)) {
+                        greet(userId, membership);
+                    }
                 }
             }
             case "message_created" -> handleMessage(update.path("message"));
@@ -110,7 +113,7 @@ public class BotUpdateHandler {
         // bot_started) - это не название документа. Без проверки первый же ручной /start участника
         // компании получил бы «Не нашёл документ» вместо приветствия (PR #83, ревью, блокирующее).
         Optional<Membership> membership = membership(userId);
-        if (text.startsWith("/start ") && openByPayload(userId, text.substring("/start ".length()).strip())) {
+        if (text.startsWith("/start ") && openByPayload(userId, text.substring("/start ".length()).strip(), membership)) {
             return;
         }
         if (text.isEmpty() || text.startsWith("/")) {
@@ -126,10 +129,14 @@ public class BotUpdateHandler {
      * Человек пришёл по ссылке с параметром в чат с ботом, а не в мини-приложение (ссылка {@code ?start=}, первый
      * запуск бота, клиент MAX открыл чат) — бот отвечает кнопкой, которая открывает мини-приложение с тем же
      * параметром (LNK-1, LNK-2). Иначе человек нажал бы «Открыть» у приветствия и попал на приветственный экран.
-     * Параметр — только наших видов и только разрешённые MAX символы; остальное — обычное приветствие.
+     * Параметр — только наших видов и только разрешённые MAX символы; остальное — обычное приветствие. Приглашение
+     * тому, кто уже в компании, — тоже приветствие: мини-приложение пустит его на главную, а не к заявке (ревью #112, п. 3).
      */
-    private boolean openByPayload(long userId, String payload) {
+    private boolean openByPayload(long userId, String payload, Optional<Membership> membership) {
         if (payload == null || !PAYLOAD.matcher(payload).matches()) {
+            return false;
+        }
+        if (membership.isPresent() && (payload.startsWith("c_") || payload.startsWith("p_"))) {
             return false;
         }
         String link = links.startLink(payload);

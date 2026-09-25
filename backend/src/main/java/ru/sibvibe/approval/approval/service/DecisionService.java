@@ -172,7 +172,7 @@ public class DecisionService {
             documents.approve(document.id());
             events.publishEvent(new DocumentDecidedEvent(document.id(), document.currentVersionNo(), document.authorId(),
                     DocumentDecidedEvent.Outcome.APPROVED, step.getApproverId(), document.title(),
-                    step.getKind() == ApprovalStep.Kind.ENDORSEMENT));
+                    ApprovalStep.endorsedIn(versionSteps)));
         }
     }
 
