@@ -78,6 +78,10 @@ type UserRef   = { id: number; fullName: string };
 type RoleRef   = { id: number; code: string; name: string };
 
 type DocumentStatus = "DRAFT" | "IN_APPROVAL" | "APPROVED" | "RETURNED" | "REJECTED";
+// Показываемый статус (D4): вычисляется одним выражением на бэкенде (DocumentReadRepository.DISPLAY_STATUS).
+// IN_ENDORSEMENT — IN_APPROVAL, текущий этап — утверждение («На утверждении»); ENDORSED — APPROVED, утверждающий
+// утвердил («Утверждён»); APPROVED без этапа утверждения — «Согласован». Экраны показывают его, а не status.
+type DisplayStatus = DocumentStatus | "IN_ENDORSEMENT" | "ENDORSED";
 type Decision       = "PENDING" | "APPROVED" | "RETURNED" | "REJECTED" | "SKIPPED";
 type Visibility     = "PRIVATE" | "ORG";   // кто видит — см. «Кто видит документ»
 type Severity       = "BLOCKER" | "WARNING" | "INFO";
@@ -102,7 +106,8 @@ type MemberView = {               // участник компании: отве
 - автор;
 - или у него есть шаг согласования по этому документу — в любой версии, на любом этапе,
   в том числе ещё не начавшемся или уже решённом;
-- или у документа `visibility = ORG`.
+- или у документа `visibility = ORG` **и он не черновик**: флаг действует после отправки, черновик — в том числе
+  вернувшийся после возврата — всей компании не виден (DOC-5).
 
 Правило одно для карточки, списков, файлов и истории. Черновик, который ни разу не
 отправлялся, шагов не имеет — его видит только автор. После возврата прежние
@@ -156,12 +161,13 @@ type MemberView = {               // участник компании: отве
 | `GET /invites/code/{code}` | Любой | → `{ orgName }`. 404 `INVITE_NOT_FOUND`, 429 `TOO_MANY_ATTEMPTS` |
 | `POST /join-requests` | Не состоит в реальной компании | `{ code }` → 201 `{ id, orgName, status, createdAt }`. 409 `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS` |
 | `DELETE /join-requests/{id}` | Автор заявки | → 204. Чужая заявка — 404. Уже рассмотренная — 409 `INVALID_STATE` |
-| `GET /orgs/current/join-requests?status=PENDING` | ADMIN | → `[{ id, user: UserRef, status, createdAt }]`; без `status` — только ожидающие; старые заявки первыми |
+| `GET /orgs/current/join-requests?status=PENDING` | ADMIN | → `[{ id, user: UserRef, status, createdAt, previousRoles: RoleRef[] }]`; без `status` — только ожидающие; старые заявки первыми. `previousRoles` — роли, с которыми человек был в компании до исключения (D5): экран отмечает их заранее; у нового человека пусто |
 | `POST /orgs/current/join-requests/{id}/approve` | ADMIN | `{ roleIds: number[], isAdmin?: boolean }` → `MemberView`. 409 `INVALID_STATE`; 400 `VALIDATION_FAILED`, если нет ни одной роли и не выдан `isAdmin`; роль другой компании — 404 |
 | `POST /orgs/current/join-requests/{id}/reject` | ADMIN | → 200 |
 | `GET /orgs/current/members` | ADMIN | → `MemberView[]` |
 | `GET /orgs/current/colleagues` | Участник | → `MemberView[]` — только активные сотрудники своей компании, для раздела «Компания» (приёмка 24.09). Не участник — 403 |
-| `GET /orgs/current/routes` | Участник | → `RouteOverview[]`: `{ documentTypeId, stages: { stageOrder, participants: { role: RoleRef, mandatory }[] }[] }` — маршруты компании по типам, только чтение (раздел «Компания»). Недостающие маршруты по умолчанию создаются при обращении, как и при отправке |
+| `GET /orgs/current/routes` | Участник | → `RouteOverview[]`: `{ documentTypeId, stages: { stageOrder, participants: { role: RoleRef, mandatory }[] }[] }` — маршруты компании по типам (раздел «Компания»). Недостающие маршруты по умолчанию создаются при обращении, как и при отправке |
+| `PATCH /orgs/current/routes/{documentTypeId}/roles/{roleId}` | ADMIN | `{ mandatory: boolean }` → `RouteOverview[]` заново. Обязательную роль автор не уберёт из маршрута (#109). Роли нет в шаблоне вида — 404; у «Другого документа» (`GENERIC`) обязательных нет — 400 `VALIDATION_FAILED`. Есть ли у роли носители, сервер не проверяет: роль могут назначить позже; предупреждает администратора интерфейс, а отправку без носителя остановит `ROUTE_ROLE_EMPTY` |
 | *SHOULD* `GET /orgs/current/roles/{id}/members` | Участник | → `UserRef[]` — активные носители роли, для добавления согласующего |
 | `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView & { returnedDocuments: number }`. Снятая роль действует сразу: документы, где человек ещё не решил в этой роли, возвращаются авторам (приёмка 24.09, п. 15); `returnedDocuments` — сколько, администратор видит это в сообщении. 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
@@ -205,7 +211,10 @@ type MemberView = {               // участник компании: отве
 
 Префиксы `startParam`: `c_<код>` — код компании, `p_<токен>` — личная ссылка,
 `d_<id>` — документ из уведомления бота (сразу карточка; доступ всё равно проверяет
-`GET /documents/{id}`).
+`GET /documents/{id}`). Кнопки бота кладут ещё два: `a_requests` — экран заявок (уведомление администратору о
+заявке, LNK-4) и `s_<запрос в base64url>` — результаты поиска, когда в чате нашлось несколько документов (LNK-3;
+MAX пропускает в параметре только `A-Z a-z 0-9 _ -`). Ссылка, отправленная в чат бота, приходит событием
+`bot_started` с тем же параметром — бот отвечает кнопкой `open_app` с ним же (LNK-2).
 
 ## Документы
 
@@ -261,30 +270,37 @@ type MemberView = {               // участник компании: отве
 ### `GET /documents` — списки
 
 Параметры: `tab` (обязателен): `WAITING_ME` — есть мой активный шаг, `MINE` — я автор,
-`AVAILABLE` — остальные документы, которые я вижу по правилу «Кто видит документ»; `status`, `typeId`,
-`authorId`, `from`, `to` (даты создания), `page`, `size`.
+`AVAILABLE` — остальные документы, которые я вижу по правилу «Кто видит документ»; `status` — показываемый статус
+(`DisplayStatus`, в том числе `IN_ENDORSEMENT` и `ENDORSED`), `q` — поиск по названию, автору, номеру документа
+(`id`) и регистрационному номеру из полей (NAV-3; регистр не важен, `%` и `_` — обычные символы), `typeId`, `authorId`,
+`from`, `to` (даты создания), `page`, `size`. Черновик в `AVAILABLE` не попадает никогда: видимость «вся компания» действует после отправки (DOC-5).
 
 ```ts
 type DocumentListItem = {
   id: number; title: string; type: { id: number; name: string };
-  status: DocumentStatus; author: UserRef;
+  status: DocumentStatus; displayStatus: DisplayStatus; author: UserRef;
   currentVersionNo: number; currentStage: number | null;
   updatedAt: string;
   waitingSince: string | null;   // для WAITING_ME: activated_at моего шага
+  // У «Другого документа» (GENERIC) — вид, как его назвал сам документ (поле doc_kind): «Договор аренды».
+  // fromAi — нашёл ИИ (значок ✦), false — автор исправил вручную; null у видов из шаблонов (DOC-7).
+  recognizedKind: { value: string; fromAi: boolean } | null;
 };
 ```
 
 Права применяются **до** фильтров: чужое не попадает в выдачу ни при каком запросе.
-Счётчики «Ждут меня» и «Заявки» на главной — `total` соответствующего списка с `size=1`.
+Счётчики на главной — «На моём согласовании» (`total` списка `WAITING_ME` с `size=1`) и заявки на вступление у
+плитки «Компания» (длина `GET /orgs/current/join-requests?status=PENDING`).
 
 ### `GET /documents/{id}` — карточка
 
 ```ts
 type DocumentCard = {
   id: number; title: string;
-  type: { id: number; name: string; isGeneric: boolean;
+  type: { id: number; code: string;   // GENERIC — «Другой документ», вид вне шаблонов (DOC-7)
+          name: string; isGeneric: boolean;   // isGeneric — вид без схемы полей
           autoDetected: boolean };   // тип выбрала модель при загрузке
-  status: DocumentStatus; visibility: Visibility;
+  status: DocumentStatus; displayStatus: DisplayStatus; visibility: Visibility;
   author: UserRef; currentVersionNo: number;
   versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[];
               withdrawnAt: string | null;       // автор отозвал эту версию с согласования
@@ -309,6 +325,12 @@ type DocumentCard = {
   } | null;
 };
 ```
+
+### `DELETE /documents/{id}` — удалить черновик (DOC-4)
+
+Только автор и только черновик, который **ни разу не отправлялся** → 204. Иначе 409 `INVALID_STATE` («Удалить можно
+только черновик, который ещё не отправлялся»): у отправленного есть история, её не стираем. Чужой документ — 404.
+Строки версий и файлов удаляются; сами файлы в хранилище остаются — они неизменяемы и в MVP не удаляются.
 
 ### Скачать файл
 
@@ -486,9 +508,19 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
   problems: { code: "ROUTE_ROLE_EMPTY" | "BLOCKING_ISSUES"; message: string }[];
   // Кто уже одобрил прошлую версию, если документ с тех пор не менялся (те же файлы и поля):
   // при отправке их шаги сразу согласованы с autoReason = CARRIED_OVER. null — переносить нечего.
-  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number }[] } | null;
+  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number; kind: StepKind }[] } | null;
+  // RTE-6: маршрут прошлой отправленной версии — конструктор заполняется им, а не шаблоном. Без решений, без
+  // автосогласования автором и без выбывших. null — документ ещё не отправлялся.
+  previous: {
+    versionNo: number;
+    stages: { participants: { userId: number; roleId: number }[] }[];
+    endorser: { userId: number; roleId: number } | null;
+  } | null;
 }
 ```
+
+`stages` — шаблон вида документа: из него конструктор берёт предзаполнение (D3) и признак `mandatory` у ролей
+(обязательных нельзя убрать). Утверждающий по умолчанию — последний этап шаблона, если в нём один человек (D4).
 
 `problems` не пуст — кнопка «Отправить» неактивна, текст показывается пользователю.
 
@@ -507,37 +539,49 @@ type ValidationIssue = {         // как RuleEngine.ValidationIssue
 
 ### `POST /documents/{id}/submit` — отправить
 
+**Маршрут из конструктора** (с 25.09, D3/D4, docs/review-round-1/DECISIONS.md):
+
 ```ts
 {
-  selections: { stageOrder: number; roleId: number; userId: number }[];  // где кандидатов несколько
-  extraApprovers?: { stageOrder: number; roleId: number; userId: number; newStage?: boolean }[];
+  stages: { participants: { userId: number; roleId: number }[] }[];   // этапы по порядку, в этапе — одновременно
+  endorser?: { userId: number; roleId: number } | null;               // утверждающий — последний шаг
 }
 ```
 
-Ответ — `DocumentCard`. 409: `INVALID_STATE`, `ROUTE_ROLE_EMPTY`,
-`SELECTION_REQUIRED`, `BLOCKING_ISSUES`. Тело можно не передавать, если выбирать не из чего.
+Шаблон только предзаполняет маршрут: автор ставит людей в любом порядке и убирает всех, кроме обязательных. Сервер
+проверяет:
+- **все обязательные роли на месте** — роль закрыта, если в маршруте где угодно есть её носитель (иначе 400
+  `MANDATORY_ROLE_MISSING`, `details.role`);
+- **один человек — один раз**, в том числе утверждающий (400 `VALIDATION_FAILED` с именем);
+- **нет пустых этапов** (400 `VALIDATION_FAILED`);
+- каждый — активный носитель роли, под которой стоит, и не автор: роль чужой компании — 404; человек без этой роли
+  (сняли роль или исключили, пока был открыт конструктор) — 409 `INVALID_STATE` «Состав сотрудников изменился — обновите
+  экран маршрута»; автор — 400;
+- маршрут не пустой, если кроме автора есть кому согласовать (400).
 
-- **`selections`** нужны там, где кандидатов несколько (`resolution = SELECT`); там, где выбор не нужен, или дважды
-  для одной роли — 400 `VALIDATION_FAILED`. Пара «этап + роль» вне маршрута или человек не из кандидатов — 404.
-  Не выбран человек там, где нужно, — 409 `SELECTION_REQUIRED`.
-- **`extraApprovers`**: автор расширяет маршрут (приёмка 24.09, п. 12). `newStage` нет или `false` — вместе с этапом
-  шаблона `stageOrder`; `true` — **отдельным новым этапом перед** этапом шаблона `stageOrder`, а `stageOrder` на
-  единицу больше последнего — новым последним этапом, после всех. Добавленные с одним местом согласуют одновременно.
-  После вставки этапы нумеруются подряд с 1; без новых этапов номера совпадают с шаблоном. Место вне шаблона — 404.
-  Роль — из этой компании, человек — её активный носитель и не автор (404 иначе). 400 `VALIDATION_FAILED` — для автора и для дубля: того же человека в той же роли на том же
-  этапе, будь он добавлен дважды, подставлен автоматически или выбран в `selections`. Маршрут только растёт: убрать
-  участника шаблона нельзя, а «добавить» уже стоящего — значит не добавить никого.
+Шаги этапов — `kind = APPROVAL`, этапы нумеруются подряд с 1. Шаг автора (`AUTHOR_HOLDS_ROLE`, обязательная роль есть
+только у него) — отдельным этапом **после** согласующих, уже согласованный; утверждающий — `kind = ENDORSEMENT`,
+следующим этапом, последним. `origin = TEMPLATE` — по одному человеку на каждую роль шаблона (подставленный или первый выбранный из её
+кандидатов), остальные — `ADDED_BY_AUTHOR`.
+
+**Прежний формат** (до 25.09) по-прежнему принимается и переводится в тот же маршрут:
+`selections` — выбор там, где кандидатов несколько; `extraApprovers` — добавленные к шаблону (`newStage` — отдельным
+этапом перед этапом шаблона `stageOrder`, или последним). Смешивать форматы нельзя — 400.
+
+Ответ — `DocumentCard`. 409: `INVALID_STATE`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED` (прежний формат),
+`BLOCKING_ISSUES`. Тело можно не передавать, если выбирать не из чего — тогда маршрут по шаблону; но проверки те же,
+что у явного маршрута: если, например, один человек — единственный носитель двух ролей шаблона, пустое тело даёт 400
+«уже есть в маршруте» (ревью #111). Новый интерфейс всегда передаёт явный маршрут.
+
 - **Нельзя отправить** (`BLOCKING_ISSUES`), если у типа с проверкой она не выполнилась (`check_status ≠ CHECKED`) или
   есть замечание `BLOCKER`; та же логика определяет `permissions.canSubmit`.
-- Если решать некому (обязательные роли только у автора, остальное пропущено), документ становится «Согласован» сразу,
-  а шаг автора в истории подписан «согласовано автором как <роль>».
+- Если решать некому (обязательные роли только у автора, согласовать больше некому), документ становится
+  «Согласован» сразу, а шаг автора в истории подписан «согласовано автором как <роль>».
 - **Одобрения прошлой версии сохраняются, если документ не менялся** (приёмка 24.09, п. 1): те же файлы (по ключу
-  хранилища) и те же значения полей, что у предыдущей версии. Шаг того же человека в той же роли создаётся сразу
-  `APPROVED` с `autoReason = CARRIED_OVER`. Изменился хоть один файл или поле — согласуют все заново.
+  хранилища) и те же значения полей, что у предыдущей версии. Шаг того же человека в той же роли и **того же вида**
+  создаётся сразу `APPROVED` с `autoReason = CARRIED_OVER`: «согласовал» не превращается в «утвердил» (ревью #111).
+  В предпросмотре `carryOver.approvals[]` — `{ roleId, userId, kind }`. Изменился хоть один файл или поле — согласуют все заново.
 - `permissions.canAddApprover` — `true` у автора черновика.
-
-Добавленный согласующий (SHOULD) согласует **в роли**: он должен быть её активным носителем
-(`GET /orgs/current/roles/{id}/members`) и не автором. Поэтому у каждого шага есть роль.
 
 ### Маршрут на карточке
 
@@ -552,6 +596,7 @@ type StepView = {
   id: number; versionNo: number; stageOrder: number;
   role: RoleRef; approver: UserRef;
   origin: "TEMPLATE" | "ADDED_BY_AUTHOR";
+  kind: "APPROVAL" | "ENDORSEMENT";   // ENDORSEMENT — утверждение, последний шаг (D4): кнопка «Утвердить»
   decision: Decision; comment: string | null;
   activatedAt: string | null;    // когда этап шага стал активным; null — этап ещё не начался
   decidedAt: string | null;      // у AUTHOR_HOLDS_ROLE — момент отправки

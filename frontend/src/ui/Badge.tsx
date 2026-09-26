@@ -5,7 +5,7 @@ import {
   documentStatusMeta,
   stepDecisionMeta,
   type AutoReason,
-  type DocumentStatus,
+  type DisplayStatus,
   type StatusMeta,
   type StepDecision,
 } from './status';
@@ -20,7 +20,7 @@ export function StatusBadge({ meta }: { meta: StatusMeta }) {
   );
 }
 
-export function DocumentStatusBadge({ status }: { status: DocumentStatus }) {
+export function DocumentStatusBadge({ status }: { status: DisplayStatus }) {
   return <StatusBadge meta={documentStatusMeta(status)} />;
 }
 

@@ -3,11 +3,12 @@ import type {
   CheckResult,
   DocumentCard,
   DocumentListItem,
-  DocumentStatus,
+  DisplayStatus,
   DocumentType,
   FileCorrectionResult,
   Page,
   RoutePreview,
+  RoutePerson,
   Visibility,
 } from './types';
 
@@ -52,7 +53,10 @@ function appendFiles(form: FormData, field: string, files: File[] | undefined): 
 export type DocumentTab = 'WAITING_ME' | 'MINE' | 'AVAILABLE';
 
 export interface DocumentListFilters {
-  status?: DocumentStatus;
+  /** Показываемый статус (D4): в том числе «На утверждении» и «Утверждён». */
+  status?: DisplayStatus;
+  /** Поиск (NAV-3): название, автор, номер документа. */
+  q?: string;
   typeId?: number;
   authorId?: number;
   /** Даты создания, ISO-8601. */
@@ -190,6 +194,11 @@ export function changeDocumentType(documentId: number, versionNo: number, docume
   });
 }
 
+/** DOC-4: удалить черновик, который ещё не отправлялся. */
+export function deleteDocument(documentId: number): Promise<void> {
+  return apiRequest<void>(`/documents/${documentId}`, { method: 'DELETE' });
+}
+
 /** Автор отзывает документ с согласования: документ возвращается к нему, маршрут начнётся заново. */
 export function withdrawDocument(documentId: number): Promise<DocumentCard> {
   return apiRequest<DocumentCard>(`/documents/${documentId}/withdraw`, { method: 'POST' });
@@ -199,18 +208,13 @@ export function getRoutePreview(documentId: number): Promise<RoutePreview> {
   return apiRequest<RoutePreview>(`/documents/${documentId}/route-preview`);
 }
 
-export interface RouteSelection {
-  stageOrder: number;
-  roleId: number;
-  userId: number;
-  /** Только у добавленных: отдельный этап перед этапом stageOrder (или последним — после всех). */
-  newStage?: boolean;
-}
-
+/**
+ * Маршрут из конструктора (D3, D4): этапы по порядку, в этапе — одновременно; утверждающий — последний шаг.
+ * Сервер проверяет обязательные роли, повторы и пустые этапы.
+ */
 export interface SubmitDocumentInput {
-  /** Только для участников с несколькими кандидатами (resolution = SELECT). */
-  selections?: RouteSelection[];
-  extraApprovers?: RouteSelection[];
+  stages: { participants: RoutePerson[] }[];
+  endorser: RoutePerson | null;
 }
 
 export function submitDocument(documentId: number, input: SubmitDocumentInput): Promise<DocumentCard> {

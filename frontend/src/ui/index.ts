@@ -7,13 +7,17 @@ export { Button, ButtonRow, IconButton, type ButtonVariant } from './Button';
 export { Page, PageHeader, BackLink, Section, Card, List, Row, Tiles, Tile, Count, Muted, scrollScreenToTop } from './Page';
 export { BottomSheet, ConfirmSheet, SelectSheet, SelectField, type SelectOption } from './Sheet';
 export { EmptyState, ErrorState, AccessErrorState, Loading, InlineError, Notice, Toast } from './State';
-export { SearchField, Chips, Chip } from './Controls';
+export { SearchField, SEARCH_MAX_LENGTH, Chips, Chip } from './Controls';
+export { Timeline, TimelinePerson, type TimelineItem, type TimelineState } from './Timeline';
+export { FileDrop, Stepper, formatFileSize } from './FileDrop';
+export { ThemeSync } from './ThemeSync';
 export { StatusBadge, DocumentStatusBadge, StepDecisionBadge, AiMark, AiExplainer, AiLegend } from './Badge';
 export {
   documentStatusMeta,
   stepDecisionMeta,
   DOCUMENT_STATUSES,
   type DocumentStatus,
+  type DisplayStatus,
   type StepDecision,
   type AutoReason,
   type StatusTone,

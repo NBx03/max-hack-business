@@ -28,6 +28,9 @@ export function CreateCompanyRoute() {
 export function JoinRoute() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  // Заявка по коду подаётся сама и при переходе сюда из приложения, не только по ссылке из проверенного startParam. Это
+  // безопасно: внутри MAX адрес снаружи не задать, а вне MAX нет проверенных данных запуска — и нет входа. Заявка
+  // доступа не даёт; решает администратор (ревью Матвея на #112).
   const code = params.get('code') ?? undefined;
   // key: другой код в адресе пересоздаёт экран, и он проверяет код заново.
   return <JoinByCodeScreen key={code} initialCode={code} onBack={() => navigate(ROUTE_PATTERNS.welcome)} />;
@@ -39,7 +42,14 @@ export function PersonalInviteRoute() {
   if (!token) {
     return <Navigate to={ROUTE_PATTERNS.welcome} replace />;
   }
-  return <PersonalInviteScreen key={token} token={token} onJoinByCode={() => navigate(joinPath())} />;
+  return (
+    <PersonalInviteScreen
+      key={token}
+      token={token}
+      onJoinByCode={() => navigate(joinPath())}
+      onDecline={() => navigate(ROUTE_PATTERNS.welcome)}
+    />
+  );
 }
 
 export function PendingRoute() {

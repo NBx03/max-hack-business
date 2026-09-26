@@ -25,11 +25,13 @@ class DocumentLookupServiceTest {
     @Test
     void mapsRepositoryRowsToPortMatchesWithStatusAsAPlainString() {
         when(repository.findByTitleFragment(1L, 7L, "ноутбук", 5)).thenReturn(List.of(
-                new DocumentReadRepository.TitleMatch(500L, "Закупка ноутбуков", Document.Status.IN_APPROVAL, 2)));
+                new DocumentReadRepository.TitleMatch(500L, "Закупка ноутбуков", Document.Status.IN_APPROVAL,
+                        DisplayStatus.IN_ENDORSEMENT, 2)));
 
         List<DocumentLookup.Match> matches = service.findByTitleFragment(1L, 7L, "ноутбук", 5);
 
-        assertThat(matches).containsExactly(new DocumentLookup.Match(500L, "Закупка ноутбуков", "IN_APPROVAL", 2));
+        // Бот показывает тот же статус, что карточка и списки (D4): «на утверждении», а не «на согласовании».
+        assertThat(matches).containsExactly(new DocumentLookup.Match(500L, "Закупка ноутбуков", "IN_ENDORSEMENT", 2));
     }
 
     @Test

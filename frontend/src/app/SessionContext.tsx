@@ -23,6 +23,8 @@ interface SessionValue {
   /** null - демо-режим выключен или песочница ещё не создана. */
   sandboxUsers: DemoSandboxUser[] | null;
   refresh: () => Promise<void>;
+  /** Перечитать /me без общего спиннера — экран остаётся на месте, пока ответ не изменит маршрут. */
+  refreshQuietly: () => Promise<void>;
   /** id участника своей песочницы, или null, чтобы выйти из демо. */
   actAs: (userId: number | null) => Promise<void>;
   /**
@@ -158,6 +160,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   };
 
   const refresh = useCallback(() => load(false), [load]);
+  const refreshQuietly = useCallback(() => load(true), [load]);
 
   useEffect(() => {
     void refresh();
@@ -204,8 +207,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh, load]);
 
   const value = useMemo<SessionValue>(
-    () => ({ status, me, error, sandboxUsers, refresh, actAs, startSandbox }),
-    [status, me, error, sandboxUsers, refresh, actAs, startSandbox],
+    () => ({ status, me, error, sandboxUsers, refresh, refreshQuietly, actAs, startSandbox }),
+    [status, me, error, sandboxUsers, refresh, refreshQuietly, actAs, startSandbox],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

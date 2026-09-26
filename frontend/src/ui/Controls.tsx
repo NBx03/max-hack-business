@@ -2,6 +2,9 @@ import type { ReactNode } from 'react';
 import { IconButton } from './Button';
 import { Icon } from './icons';
 
+/** Предел длины поискового запроса — тот же, что на сервере (GET /documents?q=). */
+export const SEARCH_MAX_LENGTH = 100;
+
 /** Поле поиска сверху списка (NAV-3): иконка, текст, крестик очистки. */
 export function SearchField({
   value,
@@ -26,6 +29,8 @@ export function SearchField({
         placeholder={placeholder}
         aria-label={placeholder}
         autoFocus={autoFocus}
+        // Сервер ищет по запросу до 100 символов, длиннее — ошибка (ревью Матвея на #113, п. 2).
+        maxLength={SEARCH_MAX_LENGTH}
         onChange={(event) => onChange(event.target.value)}
       />
       {value && <IconButton className="ds-search__clear" icon="close" label="Очистить" size={18} onClick={() => onChange('')} />}
@@ -33,10 +38,13 @@ export function SearchField({
   );
 }
 
-/** Ряд чипов-фильтров; при нехватке ширины прокручивается вбок, подписи не обрезаются (принцип 6). */
-export function Chips({ children, label }: { children: ReactNode; label: string }) {
+/**
+ * Ряд чипов-фильтров; подписи не обрезаются (принцип 6). wrap — переносятся на следующую строку: для выбора варианта,
+ * где скрытый за краем чип просто не заметят.
+ */
+export function Chips({ children, label, wrap }: { children: ReactNode; label: string; wrap?: boolean }) {
   return (
-    <div className="ds-chips" role="group" aria-label={label}>
+    <div className={`ds-chips${wrap ? ' ds-chips--wrap' : ''}`} role="group" aria-label={label}>
       {children}
     </div>
   );

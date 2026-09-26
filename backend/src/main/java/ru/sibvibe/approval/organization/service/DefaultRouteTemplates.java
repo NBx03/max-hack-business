@@ -35,8 +35,9 @@ final class DefaultRouteTemplates {
                     new Row(1, DefaultRoles.LAWYER, false),
                     new Row(1, DefaultRoles.ACCOUNTANT, false),
                     new Row(2, DefaultRoles.DIRECTOR, true)),
+            // «Другой документ» — без обязательных (D3): Директор лишь подставляется в маршрут.
             GENERIC, List.of(
-                    new Row(1, DefaultRoles.DIRECTOR, true))
+                    new Row(1, DefaultRoles.DIRECTOR, false))
     );
 
     private DefaultRouteTemplates() {

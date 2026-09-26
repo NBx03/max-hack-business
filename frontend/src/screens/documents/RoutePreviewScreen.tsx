@@ -1,150 +1,153 @@
-import { useMemo, useState } from 'react';
-import { Spinner, Typography } from '@maxhub/max-ui';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { getRoutePreview, submitDocument, type RouteSelection } from '../../api/documents';
-import { getColleagues } from '../../api/organization';
-import type { DocumentStatus, MemberView, RoutePreview, RoutePreviewParticipant, RoutePreviewStage } from '../../api/types';
-import { useSession } from '../../app/SessionContext';
-import { BottomSheet, Button, ErrorState, InlineError as ErrorText, BackLink } from '../../ui';
-import { BottomActionBar, CenteredColumn, ScreenShell } from '../../components/base/Layout';
-import { useAsync } from '../../hooks/useAsync';
+import { getRoutePreview, submitDocument } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
+import { getColleagues } from '../../api/organization';
+import type { MemberView, RoutePreview, StepKind } from '../../api/types';
+import { useSession } from '../../app/SessionContext';
+import { useAsync } from '../../hooks/useAsync';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
-import { inputStyle } from './DocumentFormParts';
-
-function selectionKey(stageOrder: number, roleId: number): string {
-  return `${stageOrder}:${roleId}`;
-}
+import {
+  BottomSheet,
+  Button,
+  ErrorState,
+  Icon,
+  IconButton,
+  InlineError,
+  List,
+  Loading,
+  Muted,
+  Notice,
+  Page,
+  PageHeader,
+  Row,
+  SelectSheet,
+  Stepper,
+  type SelectOption,
+} from '../../ui';
+import { CREATE_STEPS } from './uploadFormats';
+import {
+  addPerson,
+  contextOf,
+  initialState,
+  isLocked,
+  moveSlot,
+  moveStage,
+  placeOf,
+  problemsOf,
+  removeSlot,
+  resolveChoice,
+  toSubmit,
+  type BuilderContext,
+  type BuilderState,
+  type Slot,
+  type Target,
+} from './routeBuilder';
 
 /**
- * Текст тоста после отправки - по статусу из ответа submitDocument, а не всегда один
- * и тот же: если решать некому (обязательная роль только у автора - AUTHOR_HOLDS_ROLE
- * на каждом шаге), документ сразу APPROVED, и "согласующие получили уведомление" было
- * бы неправдой (#71, ревью).
+ * Текст тоста после отправки — по статусу из ответа: если решать некому (обязательные роли только у автора), документ
+ * сразу согласован, и «согласующие получили уведомление» было бы неправдой (#71, ревью).
  */
-function submitToastMessage(status: DocumentStatus): string {
+function submitToastMessage(status: string): string {
   return status === 'APPROVED' ? 'Документ согласован — решать было некому' : 'Отправлено. Согласующие получили уведомление';
 }
 
-/**
- * Где стоит добавленный согласующий: вместе с этапом шаблона или отдельным этапом перед ним
- * (before на единицу больше последнего этапа — последним, после всех).
- */
-type Place = { kind: 'WITH'; stageOrder: number } | { kind: 'NEW'; before: number };
-
-type Extra = { key: string; userId: number; userName: string; roleId: number; roleName: string; place: Place };
-
-type DisplayStage =
-  | { kind: 'template'; stage: RoutePreviewStage; extras: Extra[] }
-  | { kind: 'new'; before: number; extras: Extra[] };
-
-function placeKey(place: Place): string {
-  return place.kind === 'WITH' ? `with:${place.stageOrder}` : `new:${place.before}`;
+function targetKey(target: Target): string {
+  return target.kind === 'endorser' ? 'endorser' : `${target.kind}:${target.index}`;
 }
 
-function parsePlace(value: string): Place {
-  const [kind, order] = value.split(':');
-  return kind === 'with' ? { kind: 'WITH', stageOrder: Number(order) } : { kind: 'NEW', before: Number(order) };
+function parseTarget(key: string): Target | null {
+  if (key === 'endorser') return { kind: 'endorser' };
+  const [kind, index] = key.split(':');
+  if (kind === 'stage' || kind === 'newStage') return { kind, index: Number(index) };
+  return null;
 }
 
-function stageRoles(stage: RoutePreviewStage): string {
-  return stage.participants.map((participant) => participant.role.name).join(', ');
-}
-
-/** Этапы шаблона и добавленные автором — в том порядке, в каком документ по ним пойдёт. */
-function displayStages(stages: RoutePreviewStage[], extras: Extra[]): DisplayStage[] {
-  const result: DisplayStage[] = [];
-  const newBefore = (order: number) => extras.filter((extra) => extra.place.kind === 'NEW' && extra.place.before === order);
-  for (const stage of stages) {
-    const before = newBefore(stage.stageOrder);
-    if (before.length > 0) result.push({ kind: 'new', before: stage.stageOrder, extras: before });
-    result.push({
-      kind: 'template',
-      stage,
-      extras: extras.filter((extra) => extra.place.kind === 'WITH' && extra.place.stageOrder === stage.stageOrder),
-    });
-  }
-  const last = afterLast(stages);
-  const atEnd = newBefore(last);
-  if (atEnd.length > 0) result.push({ kind: 'new', before: last, extras: atEnd });
-  return result;
-}
-
-function afterLast(stages: RoutePreviewStage[]): number {
-  return Math.max(0, ...stages.map((stage) => stage.stageOrder)) + 1;
+function allSlotsOf(state: BuilderState): Slot[] {
+  return [...state.stages.flatMap((stage) => stage.slots), ...(state.endorser ? [state.endorser] : [])];
 }
 
 /**
- * 12. Предпросмотр маршрута (docs/SCREENS.md). Маршрут вида документа задан в компании, а автор может его
- * расширить: добавить согласующего вместе с любым этапом или отдельным этапом — в том числе последним, после
- * директора (приёмка 24.09, п. 2 и 12). Убрать обязательных нельзя: маршрут только растёт (CLAUDE.md).
+ * 12. Маршрут — конструктор (RTE-1…RTE-6, D3, D4). Этапы — карточки, в каждом — люди; внизу — «Утверждение» с одним
+ * утверждающим. Шаблон вида документа только предзаполняет маршрут: людей можно перетаскивать за ⋮⋮ или переносить
+ * через меню человека, этапы — менять местами, убирать — всех, кроме обязательных (замок). Логика — routeBuilder.ts.
  */
 export function RoutePreviewScreen() {
   const { id } = useParams<{ id: string }>();
   const documentId = Number(id);
-  const navigate = useNavigate();
-  // С экрана проверки («К маршруту» при создании документа) «назад» ведёт туда же, а не через него на карточку
-  // (ревью #96, вопрос 1).
+  // С экрана проверки «назад» ведёт туда же, а не через него на карточку (ревью #96).
   const fromCheck = (useLocation().state as { from?: string } | null)?.from === 'check';
+  const { me } = useSession();
+  const authorId = me?.actingAs ? me.actingAs.user.id : me?.user.id;
 
-  const query = useAsync(() => getRoutePreview(documentId), [documentId]);
-  const [selections, setSelections] = useState<Map<string, number>>(new Map());
-  const [extras, setExtras] = useState<Extra[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const pendingSelectCount = useMemo(() => {
-    if (query.status !== 'ready') {
-      return 0;
-    }
-    let count = 0;
-    for (const stage of query.data.stages) {
-      for (const participant of stage.participants) {
-        if (participant.resolution === 'SELECT' && !selections.has(selectionKey(stage.stageOrder, participant.role.id))) {
-          count += 1;
-        }
-      }
-    }
-    return count;
-  }, [query, selections]);
+  const query = useAsync(() => Promise.all([getRoutePreview(documentId), getColleagues()]), [documentId]);
+  const back = fromCheck
+    ? { to: documentCheckPath(documentId), label: 'К проверке' }
+    : { to: documentCardPath(documentId), label: 'К документу' };
 
   if (query.status === 'loading') {
     return (
-      <CenteredColumn style={{ padding: 16, display: 'flex', justifyContent: 'center' }}>
-        <Spinner />
-      </CenteredColumn>
+      <Page header={<PageHeader back={back} title="Маршрут" />}>
+        <Loading />
+      </Page>
     );
   }
-
   if (query.status === 'error') {
     return (
-      <CenteredColumn style={{ padding: 16 }}>
+      <Page header={<PageHeader back={back} title="Маршрут" />}>
         <ErrorState message={errorMessage(query.error)} onRetry={query.refresh} />
-      </CenteredColumn>
+      </Page>
     );
   }
+  const [preview, colleagues] = query.data;
+  return <RouteBuilder documentId={documentId} preview={preview} colleagues={colleagues} authorId={authorId} back={back} fromCheck={fromCheck} />;
+}
 
-  const data = query.data;
-  const canSubmit = data.problems.length === 0 && pendingSelectCount === 0;
-  const stages = displayStages(data.stages, extras);
+type AddTarget = Target | { kind: 'choice'; slotId: string };
 
-  async function handleSubmit() {
+function RouteBuilder({
+  documentId,
+  preview,
+  colleagues,
+  authorId,
+  back,
+  fromCheck,
+}: {
+  documentId: number;
+  preview: RoutePreview;
+  colleagues: MemberView[];
+  authorId: number | undefined;
+  back: { to: string; label: string };
+  /** Пришли с шага проверки — показываем шаги создания (UPL-3). */
+  fromCheck: boolean;
+}) {
+  const navigate = useNavigate();
+  const context = useMemo(() => contextOf(preview, colleagues, authorId), [preview, colleagues, authorId]);
+  const [state, setState] = useState<BuilderState>(() => initialState(preview, context));
+  const [adding, setAdding] = useState<AddTarget | null>(null);
+  const [menuSlotId, setMenuSlotId] = useState<string | null>(null);
+  const [stageMenu, setStageMenu] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const drag = useDragAndDrop((slotId, target) => setState((current) => moveSlot(current, slotId, target)));
+
+  const serverProblems = preview.problems;
+  const localProblems = problemsOf(state, context);
+  const authorRoles = context.authorRoles;
+  const carried = (slot: Slot, kind: StepKind) =>
+    slot.kind === 'person'
+    && (preview.carryOver?.approvals.some((approval) =>
+      approval.userId === slot.userId && approval.roleId === slot.roleId && approval.kind === kind) ?? false);
+  const canSubmit = serverProblems.length === 0 && localProblems.length === 0 && !submitting;
+  const menuSlot = menuSlotId === null ? null : allSlotsOf(state).find((slot) => slot.id === menuSlotId) ?? null;
+
+  async function submit() {
+    const body = toSubmit(state, context);
+    if (!body) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const selectionList: RouteSelection[] = [...selections.entries()].map(([key, userId]) => {
-        const [stageOrder, roleId] = key.split(':').map(Number);
-        return { stageOrder, roleId, userId };
-      });
-      const extraList: RouteSelection[] = extras.map((extra) =>
-        extra.place.kind === 'WITH'
-          ? { stageOrder: extra.place.stageOrder, roleId: extra.roleId, userId: extra.userId }
-          : { stageOrder: extra.place.before, roleId: extra.roleId, userId: extra.userId, newStage: true });
-      const submitted = await submitDocument(documentId, {
-        ...(selectionList.length > 0 ? { selections: selectionList } : {}),
-        ...(extraList.length > 0 ? { extraApprovers: extraList } : {}),
-      });
+      const submitted = await submitDocument(documentId, body);
       navigate(documentCardPath(documentId), { state: { toast: submitToastMessage(submitted.status) } });
     } catch (err) {
       setSubmitError(errorMessage(err));
@@ -153,280 +156,464 @@ export function RoutePreviewScreen() {
     }
   }
 
-  return (
-    <ScreenShell>
-      <CenteredColumn style={{ padding: '16px 16px 0', display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
-        <BackLink
-          to={fromCheck ? documentCheckPath(documentId) : documentCardPath(documentId)}
-          label={fromCheck ? 'К проверке' : 'К документу'}
-        />
-        <Typography.Headline variant="large-strong">Маршрут</Typography.Headline>
-        <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-          Этапы идут по очереди, участники одного этапа — одновременно. Можно добавить согласующих, убрать
-          обязательных нельзя.
-        </Typography.Text>
-
-        {data.problems.map((problem) => (
-          <div
-            key={problem.code}
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: 'var(--status-danger-bg)',
-              color: 'var(--status-danger-fg)',
-              fontSize: 14,
-            }}
-          >
-            {problem.message}
-          </div>
-        ))}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {stages.map((display, index) => (
-            <div key={display.kind === 'new' ? `new-${display.before}` : `t-${display.stage.stageOrder}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <Typography.Text>
-                Этап {index + 1}
-                {display.kind === 'new' ? ' · добавлен вами' : ''}
-              </Typography.Text>
-              {display.kind === 'template' &&
-                display.stage.participants.map((participant) => (
-                  <ParticipantRow
-                    key={participant.role.id}
-                    participant={participant}
-                    carryOver={data.carryOver}
-                    selectedUserId={selections.get(selectionKey(display.stage.stageOrder, participant.role.id)) ?? null}
-                    onSelect={(userId) =>
-                      setSelections((prev) => new Map(prev).set(selectionKey(display.stage.stageOrder, participant.role.id), userId))
-                    }
-                  />
-                ))}
-              {display.extras.map((extra) => (
-                <ExtraRow key={extra.key} extra={extra} onRemove={() => setExtras((prev) => prev.filter((item) => item.key !== extra.key))} />
-              ))}
-            </div>
-          ))}
-        </div>
-
-        <Button variant="secondary" style={{ alignSelf: 'flex-start' }} onClick={() => setAddOpen(true)}>
-          + Добавить согласующего
-        </Button>
-
-        {submitError && <ErrorText>{submitError}</ErrorText>}
-        <div style={{ height: 8 }} />
-      </CenteredColumn>
-
-      <BottomActionBar>
-        <Button stretched variant="primary" disabled={!canSubmit || submitting} onClick={() => void handleSubmit()}>
-          {submitting ? <Spinner /> : 'Отправить на согласование'}
-        </Button>
-      </BottomActionBar>
-
-      <AddApproverSheet
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        preview={data}
-        onAdd={(extra) => {
-          // Тот же человек в той же роли на том же месте — не дубль, а то же самое (ревью #97).
-          setExtras((prev) => (prev.some((item) => item.key === extra.key) ? prev : [...prev, extra]));
-          setAddOpen(false);
-        }}
-      />
-    </ScreenShell>
-  );
-}
-
-function ParticipantRow({
-  participant,
-  carryOver,
-  selectedUserId,
-  onSelect,
-}: {
-  participant: RoutePreviewParticipant;
-  carryOver: RoutePreview['carryOver'];
-  selectedUserId: number | null;
-  onSelect: (userId: number) => void;
-}) {
-  const needsSelection = participant.resolution === 'SELECT' && selectedUserId === null;
-  const who = participant.resolution === 'AUTO' ? participant.candidates[0]?.id ?? null : selectedUserId;
-  const carried = carryOver !== null && who !== null
-    && carryOver.approvals.some((approval) => approval.roleId === participant.role.id && approval.userId === who);
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        padding: 12,
-        borderRadius: 8,
-        border: needsSelection ? '1px solid var(--status-progress-fg)' : '1px solid var(--divider-primary)',
-        background: needsSelection ? 'var(--status-progress-bg)' : 'var(--background-secondary)',
+  const renderSlot = (slot: Slot, kind: StepKind = 'APPROVAL') => (
+    <SlotRow
+      key={slot.id}
+      slot={slot}
+      locked={isLocked(state, slot, context)}
+      carried={carried(slot, kind) ? (kind === 'ENDORSEMENT' ? 'утверждение сохранится — документ не менялся' : 'согласие сохранится — документ не менялся') : null}
+      onOpen={() => {
+        if (slot.kind === 'choice') {
+          // Без кандидатов выбирать некого — панель выбора не открываем.
+          if (slot.candidates.length > 0) setAdding({ kind: 'choice', slotId: slot.id });
+        } else {
+          setMenuSlotId(slot.id);
+        }
       }}
-    >
-      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{participant.role.name}</span>
-
-      {participant.resolution === 'AUTO' && (
-        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{participant.candidates[0]?.fullName}</span>
-      )}
-
-      {participant.resolution === 'SKIPPED' && (
-        <span style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>Пропускается: в компании нет роли</span>
-      )}
-
-      {participant.resolution === 'AUTHOR_HOLDS_ROLE' && (
-        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-          Согласуете вы как {participant.role.name} — автоматически
-        </span>
-      )}
-
-      {participant.resolution === 'SELECT' && (
-        <select value={selectedUserId ?? ''} onChange={(event) => onSelect(Number(event.target.value))} style={inputStyle}>
-          <option value="" disabled>
-            Выберите человека
-          </option>
-          {participant.candidates.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>
-              {candidate.fullName}
-            </option>
-          ))}
-        </select>
-      )}
-
-      {carried && carryOver && (
-        <span style={{ fontSize: 13, color: 'var(--status-success-fg)' }}>
-          Согласие по версии {carryOver.fromVersionNo} сохранится — документ не менялся
-        </span>
-      )}
-    </div>
+      onRemove={() => setState((current) => removeSlot(current, slot.id, context))}
+      onDragStart={(event) => drag.start(event, slot)}
+    />
   );
-}
-
-function ExtraRow({ extra, onRemove }: { extra: Extra; onRemove: () => void }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 8,
-        padding: 12,
-        borderRadius: 8,
-        border: '1px dashed var(--divider-primary)',
-        background: 'var(--background-secondary)',
-      }}
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>{extra.roleName}</span>
-        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{extra.userName}</span>
-        <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>добавлен вами</span>
-      </div>
-      {/* Кнопка не сжимается: иначе на узком экране от неё оставалось «Убр…» (как «Изме…» на приёмке). */}
-      <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-        <Button compact variant="secondary" onClick={onRemove} aria-label={`Убрать ${extra.userName}`}>
-          Убрать
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** Кого и куда добавить: сотрудник в одной из своих ролей и место в маршруте. */
-function AddApproverSheet({
-  open,
-  onClose,
-  preview,
-  onAdd,
-}: {
-  open: boolean;
-  onClose: () => void;
-  preview: RoutePreview;
-  onAdd: (extra: Extra) => void;
-}) {
-  const { me } = useSession();
-  const authorId = me?.actingAs ? me.actingAs.user.id : me?.user.id;
-  const colleagues = useAsync(() => (open ? getColleagues() : Promise.resolve<MemberView[]>([])), [open]);
-  const [person, setPerson] = useState('');
-  const last = afterLast(preview.stages);
-  const [place, setPlace] = useState(`new:${last}`);
-
-  const options = colleagues.status === 'ready'
-    ? colleagues.data
-        .filter((member) => member.user.id !== authorId)
-        .flatMap((member) => member.roles.map((role) => ({
-          value: `${member.user.id}:${role.id}`,
-          label: `${member.user.fullName} — ${role.name}`,
-          member,
-          role,
-        })))
-    : [];
-  const places: { value: string; label: string }[] = [];
-  preview.stages.forEach((stage, index) => {
-    places.push({
-      value: `new:${stage.stageOrder}`,
-      label: index === 0 ? `Первым — до «${stageRoles(stage)}»` : `Отдельно, перед «${stageRoles(stage)}»`,
-    });
-    places.push({ value: `with:${stage.stageOrder}`, label: `Вместе с «${stageRoles(stage)}»` });
-  });
-  places.push({ value: `new:${last}`, label: 'Последним — после всех' });
-
-  const chosen = options.find((option) => option.value === person);
 
   return (
-    <BottomSheet open={open} onClose={onClose} title="Добавить согласующего">
-      {colleagues.status === 'loading' && <Spinner />}
-      {colleagues.status === 'error' && <ErrorText>{errorMessage(colleagues.error)}</ErrorText>}
-      {colleagues.status === 'ready' && options.length === 0 && (
-        <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-          Добавить некого: у других сотрудников нет ролей. Роли назначает администратор.
-        </Typography.Text>
-      )}
-      {options.length > 0 && (
+    <Page
+      header={
         <>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Кто</span>
-            <select style={inputStyle} value={person} onChange={(event) => setPerson(event.target.value)}>
-              <option value="" disabled>
-                Выберите сотрудника
-              </option>
-              {options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Когда согласует</span>
-            <select style={inputStyle} value={place} onChange={(event) => setPlace(event.target.value)}>
-              {places.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            stretched
-            variant="primary"
-            disabled={!chosen}
-            onClick={() => {
-              if (!chosen) return;
-              const parsed = parsePlace(place);
-              onAdd({
-                key: `${chosen.value}@${placeKey(parsed)}`,
-                userId: chosen.member.user.id,
-                userName: chosen.member.user.fullName,
-                roleId: chosen.role.id,
-                roleName: chosen.role.name,
-                place: parsed,
-              });
-              setPerson('');
-            }}
-          >
-            Добавить
+          <PageHeader
+            back={back}
+            title="Маршрут"
+            subtitle="Этапы идут по очереди, люди внутри этапа согласуют одновременно. Последним документ утверждают."
+          />
+          {fromCheck && <Stepper steps={CREATE_STEPS} current={2} />}
+        </>
+      }
+      footer={
+        <>
+          {localProblems.map((problem) => (
+            <p key={problem} className="ds-section__hint" style={{ margin: 0 }}>{problem}</p>
+          ))}
+          {submitError && <InlineError>{submitError}</InlineError>}
+          <Button variant="primary" stretched loading={submitting} disabled={!canSubmit} onClick={() => void submit()}>
+            Отправить на согласование
           </Button>
         </>
+      }
+    >
+      {/* Роль без носителей конструктор показывает сам — строкой в этапе и подсказкой у кнопки; сверху не повторяем. */}
+      {serverProblems.filter((problem) => problem.code !== 'ROUTE_ROLE_EMPTY').map((problem) => (
+        <Notice key={problem.code} tone="danger">{problem.message}</Notice>
+      ))}
+      <Muted>
+        Перетащите человека за <Icon name="drag" size={14} /> или нажмите на него, чтобы перенести. Замок — обязательный
+        по правилам компании: перенести можно, убрать нельзя.
+      </Muted>
+      {state.stages.length === 0 && (
+        // Пустой маршрут — сразу карточка «Этап 1» с «+ Согласующий», а не одна пунктирная заглушка (ревью #111, п. 4).
+        <section
+          className="ds-card ds-drop-target"
+          data-drop={targetKey({ kind: 'newStage', index: 0 })}
+          data-hover={drag.hover === targetKey({ kind: 'newStage', index: 0 })}
+        >
+          <h2 className="ds-section__title">Этап 1</h2>
+          <p className="ds-section__hint" style={{ margin: 0 }}>Пока никого — добавьте, кто согласует документ.</p>
+          <Button compact icon="plus" onClick={() => setAdding({ kind: 'newStage', index: 0 })}>
+            Согласующий
+          </Button>
+        </section>
+      )}
+
+      {state.stages.map((stage, index) => (
+        <section
+          key={stage.id}
+          className="ds-card ds-drop-target"
+          data-drop={targetKey({ kind: 'stage', index })}
+          data-hover={drag.hover === targetKey({ kind: 'stage', index })}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+            <h2 className="ds-section__title" style={{ flex: 1 }}>
+              Этап {index + 1}
+              {stage.slots.length > 1 && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · одновременно</span>}
+            </h2>
+            {state.stages.length > 1 && (
+              <IconButton icon="more" label={`Порядок этапа ${index + 1}`} onClick={() => setStageMenu(index)} />
+            )}
+          </div>
+          <List label={`Этап ${index + 1}`}>{stage.slots.map((slot) => renderSlot(slot))}</List>
+          <Button compact icon="plus" onClick={() => setAdding({ kind: 'stage', index })}>
+            Согласующий
+          </Button>
+        </section>
+      ))}
+
+      {state.stages.length > 0 && (
+        <button
+          type="button"
+          className="ds-dropzone"
+          data-drop={targetKey({ kind: 'newStage', index: state.stages.length })}
+          data-hover={drag.hover === targetKey({ kind: 'newStage', index: state.stages.length })}
+          onClick={() => setAdding({ kind: 'newStage', index: state.stages.length })}
+        >
+          <Icon name="plus" size={20} />
+          {drag.active ? 'Отпустите — будет новый этап' : 'Новый этап'}
+        </button>
+      )}
+
+      {authorRoles.length > 0 && (
+        // Обязательная роль, которая есть только у автора: шаг согласуется сам. Сервер ставит его после согласующих и
+        // перед утверждением — здесь он там же, строкой, а не только подсказкой (ревью #111, п. 3).
+        <section className="ds-card">
+          <h2 className="ds-section__title">
+            Этап {state.stages.length + 1}
+            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · автоматически</span>
+          </h2>
+          <List label="Согласуется автоматически">
+            <div className="ds-row" role="listitem">
+              <span className="ds-row__body">
+                {/* В истории шаг хранит одну роль — первую; остальные названы ниже, чтобы конструктор и карточка не расходились. */}
+                <span className="ds-row__title">Вы · {authorRoles[0].name}</span>
+                <span className="ds-row__subtitle">
+                  {authorRoles.length > 1
+                    ? `Роли ${authorRoles.map((role) => `«${role.name}»`).join(', ')} в компании только у вас — согласуются автоматически одним шагом.`
+                    : 'Согласуется автоматически: эта роль в компании только у вас.'}{' '}
+                  Будет видно в истории.
+                </span>
+              </span>
+              <span style={{ display: 'inline-flex', width: 44, justifyContent: 'center', color: 'var(--status-success-fg)' }}>
+                <Icon name="check" size={20} />
+              </span>
+            </div>
+          </List>
+        </section>
+      )}
+
+      <section
+        className="ds-card ds-drop-target"
+        data-drop="endorser"
+        data-hover={drag.hover === 'endorser'}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: 'var(--status-endorse-fg)', display: 'inline-flex' }}><Icon name="endorse" size={20} /></span>
+          <h2 className="ds-section__title" style={{ flex: 1 }}>Утверждение</h2>
+        </div>
+        <p className="ds-section__hint" style={{ margin: 0 }}>
+          Последний шаг: один утверждающий, как гриф «УТВЕРЖДАЮ». После него документ — «Утверждён».
+        </p>
+        {state.endorser ? (
+          <List label="Утверждающий">{renderSlot(state.endorser, 'ENDORSEMENT')}</List>
+        ) : (
+          <>
+            <button type="button" className="ds-dropzone" onClick={() => setAdding({ kind: 'endorser' })}>
+              <Icon name="plus" size={20} />
+              Утверждающий
+            </button>
+            <p className="ds-section__hint" style={{ margin: 0 }}>Без утверждения итоговый статус — «Согласован».</p>
+          </>
+        )}
+      </section>
+
+      {drag.ghost && (
+        <div className="ds-drag-ghost" style={{ left: drag.ghost.x, top: drag.ghost.y }}>
+          <Icon name="drag" size={18} />
+          {drag.ghost.label}
+        </div>
+      )}
+
+      <AddSheet
+        target={adding}
+        state={state}
+        context={context}
+        onClose={() => setAdding(null)}
+        onPick={(member) => {
+          const target = adding;
+          if (!target) return;
+          setState((current) =>
+            target.kind === 'choice'
+              ? resolveChoice(current, target.slotId, member.user, context)
+              : addPerson(current, member, target, context));
+          setAdding(null);
+        }}
+      />
+
+      <SlotMenu
+        slot={menuSlot}
+        state={state}
+        locked={menuSlot !== null && isLocked(state, menuSlot, context)}
+        onClose={() => setMenuSlotId(null)}
+        onMove={(target) => {
+          if (menuSlotId) setState((current) => moveSlot(current, menuSlotId, target));
+          setMenuSlotId(null);
+        }}
+        onRemove={() => {
+          if (menuSlotId) setState((current) => removeSlot(current, menuSlotId, context));
+          setMenuSlotId(null);
+        }}
+      />
+
+      <BottomSheet open={stageMenu !== null} onClose={() => setStageMenu(null)} title={`Этап ${(stageMenu ?? 0) + 1}`}>
+        <List label="Порядок этапа">
+          {stageMenu !== null && stageMenu > 0 && (
+            <Row
+              title="Поставить раньше"
+              subtitle={`станет этапом ${stageMenu}`}
+              onClick={() => {
+                setState((current) => moveStage(current, stageMenu, -1));
+                setStageMenu(null);
+              }}
+            />
+          )}
+          {stageMenu !== null && stageMenu < state.stages.length - 1 && (
+            <Row
+              title="Поставить позже"
+              subtitle={`станет этапом ${stageMenu + 2}`}
+              onClick={() => {
+                setState((current) => moveStage(current, stageMenu, 1));
+                setStageMenu(null);
+              }}
+            />
+          )}
+        </List>
+      </BottomSheet>
+    </Page>
+  );
+}
+
+function SlotRow({
+  slot,
+  locked,
+  carried,
+  onOpen,
+  onRemove,
+  onDragStart,
+}: {
+  slot: Slot;
+  locked: boolean;
+  /** Прежнее решение переносится — подпись под именем; null — нет. */
+  carried: string | null;
+  onOpen: () => void;
+  onRemove: () => void;
+  onDragStart: (event: ReactPointerEvent<HTMLSpanElement>) => void;
+}) {
+  const nobody = slot.kind === 'choice' && slot.candidates.length === 0;
+  const title = slot.kind === 'person'
+    ? slot.name
+    : nobody ? `${slot.roleName} — нет сотрудника с этой ролью` : `${slot.roleName}: выберите сотрудника`;
+  const subtitle = slot.kind === 'person'
+    ? [slot.roleName, carried].filter(Boolean).join(' · ')
+    : nobody
+      ? 'Назначить роль или сделать её необязательной может администратор'
+      : `Роль есть у нескольких: ${slot.candidates.map((candidate) => candidate.fullName).join(', ')}`;
+  return (
+    <div className="ds-row" role="listitem" style={{ paddingLeft: 8 }}>
+      {/* Только для пальца и мыши: с клавиатуры и экранного диктора человек переносится через меню (нажатие на него). */}
+      <span className="ds-drag-handle" aria-hidden="true" onPointerDown={onDragStart}>
+        <Icon name="drag" size={20} />
+      </span>
+      <button
+        type="button"
+        onClick={onOpen}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          minHeight: 44,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 2,
+          padding: 0,
+          border: 'none',
+          background: 'none',
+          color: 'inherit',
+          font: 'inherit',
+          textAlign: 'left',
+          cursor: 'pointer',
+        }}
+      >
+        <span className="ds-row__title" style={slot.kind === 'choice' ? { color: nobody ? 'var(--status-danger-fg)' : 'var(--status-warning-fg)' } : undefined}>{title}</span>
+        <span className="ds-row__subtitle">{subtitle}</span>
+      </button>
+      {locked ? (
+        <span
+          title="Обязательный по правилам компании — убрать нельзя"
+          aria-label="Обязательный, убрать нельзя"
+          style={{ display: 'inline-flex', width: 44, justifyContent: 'center', color: 'var(--text-tertiary)' }}
+        >
+          <Icon name="lock" size={20} />
+        </span>
+      ) : (
+        <IconButton icon="close" label={`Убрать: ${title}`} onClick={onRemove} />
+      )}
+    </div>
+  );
+}
+
+/** Кого добавить или выбрать для роли: уже стоящие в маршруте — неактивны с подписью, где стоят (RTE-3). */
+function AddSheet({
+  target,
+  state,
+  context,
+  onClose,
+  onPick,
+}: {
+  target: AddTarget | null;
+  state: BuilderState;
+  context: BuilderContext;
+  onClose: () => void;
+  onPick: (member: MemberView) => void;
+}) {
+  const choice = target?.kind === 'choice' ? allSlotsOf(state).find((slot) => slot.id === target.slotId) ?? null : null;
+  const pool = choice && choice.kind === 'choice'
+    ? context.colleagues.filter((member) => choice.candidates.some((candidate) => candidate.id === member.user.id))
+    : context.colleagues;
+  const options: SelectOption<number>[] = pool.map((member) => ({
+    value: member.user.id,
+    label: member.user.fullName,
+    description: member.roles.map((role) => role.name).join(' · '),
+    disabledReason: placeOf(state, member.user.id) ?? undefined,
+  }));
+  let title = 'Добавить согласующего';
+  if (choice && choice.kind === 'choice') title = `Кто будет «${choice.roleName}»`;
+  else if (target?.kind === 'endorser') title = 'Кто утверждает';
+  else if (target?.kind === 'newStage') title = 'Новый этап';
+  else if (target?.kind === 'stage') title = `Добавить в этап ${target.index + 1}`;
+  return (
+    <SelectSheet
+      open={target !== null}
+      onClose={onClose}
+      title={title}
+      options={options}
+      searchable={options.length > 6}
+      emptyText="Добавить некого: у других сотрудников нет ролей. Роли назначает администратор."
+      onSelect={(userId) => {
+        const member = pool.find((item) => item.user.id === userId);
+        if (member) onPick(member);
+      }}
+    />
+  );
+}
+
+/** Меню человека: перенести в любой этап, в новый этап, в утверждение — дублирует перетаскивание (RTE-2). */
+function SlotMenu({
+  slot,
+  state,
+  locked,
+  onClose,
+  onMove,
+  onRemove,
+}: {
+  slot: Slot | null;
+  state: BuilderState;
+  locked: boolean;
+  onClose: () => void;
+  onMove: (target: Target) => void;
+  onRemove: () => void;
+}) {
+  const where = slot ? state.stages.findIndex((stage) => stage.slots.some((item) => item.id === slot.id)) : -1;
+  const isEndorser = slot !== null && state.endorser?.id === slot.id;
+  return (
+    <BottomSheet open={slot !== null} onClose={onClose} title={slot?.kind === 'person' ? slot.name : slot?.roleName ?? ''}>
+      <p className="ds-section__hint" style={{ margin: 0 }}>Перенести</p>
+      <List label="Перенести">
+        {state.stages.map((stage, index) =>
+          index === where ? null : (
+            <Row
+              key={stage.id}
+              title={`В этап ${index + 1}`}
+              subtitle={`вместе с: ${stage.slots.map((item) => (item.kind === 'person' ? item.name : item.roleName)).join(', ')}`}
+              onClick={() => onMove({ kind: 'stage', index })}
+            />
+          ))}
+        <Row title="Отдельным этапом в начале" onClick={() => onMove({ kind: 'newStage', index: 0 })} />
+        <Row title="Отдельным этапом в конце" subtitle="перед утверждением" onClick={() => onMove({ kind: 'newStage', index: state.stages.length })} />
+        {!isEndorser && (
+          <Row
+            title="Сделать утверждающим"
+            subtitle={state.endorser?.kind === 'person' ? `${state.endorser.name} станет последним этапом согласования` : 'последний шаг маршрута'}
+            onClick={() => onMove({ kind: 'endorser' })}
+          />
+        )}
+      </List>
+      {locked ? (
+        <Notice icon="lock">Обязательный по правилам компании для этого вида документа — перенести можно, убрать нельзя.</Notice>
+      ) : (
+        <Button variant="danger" stretched icon="close" onClick={onRemove}>
+          Убрать из маршрута
+        </Button>
       )}
     </BottomSheet>
   );
+}
+
+/**
+ * Перетаскивание за ручку ⋮⋮ (RTE-2): указатель захватывается ручкой, поэтому прокрутка страницы не мешает; цель —
+ * элемент с data-drop под пальцем. У края экрана список прокручивается сам. Только за ручку: так перетаскивание не
+ * спорит со скроллом, а нажатие на человека открывает меню с тем же переносом.
+ */
+function useDragAndDrop(onDrop: (slotId: string, target: Target) => void) {
+  const [ghost, setGhost] = useState<{ x: number; y: number; label: string } | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
+  const dragged = useRef<string | null>(null);
+  const hoverRef = useRef<string | null>(null);
+  const pointerY = useRef(0);
+  const onDropRef = useRef(onDrop);
+  onDropRef.current = onDrop;
+  const active = ghost !== null;
+
+  // Автопрокрутка у края: пока тянут у верхнего или нижнего края области, она прокручивается.
+  useEffect(() => {
+    if (!active) return undefined;
+    const scroller = document.querySelector('[data-scroll-root]');
+    const timer = window.setInterval(() => {
+      if (!scroller) return;
+      const rect = scroller.getBoundingClientRect();
+      if (pointerY.current < rect.top + 64) scroller.scrollBy({ top: -14 });
+      else if (pointerY.current > rect.bottom - 64) scroller.scrollBy({ top: 14 });
+    }, 30);
+    return () => window.clearInterval(timer);
+  }, [active]);
+
+  function targetAt(x: number, y: number): string | null {
+    for (const element of document.elementsFromPoint(x, y)) {
+      const key = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-drop]')?.dataset.drop : undefined;
+      if (key) return key;
+    }
+    return null;
+  }
+
+  function start(event: ReactPointerEvent<HTMLSpanElement>, slot: Slot) {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    dragged.current = slot.id;
+    pointerY.current = event.clientY;
+    const label = slot.kind === 'person' ? slot.name : slot.roleName;
+    setGhost({ x: event.clientX, y: event.clientY, label });
+
+    const move = (moveEvent: PointerEvent) => {
+      pointerY.current = moveEvent.clientY;
+      setGhost({ x: moveEvent.clientX, y: moveEvent.clientY, label });
+      const key = targetAt(moveEvent.clientX, moveEvent.clientY);
+      hoverRef.current = key;
+      setHover(key);
+    };
+    // Отмена жеста системой (звонок, системный жест, перехват прокрутки) — не перенос: человек остаётся на месте
+    // (ревью #111, п. 5). Переносит только отпускание пальца над целью.
+    const finish = (dropped: boolean) => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', cancel);
+      const target = dropped && hoverRef.current ? parseTarget(hoverRef.current) : null;
+      if (dragged.current && target) onDropRef.current(dragged.current, target);
+      dragged.current = null;
+      hoverRef.current = null;
+      setGhost(null);
+      setHover(null);
+    };
+    const end = () => finish(true);
+    const cancel = () => finish(false);
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', cancel);
+  }
+
+  return { start, ghost, hover, active };
 }

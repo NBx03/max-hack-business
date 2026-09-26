@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
 import { launchDataFromHash, launchDataToReloadFor } from '../app/launch';
-import { parentRoute } from './backNavigation';
+import { backTarget, parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
 
@@ -50,6 +50,17 @@ describe('resolveEntryRoute', () => {
     expect(resolveEntryRoute({ ...base, startParam: 'c_KX7M2PQR' })).toBe('/join?code=KX7M2PQR');
     expect(resolveEntryRoute({ ...base, startParam: 'p_token' })).toBe('/join/personal/token');
     expect(resolveEntryRoute({ ...member, startParam: 'd_5' })).toBe('/documents/5');
+  });
+
+  it('кнопки бота: s_ — результаты поиска (LNK-3), a_requests — заявки (LNK-4)', () => {
+    // «записка отпуск» в base64url — так бот кладёт запрос в параметр запуска.
+    expect(resolveEntryRoute({ ...member, startParam: 's_0LfQsNC_0LjRgdC60LAg0L7RgtC_0YPRgdC6' })).toBe(
+      `/documents/search?q=${encodeURIComponent('записка отпуск')}`,
+    );
+    expect(resolveEntryRoute({ ...member, startParam: 's_%%%' })).toBe('/documents/search');
+    expect(resolveEntryRoute({ ...member, startParam: 'a_requests' })).toBe('/admin/requests');
+    // Без компании эти кнопки не ведут никуда особенного.
+    expect(resolveEntryRoute({ ...base, startParam: 'a_requests' })).toBe('/welcome');
   });
 
   it('приглашение игнорируется, если человек уже в компании или ждёт решения', () => {
@@ -126,10 +137,13 @@ describe('launchDataFromHash — данные повторного запуск�
 
 describe('launchDataToReloadFor', () => {
   // Повторное открытие из бота: перезагрузка — только ради новых данных запуска и только один раз (ревью #96).
-  const hash = '#WebAppData=new-launch';
+  const hash = `#WebAppData=${encodeURIComponent('query_id=q2&auth_date=2&start_param=d_5')}`;
 
-  it('перезагружает ради новых данных запуска', () => {
-    expect(launchDataToReloadFor(hash, 'old-launch', null)).not.toBeNull();
+  it('перезагружает ради любых новых данных запуска в хэше — и по той же ссылке, и без параметра', () => {
+    // открыли d_5 → ушли → снова d_5: MAX кладёт в хэш новую строку (ревью Ильи на #110, Матвея на #112)
+    expect(launchDataToReloadFor(hash, 'query_id=q1&auth_date=1&start_param=d_5', null)).not.toBeNull();
+    // кнопка бота без параметра («Заявка одобрена»)
+    expect(launchDataToReloadFor(`#WebAppData=${encodeURIComponent('query_id=q3&auth_date=3')}`, 'query_id=q1&auth_date=1', null)).not.toBeNull();
   });
 
   it('не перезагружает второй раз ради той же строки — даже если мост её так и не принял', () => {
@@ -141,5 +155,22 @@ describe('launchDataToReloadFor', () => {
     expect(launchDataToReloadFor(hash, undefined, null)).toBeNull();
     expect(launchDataToReloadFor('', 'old-launch', null)).toBeNull();
     expect(launchDataToReloadFor('#WebAppData=same', 'same', null)).toBeNull();
+  });
+});
+
+describe('backTarget — системная «Назад» туда же, куда ссылка в шапке (ревью Матвея на #110)', () => {
+  it('карточка из списка — обратно в список, из поиска — в поиск', () => {
+    expect(backTarget('/documents/5', { from: '/documents/list/mine' }, '/home')).toBe('/documents/list/mine');
+    expect(backTarget('/documents/5', { from: '/documents/search?q=%D0%B0' }, '/home')).toBe('/documents/search?q=%D0%B0');
+  });
+
+  it('конструктор с экрана проверки — на проверку', () => {
+    expect(backTarget('/documents/5/route', { from: 'check' }, '/home')).toBe('/documents/5/check');
+  });
+
+  it('без state и с чужим адресом — логический родитель', () => {
+    expect(backTarget('/documents/5', null, '/home')).toBe('/home');
+    expect(backTarget('/documents/5', { from: '//evil.example' }, '/home')).toBe('/home');
+    expect(backTarget('/documents/5/route', {}, '/home')).toBe('/documents/5');
   });
 });
