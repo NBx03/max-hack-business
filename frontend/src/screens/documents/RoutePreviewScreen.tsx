@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import { getColleagues } from '../../api/organization';
-import type { MemberView, RoutePreview } from '../../api/types';
+import type { MemberView, RoutePreview, StepKind } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
@@ -22,8 +22,10 @@ import {
   PageHeader,
   Row,
   SelectSheet,
+  Stepper,
   type SelectOption,
 } from '../../ui';
+import { CREATE_STEPS } from './uploadFormats';
 import {
   addPerson,
   contextOf,
@@ -98,7 +100,7 @@ export function RoutePreviewScreen() {
     );
   }
   const [preview, colleagues] = query.data;
-  return <RouteBuilder documentId={documentId} preview={preview} colleagues={colleagues} authorId={authorId} back={back} />;
+  return <RouteBuilder documentId={documentId} preview={preview} colleagues={colleagues} authorId={authorId} back={back} fromCheck={fromCheck} />;
 }
 
 type AddTarget = Target | { kind: 'choice'; slotId: string };
@@ -109,12 +111,15 @@ function RouteBuilder({
   colleagues,
   authorId,
   back,
+  fromCheck,
 }: {
   documentId: number;
   preview: RoutePreview;
   colleagues: MemberView[];
   authorId: number | undefined;
   back: { to: string; label: string };
+  /** Пришли с шага проверки — показываем шаги создания (UPL-3). */
+  fromCheck: boolean;
 }) {
   const navigate = useNavigate();
   const context = useMemo(() => contextOf(preview, colleagues, authorId), [preview, colleagues, authorId]);
@@ -127,15 +132,17 @@ function RouteBuilder({
   const drag = useDragAndDrop((slotId, target) => setState((current) => moveSlot(current, slotId, target)));
 
   const serverProblems = preview.problems;
-  const localProblems = problemsOf(state);
-  const authorApproves = preview.stages.flatMap((stage) => stage.participants).filter((item) => item.resolution === 'AUTHOR_HOLDS_ROLE');
-  const carried = (userId: number, roleId: number) =>
-    preview.carryOver?.approvals.some((approval) => approval.userId === userId && approval.roleId === roleId) ?? false;
+  const localProblems = problemsOf(state, context);
+  const authorRoles = context.authorRoles;
+  const carried = (slot: Slot, kind: StepKind) =>
+    slot.kind === 'person'
+    && (preview.carryOver?.approvals.some((approval) =>
+      approval.userId === slot.userId && approval.roleId === slot.roleId && approval.kind === kind) ?? false);
   const canSubmit = serverProblems.length === 0 && localProblems.length === 0 && !submitting;
   const menuSlot = menuSlotId === null ? null : allSlotsOf(state).find((slot) => slot.id === menuSlotId) ?? null;
 
   async function submit() {
-    const body = toSubmit(state);
+    const body = toSubmit(state, context);
     if (!body) return;
     setSubmitting(true);
     setSubmitError(null);
@@ -149,13 +156,20 @@ function RouteBuilder({
     }
   }
 
-  const renderSlot = (slot: Slot) => (
+  const renderSlot = (slot: Slot, kind: StepKind = 'APPROVAL') => (
     <SlotRow
       key={slot.id}
       slot={slot}
       locked={isLocked(state, slot, context)}
-      carried={slot.kind === 'person' && carried(slot.userId, slot.roleId)}
-      onOpen={() => (slot.kind === 'choice' ? setAdding({ kind: 'choice', slotId: slot.id }) : setMenuSlotId(slot.id))}
+      carried={carried(slot, kind) ? (kind === 'ENDORSEMENT' ? 'утверждение сохранится — документ не менялся' : 'согласие сохранится — документ не менялся') : null}
+      onOpen={() => {
+        if (slot.kind === 'choice') {
+          // Без кандидатов выбирать некого — панель выбора не открываем.
+          if (slot.candidates.length > 0) setAdding({ kind: 'choice', slotId: slot.id });
+        } else {
+          setMenuSlotId(slot.id);
+        }
+      }}
       onRemove={() => setState((current) => removeSlot(current, slot.id, context))}
       onDragStart={(event) => drag.start(event, slot)}
     />
@@ -164,11 +178,14 @@ function RouteBuilder({
   return (
     <Page
       header={
-        <PageHeader
-          back={back}
-          title="Маршрут"
-          subtitle="Этапы идут по очереди, люди внутри этапа согласуют одновременно. Последним документ утверждают."
-        />
+        <>
+          <PageHeader
+            back={back}
+            title="Маршрут"
+            subtitle="Этапы идут по очереди, люди внутри этапа согласуют одновременно. Последним документ утверждают."
+          />
+          {fromCheck && <Stepper steps={CREATE_STEPS} current={2} />}
+        </>
       }
       footer={
         <>
@@ -182,18 +199,27 @@ function RouteBuilder({
         </>
       }
     >
-      {serverProblems.map((problem) => (
+      {/* Роль без носителей конструктор показывает сам — строкой в этапе и подсказкой у кнопки; сверху не повторяем. */}
+      {serverProblems.filter((problem) => problem.code !== 'ROUTE_ROLE_EMPTY').map((problem) => (
         <Notice key={problem.code} tone="danger">{problem.message}</Notice>
       ))}
       <Muted>
         Перетащите человека за <Icon name="drag" size={14} /> или нажмите на него, чтобы перенести. Замок — обязательный
         по правилам компании: перенести можно, убрать нельзя.
       </Muted>
-      {authorApproves.length > 0 && (
-        <Notice>
-          {authorApproves.map((item) => `«${item.role.name}»`).join(', ')} — это вы: этот шаг согласуется автоматически и
-          будет виден в истории.
-        </Notice>
+      {state.stages.length === 0 && (
+        // Пустой маршрут — сразу карточка «Этап 1» с «+ Согласующий», а не одна пунктирная заглушка (ревью #111, п. 4).
+        <section
+          className="ds-card ds-drop-target"
+          data-drop={targetKey({ kind: 'newStage', index: 0 })}
+          data-hover={drag.hover === targetKey({ kind: 'newStage', index: 0 })}
+        >
+          <h2 className="ds-section__title">Этап 1</h2>
+          <p className="ds-section__hint" style={{ margin: 0 }}>Пока никого — добавьте, кто согласует документ.</p>
+          <Button compact icon="plus" onClick={() => setAdding({ kind: 'newStage', index: 0 })}>
+            Согласующий
+          </Button>
+        </section>
       )}
 
       {state.stages.map((stage, index) => (
@@ -212,23 +238,53 @@ function RouteBuilder({
               <IconButton icon="more" label={`Порядок этапа ${index + 1}`} onClick={() => setStageMenu(index)} />
             )}
           </div>
-          <List label={`Этап ${index + 1}`}>{stage.slots.map(renderSlot)}</List>
+          <List label={`Этап ${index + 1}`}>{stage.slots.map((slot) => renderSlot(slot))}</List>
           <Button compact icon="plus" onClick={() => setAdding({ kind: 'stage', index })}>
             Согласующий
           </Button>
         </section>
       ))}
 
-      <button
-        type="button"
-        className="ds-dropzone"
-        data-drop={targetKey({ kind: 'newStage', index: state.stages.length })}
-        data-hover={drag.hover === targetKey({ kind: 'newStage', index: state.stages.length })}
-        onClick={() => setAdding({ kind: 'newStage', index: state.stages.length })}
-      >
-        <Icon name="plus" size={20} />
-        {drag.active ? 'Отпустите — будет новый этап' : 'Новый этап'}
-      </button>
+      {state.stages.length > 0 && (
+        <button
+          type="button"
+          className="ds-dropzone"
+          data-drop={targetKey({ kind: 'newStage', index: state.stages.length })}
+          data-hover={drag.hover === targetKey({ kind: 'newStage', index: state.stages.length })}
+          onClick={() => setAdding({ kind: 'newStage', index: state.stages.length })}
+        >
+          <Icon name="plus" size={20} />
+          {drag.active ? 'Отпустите — будет новый этап' : 'Новый этап'}
+        </button>
+      )}
+
+      {authorRoles.length > 0 && (
+        // Обязательная роль, которая есть только у автора: шаг согласуется сам. Сервер ставит его после согласующих и
+        // перед утверждением — здесь он там же, строкой, а не только подсказкой (ревью #111, п. 3).
+        <section className="ds-card">
+          <h2 className="ds-section__title">
+            Этап {state.stages.length + 1}
+            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · автоматически</span>
+          </h2>
+          <List label="Согласуется автоматически">
+            <div className="ds-row" role="listitem">
+              <span className="ds-row__body">
+                {/* В истории шаг хранит одну роль — первую; остальные названы ниже, чтобы конструктор и карточка не расходились. */}
+                <span className="ds-row__title">Вы · {authorRoles[0].name}</span>
+                <span className="ds-row__subtitle">
+                  {authorRoles.length > 1
+                    ? `Роли ${authorRoles.map((role) => `«${role.name}»`).join(', ')} в компании только у вас — согласуются автоматически одним шагом.`
+                    : 'Согласуется автоматически: эта роль в компании только у вас.'}{' '}
+                  Будет видно в истории.
+                </span>
+              </span>
+              <span style={{ display: 'inline-flex', width: 44, justifyContent: 'center', color: 'var(--status-success-fg)' }}>
+                <Icon name="check" size={20} />
+              </span>
+            </div>
+          </List>
+        </section>
+      )}
 
       <section
         className="ds-card ds-drop-target"
@@ -243,7 +299,7 @@ function RouteBuilder({
           Последний шаг: один утверждающий, как гриф «УТВЕРЖДАЮ». После него документ — «Утверждён».
         </p>
         {state.endorser ? (
-          <List label="Утверждающий">{renderSlot(state.endorser)}</List>
+          <List label="Утверждающий">{renderSlot(state.endorser, 'ENDORSEMENT')}</List>
         ) : (
           <>
             <button type="button" className="ds-dropzone" onClick={() => setAdding({ kind: 'endorser' })}>
@@ -331,18 +387,25 @@ function SlotRow({
 }: {
   slot: Slot;
   locked: boolean;
-  carried: boolean;
+  /** Прежнее решение переносится — подпись под именем; null — нет. */
+  carried: string | null;
   onOpen: () => void;
   onRemove: () => void;
   onDragStart: (event: ReactPointerEvent<HTMLSpanElement>) => void;
 }) {
-  const title = slot.kind === 'person' ? slot.name : `${slot.roleName}: выберите сотрудника`;
+  const nobody = slot.kind === 'choice' && slot.candidates.length === 0;
+  const title = slot.kind === 'person'
+    ? slot.name
+    : nobody ? `${slot.roleName} — нет сотрудника с этой ролью` : `${slot.roleName}: выберите сотрудника`;
   const subtitle = slot.kind === 'person'
-    ? [slot.roleName, carried ? 'согласие сохранится — документ не менялся' : null].filter(Boolean).join(' · ')
-    : `Роль есть у нескольких: ${slot.candidates.map((candidate) => candidate.fullName).join(', ')}`;
+    ? [slot.roleName, carried].filter(Boolean).join(' · ')
+    : nobody
+      ? 'Назначить роль или сделать её необязательной может администратор'
+      : `Роль есть у нескольких: ${slot.candidates.map((candidate) => candidate.fullName).join(', ')}`;
   return (
     <div className="ds-row" role="listitem" style={{ paddingLeft: 8 }}>
-      <span className="ds-drag-handle" aria-label={`Перетащить: ${title}`} role="button" onPointerDown={onDragStart}>
+      {/* Только для пальца и мыши: с клавиатуры и экранного диктора человек переносится через меню (нажатие на него). */}
+      <span className="ds-drag-handle" aria-hidden="true" onPointerDown={onDragStart}>
         <Icon name="drag" size={20} />
       </span>
       <button
@@ -365,7 +428,7 @@ function SlotRow({
           cursor: 'pointer',
         }}
       >
-        <span className="ds-row__title" style={slot.kind === 'choice' ? { color: 'var(--status-warning-fg)' } : undefined}>{title}</span>
+        <span className="ds-row__title" style={slot.kind === 'choice' ? { color: nobody ? 'var(--status-danger-fg)' : 'var(--status-warning-fg)' } : undefined}>{title}</span>
         <span className="ds-row__subtitle">{subtitle}</span>
       </button>
       {locked ? (
@@ -532,20 +595,24 @@ function useDragAndDrop(onDrop: (slotId: string, target: Target) => void) {
       hoverRef.current = key;
       setHover(key);
     };
-    const end = () => {
+    // Отмена жеста системой (звонок, системный жест, перехват прокрутки) — не перенос: человек остаётся на месте
+    // (ревью #111, п. 5). Переносит только отпускание пальца над целью.
+    const finish = (dropped: boolean) => {
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', end);
-      handle.removeEventListener('pointercancel', end);
-      const target = hoverRef.current ? parseTarget(hoverRef.current) : null;
+      handle.removeEventListener('pointercancel', cancel);
+      const target = dropped && hoverRef.current ? parseTarget(hoverRef.current) : null;
       if (dragged.current && target) onDropRef.current(dragged.current, target);
       dragged.current = null;
       hoverRef.current = null;
       setGhost(null);
       setHover(null);
     };
+    const end = () => finish(true);
+    const cancel = () => finish(false);
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', end);
-    handle.addEventListener('pointercancel', end);
+    handle.addEventListener('pointercancel', cancel);
   }
 
   return { start, ghost, hover, active };

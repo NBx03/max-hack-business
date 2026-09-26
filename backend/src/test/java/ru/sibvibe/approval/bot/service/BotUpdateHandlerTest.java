@@ -78,6 +78,50 @@ class BotUpdateHandlerTest {
     }
 
     @Test
+    void inviteToSomeoneAlreadyInACompanyIsJustTheGreeting() throws Exception {
+        when(links.appLink()).thenReturn(APP_LINK);
+        when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.of(new Membership(7L, 1L)));
+
+        // ревью #112, п. 3: мини-приложение пустит участника на главную, а не к заявке — не обещаем заявку
+        handler.handle(json("""
+                { "update_type": "bot_started", "payload": "c_KX7M2PQR", "user": { "user_id": 910000042 } }
+                """));
+        handler.handle(message("/start p_token123"));
+
+        verify(notifier, org.mockito.Mockito.times(2)).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+        verify(links, never()).startLink(anyString());
+    }
+
+    @Test
+    void inviteToSomeoneWithAPendingJoinRequestIsJustTheGreeting() throws Exception {
+        // ревью Матвея на #112, п. 6: приложение покажет прежнюю заявку — новую не обещаем
+        when(links.appLink()).thenReturn(APP_LINK);
+        when(directory.hasPendingJoinRequest(910000042L)).thenReturn(true);
+
+        handler.handle(json("""
+                { "update_type": "bot_started", "payload": "c_KX7M2PQR", "user": { "user_id": 910000042 } }
+                """));
+
+        verify(notifier).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+        verify(links, never()).startLink(anyString());
+    }
+
+    @Test
+    void payloadLengthLimitIsFiveHundredAfterThePrefix() throws Exception {
+        when(links.appLink()).thenReturn(APP_LINK);
+        String fits = "d_" + "1".repeat(500);
+        String tooLong = "d_" + "1".repeat(501);
+        when(links.startLink(fits)).thenReturn(DOCUMENT_LINK);
+
+        handler.handle(message("/start " + fits));
+        handler.handle(message("/start " + tooLong));
+
+        verify(notifier).send(eq(910000042L), anyString(), eq("Открыть документ"), eq(DOCUMENT_LINK));
+        verify(links, never()).startLink(tooLong);
+        verify(notifier).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+    }
+
+    @Test
     void foreignOrMalformedPayloadFallsBackToTheGreeting() throws Exception {
         when(links.appLink()).thenReturn(APP_LINK);
         when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.empty());
@@ -151,8 +195,10 @@ class BotUpdateHandlerTest {
     }
 
     @Test
-    void messageMatchingSeveralDocumentsListsThemWithoutAButton() throws Exception {
-        when(links.appLink()).thenReturn(APP_LINK);
+    void messageMatchingSeveralDocumentsListsThemAndOpensTheSearchInTheApp() throws Exception {
+        // LNK-3: кнопка несёт сам запрос (base64url от «заявление»), приложение откроет результаты поиска
+        String searchLink = APP_LINK + "?startapp=s_0LfQsNGP0LLQu9C10L3QuNC1";
+        when(links.startLink("s_0LfQsNGP0LLQu9C10L3QuNC1")).thenReturn(searchLink);
         when(directory.findRealMembershipByMaxUserId(910000042L)).thenReturn(Optional.of(new Membership(7L, 1L)));
         when(documents.findByTitleFragment(1L, 7L, "заявление", 5)).thenReturn(List.of(
                 new DocumentLookup.Match(500L, "Заявление на отпуск", "APPROVED", null),
@@ -161,7 +207,7 @@ class BotUpdateHandlerTest {
         handler.handle(message("заявление"));
 
         org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(notifier).send(eq(910000042L), text.capture(), anyString(), eq(APP_LINK));
+        verify(notifier).send(eq(910000042L), text.capture(), eq("Показать все"), eq(searchLink));
         assertThat(text.getValue()).contains("Заявление на отпуск").contains("Заявление на командировку");
     }
 

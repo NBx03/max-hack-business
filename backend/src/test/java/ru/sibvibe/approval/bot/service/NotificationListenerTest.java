@@ -49,14 +49,14 @@ class NotificationListenerTest {
         when(directory.find(77L)).thenReturn(Optional.of(new Recipient(910000077L, "Иван Заявитель")));
         when(directory.activeAdmins(1L)).thenReturn(List.of(
                 new Recipient(910000001L, "Админ Один"), new Recipient(910000002L, "Админ Два")));
-        when(links.appLink()).thenReturn("https://max.ru/t354_hakaton_max_bot");
+        String requestsLink = "https://max.ru/t354_hakaton_max_bot?startapp=a_requests";
+        when(links.joinRequestsLink()).thenReturn(requestsLink);
 
         listener.on(new JoinRequestSubmittedEvent(1L, 300L, 77L));
 
-        verify(notifier).send(eq(910000001L), contains("Иван Заявитель"),
-                eq("Открыть"), eq("https://max.ru/t354_hakaton_max_bot"));
-        verify(notifier).send(eq(910000002L), contains("Иван Заявитель"),
-                eq("Открыть"), eq("https://max.ru/t354_hakaton_max_bot"));
+        // LNK-4: кнопка ведёт сразу на «Заявки», а не на главную
+        verify(notifier).send(eq(910000001L), contains("Иван Заявитель"), eq("Открыть заявки"), eq(requestsLink));
+        verify(notifier).send(eq(910000002L), contains("Иван Заявитель"), eq("Открыть заявки"), eq(requestsLink));
     }
 
     @Test
@@ -141,7 +141,7 @@ class NotificationListenerTest {
                 12L, new Recipient(910000012L, "Согласующий Два")));
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
-        listener.on(new ApprovalRequestedEvent(500L, 1, 1, Set.of(11L, 12L), 99L, "Закупка ноутбуков"));
+        listener.on(new ApprovalRequestedEvent(500L, 1, 1, Set.of(11L, 12L), 99L, "Закупка ноутбуков", false));
 
         String documentUrl = "https://max.ru/t354_hakaton_max_bot?startapp=d_500";
         verify(notifier).send(eq(910000011L), contains("Закупка ноутбуков"), anyString(), eq(documentUrl));
@@ -170,7 +170,7 @@ class NotificationListenerTest {
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
         listener.on(new DocumentDecidedEvent(
-                500L, 1, 99L, DocumentDecidedEvent.Outcome.RETURNED, 11L, "Закупка ноутбуков"));
+                500L, 1, 99L, DocumentDecidedEvent.Outcome.RETURNED, 11L, "Закупка ноутбуков", false));
 
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
         verify(notifier).send(eq(910000099L), text.capture(), anyString(),
@@ -184,7 +184,7 @@ class NotificationListenerTest {
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
         listener.on(new DocumentDecidedEvent(
-                500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков"));
+                500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков", false));
 
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
         verify(notifier).send(eq(910000099L), text.capture(), anyString(), any());
@@ -196,7 +196,7 @@ class NotificationListenerTest {
         when(directory.find(99L)).thenReturn(Optional.empty());
 
         listener.on(new DocumentDecidedEvent(
-                500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков"));
+                500L, 1, 99L, DocumentDecidedEvent.Outcome.APPROVED, null, "Закупка ноутбуков", false));
 
         verify(notifier, never()).send(anyLong(), anyString(), anyString(), any());
     }
@@ -206,7 +206,7 @@ class NotificationListenerTest {
         when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Согласующий")));
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
-        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 76));
+        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 76, false));
 
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
         verify(notifier).send(eq(910000011L), text.capture(), anyString(),
@@ -219,7 +219,7 @@ class NotificationListenerTest {
         when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Согласующий")));
         when(links.documentLink(500L)).thenReturn("https://max.ru/t354_hakaton_max_bot?startapp=d_500");
 
-        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 5));
+        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 5, false));
 
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
         verify(notifier).send(eq(910000011L), text.capture(), anyString(), any());
@@ -231,8 +231,8 @@ class NotificationListenerTest {
         when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Согласующий")));
         when(links.documentLink(500L)).thenReturn("url");
 
-        listener.on(new StuckStepReminderEvent(500L, 1, 1, 11L, "Документ", 24)); // 1 день
-        listener.on(new StuckStepReminderEvent(501L, 1, 1, 11L, "Документ", 11 * 24)); // 11 дней
+        listener.on(new StuckStepReminderEvent(500L, 1, 1, 11L, "Документ", 24, false)); // 1 день
+        listener.on(new StuckStepReminderEvent(501L, 1, 1, 11L, "Документ", 11 * 24, false)); // 11 дней
 
         ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
         verify(notifier, times(2)).send(eq(910000011L), text.capture(), anyString(), any());
@@ -241,10 +241,22 @@ class NotificationListenerTest {
     }
 
     @Test
+    void stuckStepReminderToEndorserSaysApprovalAndNamesTheSection() {
+        when(directory.find(11L)).thenReturn(Optional.of(new Recipient(910000011L, "Утверждающий")));
+        when(links.documentLink(500L)).thenReturn("url");
+
+        listener.on(new StuckStepReminderEvent(500L, 1, 3, 11L, "Служебная записка", 30, true));
+
+        ArgumentCaptor<String> text = ArgumentCaptor.forClass(String.class);
+        verify(notifier).send(eq(910000011L), text.capture(), anyString(), any());
+        assertThat(text.getValue()).contains("ждёт вашего утверждения уже 1 день").contains("«На моём согласовании»");
+    }
+
+    @Test
     void stuckStepReminderDoesNothingIfApproverIsGone() {
         when(directory.find(11L)).thenReturn(Optional.empty());
 
-        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 76));
+        listener.on(new StuckStepReminderEvent(500L, 1, 2, 11L, "Заявление на отпуск", 76, false));
 
         verifyNoInteractions(notifier);
     }

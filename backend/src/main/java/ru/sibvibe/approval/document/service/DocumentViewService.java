@@ -114,6 +114,7 @@ public class DocumentViewService {
             Long authorId,
             LocalDate from,
             LocalDate to,
+            String query,
             int page,
             int size
     ) {
@@ -122,7 +123,7 @@ public class DocumentViewService {
         Instant toExclusive = to == null ? null : to.plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant();
         DocumentReadRepository.PageRows rows = readRepository.findDocuments(
                 tab, orgId, currentUser.userId(), status, typeId, authorId,
-                fromInstant, toExclusive, page, size);
+                fromInstant, toExclusive, query, page, size);
         List<DocumentListResponse.Item> items = rows.items().stream()
                 .map(row -> new DocumentListResponse.Item(
                         row.id(),
@@ -134,7 +135,10 @@ public class DocumentViewService {
                         row.currentVersionNo(),
                         row.currentStage(),
                         row.updatedAt(),
-                        tab == DocumentListTab.WAITING_ME ? row.waitingSince() : null))
+                        tab == DocumentListTab.WAITING_ME ? row.waitingSince() : null,
+                        row.recognizedKind() == null
+                                ? null
+                                : new DocumentListResponse.RecognizedKind(row.recognizedKind(), row.recognizedKindFromAi())))
                 .toList();
         return new DocumentListResponse(items, page, size, rows.total());
     }
@@ -212,7 +216,7 @@ public class DocumentViewService {
                 document.getId(),
                 document.getTitle(),
                 new DocumentCardResponse.TypeRef(
-                        type.getId(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
+                        type.getId(), type.getCode(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
                 document.getStatus(),
                 readRepository.displayStatus(documentId),
                 document.getVisibility(),

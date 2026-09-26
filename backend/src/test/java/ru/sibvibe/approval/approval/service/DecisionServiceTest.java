@@ -69,6 +69,44 @@ class DecisionServiceTest {
     }
 
     @Test
+    void carriedOverEndorsementMakesTheOutcomeEndorsedEvenIfAnEarlierApproverDecidesLast() {
+        // ревью Матвея на #112, п. 3: утверждение перенесено с прошлой версии, последним решает согласующий этапа 1
+        ApprovalStep mine = pending(1, 1, ME);
+        ApprovalStep endorsement = pending(2, 2, 9);
+        endorsement.setKind(ApprovalStep.Kind.ENDORSEMENT);
+        endorsement.setDecision(Decision.APPROVED);
+        endorsement.setAutoReason(ApprovalStep.AutoReason.CARRIED_OVER);
+        givenInApproval(1, mine, endorsement);
+
+        service.decide(user(), 1, approve());
+
+        verify(documents).approve(DOC);
+        assertThat(event(DocumentDecidedEvent.class).endorsed()).isTrue();
+    }
+
+    @Test
+    void nextStageBeingAnEndorsementIsFlaggedForTheNotification() {
+        ApprovalStep mine = pending(1, 1, ME);
+        ApprovalStep endorsement = pending(2, 2, 9);
+        endorsement.setKind(ApprovalStep.Kind.ENDORSEMENT);
+        givenInApproval(1, mine, endorsement);
+
+        service.decide(user(), 1, approve());
+
+        assertThat(event(ApprovalRequestedEvent.class).endorsement()).isTrue();
+    }
+
+    @Test
+    void plainApprovalWithoutEndorsementIsNotEndorsed() {
+        ApprovalStep mine = pending(1, 1, ME);
+        givenInApproval(1, mine);
+
+        service.decide(user(), 1, approve());
+
+        assertThat(event(DocumentDecidedEvent.class).endorsed()).isFalse();
+    }
+
+    @Test
     void stageWithAnotherPendingParticipantStaysOpen() {
         ApprovalStep mine = pending(1, 1, ME);
         ApprovalStep parallel = pending(2, 1, 8);

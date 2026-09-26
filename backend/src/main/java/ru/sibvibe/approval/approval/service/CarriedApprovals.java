@@ -17,7 +17,8 @@ import java.util.stream.Collectors;
  * отличается</b> от прошлой — те же файлы, те же значения полей, — повторно спрашивать тех, кто её уже
  * одобрил, незачем: это те же байты. Так бывает, когда автор отозвал документ, чтобы добавить согласующего,
  * или документ вернули из-за маршрута, а не из-за текста, или согласующего исключили из компании.
- * Вернувший документ решает заново: его шаг в прошлой версии — не одобрение.
+ * Вернувший документ решает заново: его шаг в прошлой версии — не одобрение. Переносится только решение того же
+ * вида: «согласовал» не превращается в «утвердил» (ревью #111, п. 1) — гриф «УТВЕРЖДАЮ» ставит только нажавший «Утвердить».
  *
  * Сравнивается только с непосредственно предыдущей версией; цепочка переносов работает сама: перенесённое
  * одобрение — тоже одобрение.
@@ -43,18 +44,18 @@ public class CarriedApprovals {
                 // Автосогласование автором не переносим: при новой отправке оно и так получится само.
                 .filter(step -> step.getDecision() == ApprovalStep.Decision.APPROVED
                         && step.getAutoReason() != ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE)
-                .map(step -> new Key(step.getRoleId(), step.getApproverId()))
+                .map(step -> new Key(step.getRoleId(), step.getApproverId(), step.getKind()))
                 .collect(Collectors.toUnmodifiableSet());
         return approved.isEmpty() ? Optional.empty() : Optional.of(new Carried(versionNo - 1, approved));
     }
 
-    public record Key(long roleId, long userId) {
+    public record Key(long roleId, long userId, ApprovalStep.Kind kind) {
     }
 
     public record Carried(int fromVersionNo, Set<Key> approvals) {
 
-        public boolean covers(long roleId, long userId) {
-            return approvals.contains(new Key(roleId, userId));
+        public boolean covers(long roleId, long userId, ApprovalStep.Kind kind) {
+            return approvals.contains(new Key(roleId, userId, kind));
         }
     }
 }

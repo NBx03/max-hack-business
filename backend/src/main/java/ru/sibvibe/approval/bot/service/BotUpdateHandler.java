@@ -41,6 +41,7 @@ public class BotUpdateHandler {
     private static final String OPEN_BUTTON = "Открыть мини-приложение";
     /** Наши параметры запуска: c_ — код компании, p_ — личное приглашение, d_ — документ (API_CONTRACTS.md). */
     private static final java.util.regex.Pattern PAYLOAD = java.util.regex.Pattern.compile("^(c|p|d)_[A-Za-z0-9_-]{1,500}$");
+    // a_ (экран заявок) и s_ (поиск) бот сам кладёт в свои кнопки, а по ссылке в чат они не приходят.
     private static final String OPEN_DOCUMENT = "Открыть документ";
     private static final String NOT_FOUND = "Не нашёл документ с таким названием. "
             + "Напишите часть названия точнее или откройте мини-приложение.";
@@ -83,8 +84,11 @@ public class BotUpdateHandler {
         switch (type) {
             case "bot_started" -> {
                 Long userId = userId(update.path("user"));
-                if (userId != null && !openByPayload(userId, update.path("payload").asText(""))) {
-                    greet(userId, membership(userId));
+                if (userId != null) {
+                    Optional<Membership> membership = membership(userId);
+                    if (!openByPayload(userId, update.path("payload").asText(""), membership)) {
+                        greet(userId, membership);
+                    }
                 }
             }
             case "message_created" -> handleMessage(update.path("message"));
@@ -109,7 +113,7 @@ public class BotUpdateHandler {
         // bot_started) - это не название документа. Без проверки первый же ручной /start участника
         // компании получил бы «Не нашёл документ» вместо приветствия (PR #83, ревью, блокирующее).
         Optional<Membership> membership = membership(userId);
-        if (text.startsWith("/start ") && openByPayload(userId, text.substring("/start ".length()).strip())) {
+        if (text.startsWith("/start ") && openByPayload(userId, text.substring("/start ".length()).strip(), membership)) {
             return;
         }
         if (text.isEmpty() || text.startsWith("/")) {
@@ -125,10 +129,15 @@ public class BotUpdateHandler {
      * Человек пришёл по ссылке с параметром в чат с ботом, а не в мини-приложение (ссылка {@code ?start=}, первый
      * запуск бота, клиент MAX открыл чат) — бот отвечает кнопкой, которая открывает мини-приложение с тем же
      * параметром (LNK-1, LNK-2). Иначе человек нажал бы «Открыть» у приветствия и попал на приветственный экран.
-     * Параметр — только наших видов и только разрешённые MAX символы; остальное — обычное приветствие.
+     * Параметр — только наших видов и только разрешённые MAX символы; остальное — обычное приветствие. Приглашение
+     * тому, кто уже в компании, — тоже приветствие: мини-приложение пустит его на главную, а не к заявке (ревью #112, п. 3).
      */
-    private boolean openByPayload(long userId, String payload) {
+    private boolean openByPayload(long userId, String payload, Optional<Membership> membership) {
         if (payload == null || !PAYLOAD.matcher(payload).matches()) {
+            return false;
+        }
+        boolean invite = payload.startsWith("c_") || payload.startsWith("p_");
+        if (invite && (membership.isPresent() || directory.hasPendingJoinRequest(userId))) {
             return false;
         }
         String link = links.startLink(payload);
@@ -167,8 +176,15 @@ public class BotUpdateHandler {
             String listing = matches.stream()
                     .map(match -> "«" + match.title() + "» — " + statusLabel(match))
                     .collect(Collectors.joining("\n"));
-            notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing + "\nУточните название.",
-                    OPEN_BUTTON, links.appLink());
+            // LNK-3: кнопка открывает в приложении результаты этого же поиска, а не главную. Запрос — в параметре
+            // запуска (base64url: MAX пропускает только A-Z a-z 0-9 _ -); слишком длинный — просто приложение.
+            String search = "s_" + java.util.Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            // Запрос длиннее 100 символов приложение не ищет (400) — такую кнопку не даём (ревью Матвея на #113, п. 2).
+            boolean fits = search.length() <= 500 && text.length() <= 100;
+            notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing
+                            + (fits ? "\nВсе — по кнопке ниже." : "\nУточните название."),
+                    fits ? "Показать все" : OPEN_BUTTON, fits ? links.startLink(search) : links.appLink());
         }
     }
 

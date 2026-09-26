@@ -32,7 +32,8 @@ public record DocumentCardResponse(
         VersionChangesService.Changes changes
 ) {
     /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
-    public record TypeRef(long id, String name, boolean isGeneric, boolean autoDetected) {}
+    /** code — по нему экран узнаёт «Другой документ» (GENERIC): вид вне шаблонов компании (DOC-7). */
+    public record TypeRef(long id, String code, String name, boolean isGeneric, boolean autoDetected) {}
 
     /**
      * withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась.

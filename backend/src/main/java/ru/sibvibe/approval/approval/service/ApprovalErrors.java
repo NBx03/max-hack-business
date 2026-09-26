@@ -38,7 +38,8 @@ final class ApprovalErrors {
 
     static DomainException routeRoleEmpty(String roleName) {
         return new DomainException("ROUTE_ROLE_EMPTY", HttpStatus.CONFLICT,
-                "В компании нет сотрудника с ролью «" + roleName + "»", Map.of("role", roleName));
+                "В компании нет сотрудника с ролью «" + roleName + "» — попросите администратора назначить эту роль "
+                        + "или сделать её необязательной", Map.of("role", roleName));
     }
 
     static DomainException selectionRequired(int stageOrder, String roleName) {

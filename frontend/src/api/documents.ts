@@ -55,6 +55,8 @@ export type DocumentTab = 'WAITING_ME' | 'MINE' | 'AVAILABLE';
 export interface DocumentListFilters {
   /** Показываемый статус (D4): в том числе «На утверждении» и «Утверждён». */
   status?: DisplayStatus;
+  /** Поиск (NAV-3): название, автор, номер документа. */
+  q?: string;
   typeId?: number;
   authorId?: number;
   /** Даты создания, ISO-8601. */
@@ -190,6 +192,11 @@ export function changeDocumentType(documentId: number, versionNo: number, docume
     body: { documentTypeId },
     timeoutMs: 120_000,
   });
+}
+
+/** DOC-4: удалить черновик, который ещё не отправлялся. */
+export function deleteDocument(documentId: number): Promise<void> {
+  return apiRequest<void>(`/documents/${documentId}`, { method: 'DELETE' });
 }
 
 /** Автор отзывает документ с согласования: документ возвращается к нему, маршрут начнётся заново. */

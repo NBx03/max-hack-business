@@ -16,7 +16,7 @@ import { ROUTE_PATTERNS } from './paths';
  * entryRoute — запасной вариант для путей, у которых родителя нет.
  */
 export function parentRoute(pathname: string, entryRoute: string): string {
-  if (pathname === ROUTE_PATTERNS.documentUpload || pathname.startsWith('/documents/list/') || pathname === ROUTE_PATTERNS.company) {
+  if (pathname === ROUTE_PATTERNS.documentUpload || pathname.startsWith('/documents/list/') || pathname === ROUTE_PATTERNS.documentSearch || pathname === ROUTE_PATTERNS.company) {
     return ROUTE_PATTERNS.home;
   }
   if (pathname === ROUTE_PATTERNS.memoForm) {
@@ -37,6 +37,23 @@ export function parentRoute(pathname: string, entryRoute: string): string {
     return ROUTE_PATTERNS.welcome;
   }
   return entryRoute;
+}
+
+/**
+ * Куда ведёт системная «Назад» MAX — туда же, куда ссылка «‹ …» в шапке (ревью Матвея на #110, п. 3). Экран,
+ * открытый из списка или поиска, получает путь возврата в state.from; конструктор, открытый с экрана проверки, —
+ * from: 'check'. Без этого системная кнопка с карточки всегда вела на главную, а ссылка — в список.
+ */
+export function backTarget(pathname: string, state: unknown, entryRoute: string): string {
+  const from = typeof state === 'object' && state !== null ? (state as { from?: unknown }).from : undefined;
+  if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//')) {
+    return from;
+  }
+  const route = pathname.match(/^(\/documents\/\d+)\/route$/);
+  if (route && from === 'check') {
+    return `${route[1]}/check`;
+  }
+  return parentRoute(pathname, entryRoute);
 }
 
 /**

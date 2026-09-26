@@ -172,13 +172,13 @@ public class DecisionService {
             documents.approve(document.id());
             events.publishEvent(new DocumentDecidedEvent(document.id(), document.currentVersionNo(), document.authorId(),
                     DocumentDecidedEvent.Outcome.APPROVED, step.getApproverId(), document.title(),
-                    step.getKind() == ApprovalStep.Kind.ENDORSEMENT));
+                    ApprovalStep.endorsedIn(versionSteps)));
         }
     }
 
     private void publish(DocumentSnapshot document, DocumentDecidedEvent.Outcome outcome, long deciderUserId) {
         events.publishEvent(new DocumentDecidedEvent(document.id(), document.currentVersionNo(),
-                document.authorId(), outcome, deciderUserId, document.title()));
+                document.authorId(), outcome, deciderUserId, document.title(), false)); // возврат и отказ — не утверждение
     }
 
     private static ApprovalStep.Decision decisionOf(DecisionRequest.Action action) {

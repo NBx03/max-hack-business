@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../ui';
 import { Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
@@ -16,7 +16,20 @@ function formatDate(iso: string): string {
 
 /** 5. Ожидание решения (docs/SCREENS.md). Показывается, пока заявка не решена. */
 export function PendingRequestScreen({ request }: { request: PendingJoinRequestRef }) {
-  const { refresh } = useSession();
+  const { refresh, refreshQuietly } = useSession();
+  // Вернулись в приложение (например, из чата, где бот написал «Заявка одобрена») — проверяем решение сами, без
+  // нажатия «Проверить решение»: так одобрение подхватится при любом поведении MAX (ревью Матвея на #112, п. 2).
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshQuietly();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [refreshQuietly]);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -102,7 +102,8 @@ public class StuckStepReminderJob {
             }
             long waitingHours = Duration.between(step.getActivatedAt(), now).toHours();
             events.publishEvent(new StuckStepReminderEvent(step.getDocumentId(), step.getVersionNo(),
-                    step.getStageOrder(), step.getApproverId(), title, waitingHours));
+                    step.getStageOrder(), step.getApproverId(), title, waitingHours,
+                    step.getKind() == ApprovalStep.Kind.ENDORSEMENT));
         }
         LOGGER.info("Напоминания о застрявших шагах: {}", reminded.size());
     }

@@ -44,7 +44,8 @@ public record RoutePreviewResponse(List<Stage> stages, List<Problem> problems, C
         }
     }
 
-    public record Approval(long roleId, long userId) {
+    /** kind — APPROVAL или ENDORSEMENT: одобрение переносится только в шаг того же вида. */
+    public record Approval(long roleId, long userId, String kind) {
     }
 
     /**

@@ -169,6 +169,11 @@ function RuleCard({ rule, highlighted, onOpen }: { rule: CompanyRule; highlighte
     flexDirection: 'column' as const,
     gap: 6,
     width: '100%',
+    // Без border-box ширина 100% плюс отступы вылезала за экран на 28 px — появлялась прокрутка вбок, и карточки
+    // казались шире поля выбора вида (замечание Никиты, скриншот 3).
+    boxSizing: 'border-box' as const,
+    minWidth: 0,
+    overflowWrap: 'anywhere' as const,
     textAlign: 'left' as const,
     padding: '12px 14px',
     borderRadius: 12,

@@ -13,6 +13,7 @@ import { CompanyScreen } from '../screens/company/CompanyScreen';
 import { RulesScreen } from '../screens/company/RulesScreen';
 import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
 import { DocumentListRoute } from '../screens/documents/DocumentListScreen';
+import { DocumentSearchScreen } from '../screens/documents/DocumentSearchScreen';
 import { HomeScreen } from '../screens/home/HomeScreen';
 import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
@@ -30,6 +31,9 @@ import { useMaxBackButton } from './useMaxBackButton';
 // Витрина дизайн-системы — только в dev-сборке: в прод-сборке ветка вырезается вместе с импортом.
 const DesignScreen = import.meta.env.DEV
   ? lazy(() => import('../screens/dev/DesignScreen').then((module) => ({ default: module.DesignScreen })))
+  : null;
+const UploadStatesScreen = import.meta.env.DEV
+  ? lazy(() => import('../screens/dev/UploadStatesScreen').then((module) => ({ default: module.UploadStatesScreen })))
   : null;
 
 /**
@@ -113,6 +117,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       <Route path={ROUTE_PATTERNS.home} element={companyScreen(<HomeScreen />)} />
       <Route path={ROUTE_PATTERNS.documents} element={<Navigate to={ROUTE_PATTERNS.home} replace />} />
       <Route path={ROUTE_PATTERNS.documentList} element={companyScreen(<DocumentListRoute />)} />
+      <Route path={ROUTE_PATTERNS.documentSearch} element={companyScreen(<DocumentSearchScreen />)} />
       <Route
         path={ROUTE_PATTERNS.documentUpload}
         element={companyScreen(<DocumentUploadScreen />)}
@@ -130,6 +135,9 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       <Route path={ROUTE_PATTERNS.routePreview} element={companyScreen(<RoutePreviewScreen />)} />
       {DesignScreen && (
         <Route path="/design" element={<Suspense fallback={null}><DesignScreen /></Suspense>} />
+      )}
+      {UploadStatesScreen && (
+        <Route path="/design/upload" element={<Suspense fallback={null}><UploadStatesScreen /></Suspense>} />
       )}
       {/* Неизвестный путь - не 404, а туда же, куда привело бы свежее /me. */}
       <Route path="*" element={<Navigate to={entryRoute} replace />} />

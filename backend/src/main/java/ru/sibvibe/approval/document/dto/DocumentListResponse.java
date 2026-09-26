@@ -24,8 +24,13 @@ public record DocumentListResponse(
             int currentVersionNo,
             Integer currentStage,
             Instant updatedAt,
-            Instant waitingSince
+            Instant waitingSince,
+            /** У «Другого документа» — вид, как его назвал сам документ («Договор аренды»); null — вид из шаблонов (DOC-7). */
+            RecognizedKind recognizedKind
     ) {}
 
     public record TypeRef(long id, String name) {}
+
+    /** fromAi — вид нашёл ИИ (значок ✦), false — автор исправил вручную. */
+    public record RecognizedKind(String value, boolean fromAi) {}
 }

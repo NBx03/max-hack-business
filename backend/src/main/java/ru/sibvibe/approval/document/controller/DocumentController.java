@@ -8,6 +8,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -97,13 +98,24 @@ public class DocumentController {
             @RequestParam(required = false) Long authorId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
         if (page < 0 || size < 1 || size > 100 || from != null && to != null && from.isAfter(to)) {
             throw DocumentApiException.validation("Некорректные параметры списка");
         }
-        return viewService.list(currentUser, tab, status, typeId, authorId, from, to, page, size);
+        if (q != null && q.length() > 100) {
+            throw DocumentApiException.validation("Слишком длинный запрос поиска");
+        }
+        return viewService.list(currentUser, tab, status, typeId, authorId, from, to, q, page, size);
+    }
+
+    /** DOC-4: удалить черновик, который ещё не отправлялся. Только автор; иначе 404 или 409. */
+    @DeleteMapping("/documents/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteDraft(@AuthenticationPrincipal CurrentUser currentUser, @PathVariable long id) {
+        commandService.deleteDraft(id, currentUser);
     }
 
     @GetMapping("/documents/{id}")

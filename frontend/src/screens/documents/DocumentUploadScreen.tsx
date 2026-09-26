@@ -1,36 +1,38 @@
-import { Input, Radio, Switch, Typography } from '@maxhub/max-ui';
+import { Input, Radio, Switch } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
-import { FilePicker } from '../../components/base/FilePicker';
-import { ErrorState, Button } from '../../ui';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
-  DocumentScreen,
-  FieldInputs,
-  LoadingState,
+  Button,
+  ErrorState,
+  FileDrop,
+  InlineError,
+  Loading,
   Notice,
-  SubmitButton,
-  fieldStyle,
-  inputStyle,
-  labelStyle,
-  sectionStyle,
-  stackStyle,
-} from './DocumentFormParts';
+  Page,
+  PageHeader,
+  Section,
+  SelectField,
+  Stepper,
+  type SelectOption,
+} from '../../ui';
+import { FieldInputs, fieldStyle, labelStyle, sectionStyle, stackStyle } from './DocumentFormParts';
+import { FormatsHelp } from './FormatsHelp';
+import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
 
 const FORM_ID = 'document-upload-form';
 const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
-const AUTO = 'auto';
+const AUTO = 0;
 
 /**
- * Что будет проверено — подпись под выбором типа. Человек, загрузивший свой файл, не обязан
- * знать наши типы: по умолчанию тип выбирает ИИ, а любой документ проверяется хотя бы по общим
- * реквизитам (тест 23.09, #86: раньше по умолчанию стоял «Любой файл» без проверки вовсе).
+ * Что будет проверено — подпись под выбором вида. Человек, загрузивший свой файл, не обязан знать наши виды: по
+ * умолчанию вид определяет ИИ, а любой документ проверяется хотя бы по общим реквизитам (#86).
  */
 const TYPE_HINTS: Record<string, string> = {
-  [AUTO]: 'Определим по тексту документа.',
+  auto: 'ИИ определит вид по тексту документа.',
   OFFICIAL_MEMO: 'Проверим по ГОСТ Р 7.0.97-2016: адресат, дата, номер, подпись.',
   VACATION_REQUEST: 'Проверим сотрудника, вид отпуска, даты и число дней.',
   SUPPORT_MEASURE_REQUEST: 'Проверим заявителя, ИНН, категорию МСП и вид поддержки.',
@@ -38,18 +40,20 @@ const TYPE_HINTS: Record<string, string> = {
   GENERIC: 'Проверим дату, номер, заголовок и подпись.',
 };
 
-/** Сначала типы с подробной проверкой, «Другой документ» — последним. */
+/** Сначала виды с подробной проверкой, «Другой документ» — последним. */
 function sortTypes(types: DocumentType[]): DocumentType[] {
   return [...types].sort((left, right) => Number(left.code === 'GENERIC') - Number(right.code === 'GENERIC'));
 }
 
+/** 9. Новый документ — шаг 1 «Файл» (UPL-1…UPL-3, UPL-6). */
 export function DocumentUploadScreen() {
   const navigate = useNavigate();
   const [types, setTypes] = useState<DocumentType[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [typeKey, setTypeKey] = useState<string>(AUTO);
+  const [typeId, setTypeId] = useState<number>(AUTO);
   const [title, setTitle] = useState('');
   const [mainFile, setMainFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<Visibility>('PRIVATE');
   const [containsSensitive, setContainsSensitive] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -69,17 +73,28 @@ export function DocumentUploadScreen() {
     void loadTypes();
   }, []);
 
-  const selectedType = useMemo(
-    () => (typeKey === AUTO ? null : types?.find((type) => String(type.id) === typeKey) ?? null),
-    [typeKey, types],
-  );
-  // С чувствительными данными текст в ИИ не уходит — тип определить нельзя, его выбирает человек.
-  const needsExplicitType = containsSensitive && typeKey === AUTO;
-  const hint = TYPE_HINTS[selectedType?.code ?? AUTO] ?? 'Проверим по правилам компании.';
+  const selectedType = useMemo(() => (typeId === AUTO ? null : types?.find((type) => type.id === typeId) ?? null), [typeId, types]);
+  // С чувствительными данными текст в ИИ не уходит — вид определить нельзя, его выбирает человек.
+  const needsExplicitType = containsSensitive && typeId === AUTO;
+  const hint = TYPE_HINTS[selectedType?.code ?? 'auto'] ?? 'Проверим по правилам компании.';
+  const typeOptions: SelectOption<number>[] = [
+    { value: AUTO, label: 'Определить автоматически', description: 'ИИ выберет вид по тексту', disabledReason: containsSensitive ? 'недоступно с чувствительными данными' : undefined },
+    ...(types ?? []).map((type) => ({ value: type.id, label: type.name })),
+  ];
+
+  function selectFile(file: File) {
+    const problem = fileProblem(file);
+    setFileError(problem);
+    if (!problem) setMainFile(file);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!mainFile || needsExplicitType) return;
+    if (!mainFile) {
+      setFileError('Сначала выберите файл документа.');
+      return;
+    }
+    if (needsExplicitType) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -99,61 +114,89 @@ export function DocumentUploadScreen() {
     }
   }
 
-  if (!types && !loadError) return <LoadingState />;
+  const header = <PageHeader title="Новый документ" back={UPLOAD_BACK} />;
+  if (!types && !loadError) {
+    return (
+      <Page header={header}>
+        <Loading />
+      </Page>
+    );
+  }
   if (loadError) {
-    return <DocumentScreen title="Новый документ" back={UPLOAD_BACK}><ErrorState message={loadError} onRetry={() => void loadTypes()} /></DocumentScreen>;
+    return (
+      <Page header={header}>
+        <ErrorState message={loadError} onRetry={() => void loadTypes()} />
+      </Page>
+    );
   }
   if (!types || types.length === 0) {
-    return <DocumentScreen title="Новый документ" back={UPLOAD_BACK}><Notice>Типы документов пока не настроены. Обратитесь к администратору.</Notice></DocumentScreen>;
+    return (
+      <Page header={header}>
+        <Notice>Виды документов пока не настроены. Обратитесь к администратору.</Notice>
+      </Page>
+    );
   }
 
   return (
-    <DocumentScreen
-      title="Новый документ"
-      back={UPLOAD_BACK}
+    <Page
+      header={
+        <>
+          {header}
+          <Stepper steps={CREATE_STEPS} current={0} />
+        </>
+      }
       footer={
-        <SubmitButton form={FORM_ID} busy={submitting} disabled={!mainFile || needsExplicitType}>
-          Загрузить и проверить
-        </SubmitButton>
+        <>
+          {submitError && <InlineError>{submitError}</InlineError>}
+          {submitting && <p className="ds-section__hint" style={{ margin: 0 }}>{containsSensitive ? 'Проверяем документ…' : 'Распознаём и проверяем документ — до минуты.'}</p>}
+          <Button type="submit" form={FORM_ID} variant="primary" stretched loading={submitting} disabled={needsExplicitType}>
+            Далее: проверить документ
+          </Button>
+        </>
       }
     >
-      {types.some((type) => type.code === 'OFFICIAL_MEMO') && (
-        <div style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <span style={{ ...stackStyle, gap: 4 }}>
-            <strong>Нет файла?</strong>
-            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Служебную записку можно заполнить прямо здесь.</span>
-          </span>
-          <div style={{ flex: 'none' }}>
-            <Button compact variant="secondary" type="button" onClick={() => navigate(ROUTE_PATTERNS.memoForm)}>
-              Заполнить
-            </Button>
-          </div>
-        </div>
-      )}
       <form id={FORM_ID} style={stackStyle} onSubmit={(event) => void submit(event)}>
-        <FilePicker
-          label="Документ"
-          hint="PDF или DOCX, до 10 МБ"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        <FileDrop
           file={mainFile}
-          onSelect={setMainFile}
+          accept={MAIN_FILE_ACCEPT}
+          title="Выберите файл документа"
+          caption={MAIN_FILE_CAPTION}
+          error={fileError}
+          help={<FormatsHelp />}
+          onSelect={selectFile}
+          onRemove={() => {
+            setMainFile(null);
+            setFileError(null);
+          }}
         />
 
-        <label style={fieldStyle}>
-          <span style={labelStyle}>Тип документа</span>
-          <select
-            style={inputStyle}
-            value={typeKey}
-            onChange={(event) => {
-              setTypeKey(event.target.value);
+        {types.some((type) => type.code === 'OFFICIAL_MEMO') && !mainFile && (
+          <div style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span style={{ ...stackStyle, gap: 4 }}>
+              <strong>Нет файла?</strong>
+              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Служебную записку можно заполнить прямо здесь.</span>
+            </span>
+            <div style={{ flex: 'none' }}>
+              <Button compact type="button" onClick={() => navigate(ROUTE_PATTERNS.memoForm)}>
+                Заполнить
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="ds-field">
+          <SelectField
+            label="Вид документа"
+            placeholder="Определить автоматически"
+            options={typeOptions}
+            value={typeId}
+            onChange={(next) => {
+              setTypeId(next);
               setFields({});
             }}
-          >
-            <option value={AUTO} disabled={containsSensitive}>Определить автоматически</option>
-            {types.map((type) => <option key={type.id} value={String(type.id)}>{type.name}</option>)}
-          </select>
-          <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{hint}</span>
-        </label>
+          />
+          <p className="ds-section__hint" style={{ margin: 0 }}>{hint}</p>
+        </div>
 
         <label style={fieldStyle}>
           <span style={labelStyle}>Название</span>
@@ -167,7 +210,7 @@ export function DocumentUploadScreen() {
         </label>
 
         {/* Не fieldset: его рамка и legend у браузера рисуются поверх нашей карточки. */}
-        <div role="radiogroup" aria-label="Видимость" style={{ ...sectionStyle, gap: 12 }}>
+        <div role="radiogroup" aria-label="Кто видит документ" style={{ ...sectionStyle, gap: 12 }}>
           <strong>Кто видит документ</strong>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Radio name="visibility" checked={visibility === 'PRIVATE'} onChange={() => setVisibility('PRIVATE')} />
@@ -175,7 +218,7 @@ export function DocumentUploadScreen() {
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Radio name="visibility" checked={visibility === 'ORG'} onChange={() => setVisibility('ORG')} />
-            Вся компания
+            Вся компания — после отправки
           </label>
         </div>
 
@@ -183,28 +226,23 @@ export function DocumentUploadScreen() {
           <Switch checked={containsSensitive} onChange={(event) => setContainsSensitive(event.target.checked)} />
           <span style={{ ...stackStyle, gap: 4 }}>
             <strong>Содержит чувствительные данные</strong>
-            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Текст не распознаётся автоматически — поля заполните сами.</span>
+            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Текст не уйдёт ИИ — поля заполните сами.</span>
           </span>
         </label>
 
-        {needsExplicitType && <Notice tone="danger">С чувствительными данными тип нужно выбрать самому.</Notice>}
+        {needsExplicitType && <InlineError>С чувствительными данными вид документа нужно выбрать самому.</InlineError>}
 
         {containsSensitive && selectedType && (
-          <section style={sectionStyle}>
-            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
-            <FieldInputs typeCode={selectedType.code} definitions={selectedType.fields} values={fields} onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))} />
-          </section>
-        )}
-
-        {submitError && <Notice tone="danger">{submitError}</Notice>}
-        {submitting && (
-          <Notice>
-            {containsSensitive
-              ? 'Проверяем документ…'
-              : 'Распознаём и проверяем документ — до минуты.'}
-          </Notice>
+          <Section title="Данные документа">
+            <FieldInputs
+              typeCode={selectedType.code}
+              definitions={selectedType.fields}
+              values={fields}
+              onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))}
+            />
+          </Section>
         )}
       </form>
-    </DocumentScreen>
+    </Page>
   );
 }

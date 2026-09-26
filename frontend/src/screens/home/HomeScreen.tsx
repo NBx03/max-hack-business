@@ -4,7 +4,7 @@ import { getPendingJoinRequestsCount } from '../../api/organization';
 import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
 import { DOCUMENT_LISTS, ROUTE_PATTERNS, documentListPath } from '../../routes/paths';
-import { Button, Page, PageHeader, Tile, Tiles } from '../../ui';
+import { Button, IconButton, Page, PageHeader, Tile, Tiles } from '../../ui';
 
 function roleLine(roles: { name: string }[], isAdmin: boolean): string {
   const names = roles.map((role) => role.name);
@@ -34,7 +34,13 @@ export function HomeScreen() {
 
   return (
     <Page
-      header={<PageHeader title={orgName ?? 'Документы'} subtitle={who} />}
+      header={
+        <PageHeader
+          title={orgName ?? 'Документы'}
+          subtitle={who}
+          aside={<IconButton icon="search" label="Поиск документов" onClick={() => navigate(ROUTE_PATTERNS.documentSearch)} />}
+        />
+      }
       footer={
         <Button variant="primary" stretched icon="plus" onClick={() => navigate(ROUTE_PATTERNS.documentUpload)}>
           Новый документ
@@ -67,6 +73,7 @@ export function HomeScreen() {
           title="Компания"
           hint={isAdmin ? 'Сотрудники, роли, приглашения' : 'Сотрудники, маршруты, правила'}
           count={isAdmin ? requestsCount : undefined}
+          countHint={requestsCount ? `Заявки на вступление: ${requestsCount}` : undefined}
           attention
           onClick={() => navigate(ROUTE_PATTERNS.company)}
         />

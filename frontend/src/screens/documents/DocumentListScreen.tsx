@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Input } from '@maxhub/max-ui';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { getDocuments, getDocumentTypes, type DocumentListFilters } from '../../api/documents';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { getDocuments, getDocumentTypes } from '../../api/documents';
+import { getColleagues } from '../../api/organization';
 import { errorMessage } from '../../api/errors';
 import type { DisplayStatus, DocumentListItem, DocumentType, UserRef } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
@@ -15,6 +15,7 @@ import {
   type DocumentListKey,
 } from '../../routes/paths';
 import {
+  AiMark,
   BottomSheet,
   Button,
   Chip,
@@ -22,22 +23,37 @@ import {
   DocumentStatusBadge,
   EmptyState,
   ErrorState,
+  Icon,
+  InlineError,
   List,
   Loading,
+  Muted,
   Page,
   PageHeader,
   Row,
+  SearchField,
   SelectField,
+  SelectSheet,
+  Toast,
   documentStatusMeta,
   type SelectOption,
 } from '../../ui';
-
-/** Какие статусы вообще бывают в разделе: у чужих документов нет черновиков, у «на согласовании» — только он. */
-const LIST_STATUSES: Record<DocumentListKey, DisplayStatus[]> = {
-  waiting: [],
-  mine: ['DRAFT', 'IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
-  shared: ['IN_APPROVAL', 'IN_ENDORSEMENT', 'RETURNED', 'ENDORSED', 'APPROVED', 'REJECTED'],
-};
+import { isOutsideTemplates, kindLabel } from './documentKind';
+import {
+  LIST_STATUSES,
+  NO_MORE_PAGES,
+  PERIODS,
+  authorOptions,
+  hasMore,
+  listItems,
+  loadNextPage,
+  type MorePages,
+  moreFiltersCount,
+  toQuery,
+  waitingText,
+  type ListFilters,
+  type PeriodKey,
+} from './listFilters';
 
 /** Пустой раздел объясняет, что здесь появится и что сделать (принцип 7). */
 const EMPTY: Record<DocumentListKey, { title: string; text: string }> = {
@@ -55,26 +71,15 @@ const EMPTY: Record<DocumentListKey, { title: string; text: string }> = {
   },
 };
 
+/** Сколько документов грузить за раз; дальше — «Показать ещё» (ревью #110, п. 10). */
+const PAGE_SIZE = 30;
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 }
 
-/** «день»/«дня»/«дней» — обычные русские правила (11–14 всегда «дней»). */
-function pluralDays(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return 'день';
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'дня';
-  return 'дней';
-}
-
-function waitingText(iso: string): string {
-  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000)));
-  return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
-}
-
-/** Фильтры, кроме статуса, — в панели «Ещё фильтры»; помним на время работы, отдельно для каждого раздела. */
-const remembered = new Map<string, DocumentListFilters>();
+/** Фильтры помним на время работы, отдельно для каждого раздела. */
+const remembered = new Map<string, ListFilters>();
 
 /** Раздел документов (NAV-1, NAV-2): «На моём согласовании», «Мои документы», «Общие документы». */
 export function DocumentListRoute() {
@@ -91,30 +96,81 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
   const meta = DOCUMENT_LISTS[list];
   const actor = me?.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me?.user.id ?? 0}`;
   const memoryKey = `${actor}:${list}`;
-  const [filters, setFiltersState] = useState<DocumentListFilters>(() => remembered.get(memoryKey) ?? {});
-  const setFilters = (next: DocumentListFilters) => {
-    remembered.set(memoryKey, next);
-    setFiltersState(next);
-  };
+  const [filters, setFiltersState] = useState<ListFilters>(() => remembered.get(memoryKey) ?? {});
+  // Функциональное обновление: отложенный поиск меняет только q поверх актуальных фильтров и не откатывает статус или
+  // период, выбранные за эти 300 мс (ревью Ильи на #110).
+  const setFilters = useCallback((next: ListFilters | ((current: ListFilters) => ListFilters)) => {
+    setFiltersState((current) => {
+      const value = typeof next === 'function' ? next(current) : next;
+      remembered.set(memoryKey, value);
+      return value;
+    });
+  }, [memoryKey]);
   const [moreOpen, setMoreOpen] = useState(false);
-  // Авторы — из уже загруженных документов: отдельного «все авторы» для не-администратора нет.
+  const [statusOpen, setStatusOpen] = useState(false);
+  // Поиск (NAV-3): поле — сразу, запрос — через паузу в наборе, чтобы не дёргать сервер на каждую букву.
+  const [searchText, setSearchText] = useState(filters.q ?? '');
+  useEffect(() => {
+    const q = searchText.trim() || undefined;
+    const timer = setTimeout(() => setFilters((current) => (current.q === q ? current : { ...current, q })), 300);
+    return () => clearTimeout(timer);
+  }, [searchText, setFilters]);
+  const location = useLocation();
+  const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
+  // Авторы для фильтра — все коллеги сразу плюс авторы загруженных строк (бывшие сотрудники).
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
+  const colleaguesQuery = useAsync(() => (list === 'mine' ? Promise.resolve([]) : getColleagues()), [list]);
 
-  const query = useAsync(() => getDocuments(meta.tab, { ...filters, size: 50 }), [meta.tab, filters]);
+  const query = useAsync(() => getDocuments(meta.tab, toQuery(filters, 0, PAGE_SIZE)), [meta.tab, filters]);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
 
+  // Следующие страницы — дописываются к первой; новые фильтры начинают список заново.
+  const [more, setMore] = useState<MorePages>(NO_MORE_PAGES);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => {
-    if (query.status !== 'ready') return;
+    setMore(NO_MORE_PAGES);
+    setMoreError(null);
+  }, [filters]);
+  const firstPage = useMemo(() => (query.status === 'ready' ? query.data.items : []), [query]);
+  const items = useMemo(() => listItems(firstPage, more), [firstPage, more]);
+  const firstTotal = query.status === 'ready' ? query.data.total : 0;
+  const total = more.total ?? firstTotal;
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const requested = filters;
+      const next = await loadNextPage((page) => getDocuments(meta.tab, toQuery(filters, page, PAGE_SIZE)), firstPage, more);
+      // Фильтры сменились, пока грузилась страница, — её строки к новому списку не относятся (ревью Матвея на #113, п. 7).
+      if (filtersRef.current !== requested) return;
+      setMore(next);
+    } catch (error) {
+      setMoreError(errorMessage(error));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filters, firstPage, more, meta.tab]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
     setKnownAuthors((prev) => {
       const next = new Map(prev);
-      query.data.items.forEach((item) => next.set(item.author.id, item.author));
+      items.forEach((item) => next.set(item.author.id, item.author));
       return next;
     });
-  }, [query]);
+  }, [items]);
 
   const statuses = LIST_STATUSES[list];
-  const moreCount = [filters.typeId, filters.authorId, filters.from, filters.to].filter((value) => value !== undefined).length;
-  const filtered = moreCount > 0 || filters.status !== undefined;
+  const moreCount = moreFiltersCount(filters);
+  const filtered = moreCount > 0 || filters.status !== undefined || filters.q !== undefined;
+  const statusOptions: SelectOption<DisplayStatus | 'ALL'>[] = [
+    { value: 'ALL', label: 'Все статусы' },
+    ...statuses.map((status) => ({ value: status, label: documentStatusMeta(status).text })),
+  ];
 
   const openCard = (item: DocumentListItem) =>
     navigate(documentCardPath(item.id), { state: { from: documentListPath(list), fromLabel: meta.title } });
@@ -130,72 +186,76 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
         ) : undefined
       }
     >
+      <SearchField value={searchText} onChange={setSearchText} placeholder="Название, автор или номер" />
+      {/*
+        Статус — одним чипом с выбором в панели, а не рядом из семи чипов: ряд не помещался в ширину, и последние статусы
+        уходили за край незаметно (замечание Никиты, скриншот 1). Выбранный статус виден на самом чипе.
+      */}
       <Chips label="Фильтры">
+        {statuses.length > 0 && (
+          <Chip selected={filters.status !== undefined} onClick={() => setStatusOpen(true)}>
+            {filters.status ? documentStatusMeta(filters.status).text : 'Все статусы'}
+            <Icon name="chevronDown" size={16} />
+          </Chip>
+        )}
         <Chip selected={moreCount > 0} onClick={() => setMoreOpen(true)}>
           {moreCount > 0 ? `Фильтры · ${moreCount}` : 'Фильтры'}
         </Chip>
-        {statuses.length > 0 && (
-          <Chip selected={filters.status === undefined} onClick={() => setFilters({ ...filters, status: undefined })}>
-            Все
-          </Chip>
-        )}
-        {statuses.map((status) => (
-          <Chip
-            key={status}
-            selected={filters.status === status}
-            onClick={() => setFilters({ ...filters, status: filters.status === status ? undefined : status })}
-          >
-            {documentStatusMeta(status).text}
-          </Chip>
-        ))}
       </Chips>
 
       {query.status === 'loading' && <Loading />}
       {query.status === 'error' && <ErrorState message={errorMessage(query.error)} onRetry={query.refresh} />}
-      {query.status === 'ready' && query.data.items.length === 0 && (
+      {query.status === 'ready' && items.length === 0 && (
         filtered ? (
           <EmptyState
             icon="search"
             title="Ничего не нашлось"
-            text="По выбранным фильтрам документов нет."
-            actionLabel="Сбросить фильтры"
-            onAction={() => setFilters({})}
+            text={filters.q ? `По запросу «${filters.q}» с выбранными фильтрами документов нет.` : 'По выбранным фильтрам документов нет.'}
+            actionLabel={filters.q ? 'Сбросить поиск и фильтры' : 'Сбросить фильтры'}
+            onAction={() => {
+              setSearchText('');
+              setFilters({});
+            }}
           />
         ) : (
           <EmptyState title={EMPTY[list].title} text={EMPTY[list].text} />
         )
       )}
-      {query.status === 'ready' && query.data.items.length > 0 && (
-        <List label={meta.title}>
-          {query.data.items.map((item) => (
-            <Row
-              key={item.id}
-              title={item.title}
-              // Метка — под названием, а не справа: на 360 px справа она отнимала ширину, и название
-              // переносилось на три строки. На согласовании у всех один статус — там вместо метки срок ожидания.
-              subtitle={
-                <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
-                  {list !== 'waiting' && <DocumentStatusBadge status={item.displayStatus} />}
-                  <span>
-                    {[
-                      item.type.name,
-                      item.author.fullName,
-                      list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt),
-                    ].join(' · ')}
-                  </span>
-                </span>
-              }
-              onClick={() => openCard(item)}
-            />
-          ))}
-        </List>
+      {query.status === 'ready' && items.length > 0 && (
+        <>
+          <List label={meta.title}>
+            {items.map((item) => (
+              <DocumentRow key={item.id} item={item} list={list} onOpen={() => openCard(item)} />
+            ))}
+          </List>
+          {hasMore(firstPage, firstTotal, more) && (
+            <>
+              <Muted>Показаны {items.length} из {total}</Muted>
+              {moreError && <InlineError>{moreError}</InlineError>}
+              <Button stretched loading={loadingMore} onClick={() => void loadMore()}>
+                Показать ещё
+              </Button>
+            </>
+          )}
+        </>
       )}
 
+      <SelectSheet
+        open={statusOpen}
+        onClose={() => setStatusOpen(false)}
+        title="Статус"
+        options={statusOptions}
+        value={filters.status ?? 'ALL'}
+        onSelect={(value) => {
+          setFilters({ ...filters, status: value === 'ALL' ? undefined : value });
+          setStatusOpen(false);
+        }}
+      />
       <BottomSheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Фильтры">
         <MoreFilters
           filters={filters}
           types={typesQuery.status === 'ready' ? typesQuery.data : []}
-          authors={[...knownAuthors.values()]}
+          authors={authorOptions(colleaguesQuery.status === 'ready' ? colleaguesQuery.data.map((member) => member.user) : [], [...knownAuthors.values()])}
           showAuthor={list !== 'mine'}
           onApply={(next) => {
             setFilters(next);
@@ -203,7 +263,49 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
           }}
         />
       </BottomSheet>
+      {toast && (
+        <Toast
+          message={toast}
+          onDismiss={() => {
+            setToast(null);
+            navigate(location.pathname, { replace: true });
+          }}
+        />
+      )}
     </Page>
+  );
+}
+
+/** Строка документа — в разделах и в поиске одинаковая. */
+export function DocumentRow({ item, list, onOpen }: { item: DocumentListItem; list: DocumentListKey; onOpen: () => void }) {
+  return (
+    <Row
+      title={item.title}
+      // Метка — под названием, а не справа: на 360 px справа она отнимала ширину, и название
+      // переносилось на три строки. На согласовании у всех один статус — там вместо метки срок ожидания.
+      subtitle={
+        <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
+          {list !== 'waiting' && <DocumentStatusBadge status={item.displayStatus} />}
+          <span>
+            {/* У «Другого документа» — вид, как его назвал документ, со значком ИИ (DOC-7). */}
+            {item.recognizedKind ? (
+              <>
+                {kindLabel(item.recognizedKind.value)}
+                {item.recognizedKind.fromAi && <> <AiMark /></>}
+              </>
+            ) : (
+              item.type.name
+            )}
+            {' · '}
+            {[
+              item.author.fullName,
+              list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt),
+            ].join(' · ')}
+          </span>
+        </span>
+      }
+      onClick={onOpen}
+    />
   );
 }
 
@@ -214,19 +316,25 @@ function MoreFilters({
   showAuthor,
   onApply,
 }: {
-  filters: DocumentListFilters;
+  filters: ListFilters;
   types: DocumentType[];
   authors: UserRef[];
   showAuthor: boolean;
-  onApply: (filters: DocumentListFilters) => void;
+  onApply: (filters: ListFilters) => void;
 }) {
   const [typeId, setTypeId] = useState<number>(filters.typeId ?? 0);
   const [authorId, setAuthorId] = useState<number>(filters.authorId ?? 0);
-  const [from, setFrom] = useState(filters.from ?? '');
-  const [to, setTo] = useState(filters.to ?? '');
+  const [period, setPeriod] = useState<PeriodKey | 'any'>(filters.period ?? 'any');
 
   const typeOptions = useMemo<SelectOption<number>[]>(
-    () => [{ value: 0, label: 'Все виды' }, ...types.map((type) => ({ value: type.id, label: type.name }))],
+    // «Другой документ» — отдельной группой «Вне шаблонов» (DOC-7): там договоры, акты и всё, чего нет в шаблонах.
+    () => [
+      { value: 0, label: 'Все виды' },
+      ...types.filter((type) => !isOutsideTemplates(type.code)).map((type) => ({ value: type.id, label: type.name })),
+      ...types
+        .filter((type) => isOutsideTemplates(type.code))
+        .map((type) => ({ value: type.id, label: 'Все вне шаблонов', description: 'Виды, которых нет в шаблонах компании: договор, акт и другие', group: 'Вне шаблонов' })),
+    ],
     [types],
   );
   const authorOptions = useMemo<SelectOption<number>[]>(
@@ -240,15 +348,14 @@ function MoreFilters({
       {showAuthor && (
         <SelectField label="Автор" placeholder="Все авторы" options={authorOptions} value={authorId} onChange={setAuthorId} searchable />
       )}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <label className="ds-field" style={{ flex: 1 }}>
-          <span className="ds-field__label">Создан с</span>
-          <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-        </label>
-        <label className="ds-field" style={{ flex: 1 }}>
-          <span className="ds-field__label">по</span>
-          <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-        </label>
+      <div className="ds-field">
+        <span className="ds-field__label">Создан</span>
+        <Chips label="Когда создан" wrap>
+          <Chip selected={period === 'any'} onClick={() => setPeriod('any')}>Когда угодно</Chip>
+          {PERIODS.map((item) => (
+            <Chip key={item.key} selected={period === item.key} onClick={() => setPeriod(item.key)}>{item.label}</Chip>
+          ))}
+        </Chips>
       </div>
       <Button
         variant="primary"
@@ -256,16 +363,16 @@ function MoreFilters({
         onClick={() =>
           onApply({
             status: filters.status,
+            q: filters.q,
             typeId: typeId || undefined,
             authorId: authorId || undefined,
-            from: from || undefined,
-            to: to || undefined,
+            period: period === 'any' ? undefined : period,
           })
         }
       >
         Показать
       </Button>
-      <Button stretched onClick={() => onApply({ status: filters.status })}>
+      <Button stretched onClick={() => onApply({ status: filters.status, q: filters.q })}>
         Сбросить
       </Button>
     </>

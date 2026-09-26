@@ -140,7 +140,7 @@ export function DesignScreen() {
       <Section title="Сообщения">
         <Notice>Для этого файла автоматическая проверка недоступна — поля заполните вручную.</Notice>
         <Notice tone="warning">Документ вернули на доработку: поправьте замечания и отправьте заново.</Notice>
-        <InlineError>Фото не подходит. Загрузите PDF, DOCX или DOC.</InlineError>
+        <InlineError>Фото не подходит. Загрузите PDF или DOCX.</InlineError>
       </Section>
 
       <EmptyState title="Ничего не ждёт вашего решения" text="Когда подойдёт ваша очередь, документ появится здесь, а бот пришлёт сообщение." />
