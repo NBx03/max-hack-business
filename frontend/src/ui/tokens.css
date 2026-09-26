@@ -75,8 +75,29 @@
   --ds-ai: #6a3fcf;
 }
 
+/*
+ * Тёмная тема — та же, что у MaxUI (ревью #110, п. 8): ThemeSync ставит data-theme на <html> по useColorScheme(). Пока
+ * атрибута нет (первый кадр), действует системная тема — как и у MaxUI по умолчанию.
+ */
+:root[data-theme='dark'] {
+  --status-neutral-fg: #c9ccd4;
+  --status-neutral-bg: rgba(201, 204, 212, 0.14);
+  --status-progress-fg: #8cc2ff;
+  --status-progress-bg: rgba(0, 122, 255, 0.2);
+  --status-endorse-fg: #cdb4ff;
+  --status-endorse-bg: rgba(164, 115, 255, 0.2);
+  --status-warning-fg: #ffcf66;
+  --status-warning-bg: rgba(255, 176, 32, 0.16);
+  --status-danger-fg: #ff9aa4;
+  --status-danger-bg: rgba(206, 66, 87, 0.22);
+  --status-success-fg: #7fe29a;
+  --status-success-bg: rgba(43, 198, 68, 0.16);
+
+  --ds-ai: #cdb4ff;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --status-neutral-fg: #c9ccd4;
     --status-neutral-bg: rgba(201, 204, 212, 0.14);
     --status-progress-fg: #8cc2ff;
@@ -102,8 +123,15 @@
   --status-warning-bg: #ffe6da;
 }
 
+:root[data-theme='dark'] [data-palette='b'] {
+  --status-progress-fg: #ffcf66;
+  --status-progress-bg: rgba(255, 176, 32, 0.16);
+  --status-warning-fg: #ffa47d;
+  --status-warning-bg: rgba(255, 110, 50, 0.2);
+}
+
 @media (prefers-color-scheme: dark) {
-  [data-palette='b'] {
+  :root:not([data-theme]) [data-palette='b'] {
     --status-progress-fg: #ffcf66;
     --status-progress-bg: rgba(255, 176, 32, 0.16);
     --status-warning-fg: #ffa47d;

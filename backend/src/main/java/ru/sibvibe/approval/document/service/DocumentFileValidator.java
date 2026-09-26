@@ -23,6 +23,7 @@ public class DocumentFileValidator {
     private static final String PDF = "application/pdf";
     private static final String DOCX =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    private static final byte[] OLE2 = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
 
     public ValidatedFile validateMain(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() <= 0) {
@@ -41,11 +42,11 @@ public class DocumentFileValidator {
         if (content.length == 0) {
             throw DocumentApiException.validation("Основной файл не должен быть пустым");
         }
-        String mimeType = detectMainType(content);
+        String mimeType = detectMainType(content, fileName);
         return new ValidatedFile(content, fileName, mimeType);
     }
 
-    private String detectMainType(byte[] content) {
+    private String detectMainType(byte[] content, String fileName) {
         if (isPdf(content)) {
             validatePdf(content);
             return PDF;
@@ -53,7 +54,28 @@ public class DocumentFileValidator {
         if (isDocx(content)) {
             return DOCX;
         }
+        if (isDoc(content, fileName)) {
+            // D1 (пересмотрено 26.09): DOC не принимаем — ИИ его не читает, а полуработающий формат выглядит недоделкой.
+            // Говорим, как пересохранить: это десять секунд в Word.
+            throw DocumentApiException.fileTypeNotAllowed(DOC_NOT_SUPPORTED);
+        }
         throw DocumentApiException.fileTypeNotAllowed("Основной файл должен быть PDF или DOCX");
+    }
+
+    static final String DOC_NOT_SUPPORTED = "DOC — устаревший формат Word. Откройте файл в Word и сохраните как DOCX: "
+            + "«Файл → Сохранить как → Документ Word (.docx)»";
+
+    /** DOC — контейнер OLE2 с расширением .doc: распознаём только ради понятной ошибки с советом. */
+    private boolean isDoc(byte[] content, String fileName) {
+        if (content.length < OLE2.length || !fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".doc")) {
+            return false;
+        }
+        for (int index = 0; index < OLE2.length; index++) {
+            if (content[index] != OLE2[index]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean isPdf(byte[] content) {

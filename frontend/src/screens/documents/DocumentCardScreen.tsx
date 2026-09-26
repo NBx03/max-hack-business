@@ -6,16 +6,18 @@ import {
   createFormVersion,
   decideStep,
   getDocument,
+  deleteDocument,
   getDocumentTypes,
   withdrawDocument,
   type StepDecisionAction,
 } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentTypeField, FileRef, RouteView, StepView, VersionChanges } from '../../api/types';
-import { formatFileSize } from '../../components/base/FilePicker';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
-import { ROUTE_PATTERNS, documentCheckPath, routePreviewPath } from '../../routes/paths';
+import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath } from '../../routes/paths';
+import { recognizedKindOf } from './documentKind';
+import { RecognizedKind } from './RecognizedKind';
 import {
   AccessErrorState,
   BottomSheet,
@@ -39,9 +41,11 @@ import {
   TimelinePerson,
   Toast,
   documentStatusMeta,
+  formatFileSize,
   stepDecisionMeta,
   type StatusMeta,
   type TimelineItem,
+  type TimelineState,
 } from '../../ui';
 
 function formatDateTime(iso: string): string {
@@ -77,6 +81,9 @@ function findStep(route: RouteView | null, stepId: number): StepView | null {
 
 /** Решение человека словом и значком; у утверждающего — «Утверждено» / «Ждёт утверждения» (D4). */
 function personMeta(step: StepView): StatusMeta {
+  if (step.kind === 'ENDORSEMENT' && step.decision === 'APPROVED' && step.autoReason === 'CARRIED_OVER') {
+    return { text: 'Утверждено ранее', tone: 'success', icon: 'endorse' };
+  }
   if (step.kind === 'ENDORSEMENT' && step.decision === 'APPROVED' && !step.autoReason) {
     return { text: 'Утверждено', tone: 'success', icon: 'endorse' };
   }
@@ -84,6 +91,22 @@ function personMeta(step: StepView): StatusMeta {
     return { text: 'Ждёт утверждения', tone: 'endorse', icon: 'clock' };
   }
   return stepDecisionMeta(step.decision, step.autoReason);
+}
+
+/**
+ * Состояние этапа — по решениям людей, а не по признаку «ожидающих не осталось» (ревью #111): после отзыва, возврата или
+ * отказа у этапов впереди все «Не понадобилось», и они не пройдены, а не наступили. Пройден — все одобрили; вернули или
+ * отклонили — точка остановки; текущий — идёт сейчас; остальное — не наступил.
+ */
+export function stageView(
+  steps: Pick<StepView, 'decision'>[],
+  active: boolean,
+): { state: TimelineState; stop: 'RETURNED' | 'REJECTED' | null } {
+  // Точка остановки — пройденная точка своего цвета; «Сейчас здесь» остаётся у итога, а не у двух мест сразу.
+  if (steps.some((step) => step.decision === 'REJECTED')) return { state: 'done', stop: 'REJECTED' };
+  if (steps.some((step) => step.decision === 'RETURNED')) return { state: 'done', stop: 'RETURNED' };
+  if (steps.length > 0 && steps.every((step) => step.decision === 'APPROVED')) return { state: 'done', stop: null };
+  return { state: active ? 'current' : 'future', stop: null };
 }
 
 /**
@@ -114,24 +137,25 @@ function timelineItems(doc: DocumentCard): TimelineItem[] {
     });
     return items;
   }
-  const terminal = doc.status === 'RETURNED' || doc.status === 'REJECTED' || doc.status === 'APPROVED';
   let approvalNo = 0;
   for (const stage of stages) {
     const endorsement = stage.steps.every((step) => step.kind === 'ENDORSEMENT');
     if (!endorsement) approvalNo += 1;
-    const state = stage.state === 'DONE' ? 'done' : stage.state === 'ACTIVE' ? 'current' : 'future';
+    const view = stageView(stage.steps, stage.state === 'ACTIVE' && doc.status === 'IN_APPROVAL');
+    const state = view.state;
     const decidedAt = stage.steps.map((step) => step.decidedAt).filter((value): value is string => Boolean(value)).sort().pop();
     items.push({
       key: `stage-${stage.stageOrder}`,
-      // После возврата или отклонения этапы впереди уже не наступят — они приглушены.
-      state: terminal && state !== 'done' ? 'future' : state,
+      state,
       title: endorsement ? 'Утверждение' : `Этап ${approvalNo}`,
-      meta: stage.state === 'DONE' && decidedAt
-        ? `пройден ${formatDateTime(decidedAt)}`
-        : stage.steps.length > 1 ? 'согласуют одновременно' : undefined,
-      icon: endorsement ? 'endorse' : undefined,
-      tone: endorsement && state !== 'future' ? 'endorse' : undefined,
-      collapsible: !endorsement,
+      meta: view.stop
+        ? view.stop === 'RETURNED' ? 'здесь вернули на доработку' : 'здесь отклонили'
+        : state === 'done' && decidedAt
+          ? `пройден ${formatDateTime(decidedAt)}`
+          : stage.steps.length > 1 ? 'согласуют одновременно' : undefined,
+      icon: view.stop === 'RETURNED' ? 'return' : view.stop === 'REJECTED' ? 'cross' : endorsement ? 'endorse' : undefined,
+      tone: view.stop === 'RETURNED' ? 'warning' : view.stop === 'REJECTED' ? 'danger' : endorsement && state !== 'future' ? 'endorse' : undefined,
+      collapsible: !endorsement && !view.stop,
       children: stage.steps.map((step) => (
         <TimelinePerson
           key={step.id}
@@ -146,8 +170,12 @@ function timelineItems(doc: DocumentCard): TimelineItem[] {
   }
   const endorsed = stages.some((stage) => stage.steps.some((step) => step.kind === 'ENDORSEMENT'));
   const final = documentStatusMeta(doc.displayStatus);
+  const withdrawn = doc.versions.find((version) => version.versionNo === doc.currentVersionNo)?.withdrawnAt ?? null;
   if (doc.status === 'IN_APPROVAL') {
     items.push({ key: 'final', state: 'future', title: endorsed ? 'Утверждён' : 'Согласован' });
+  } else if (doc.status === 'RETURNED' && withdrawn) {
+    // Отзыв автором — не возврат согласующим: итог говорит то же, что плашка выше (ревью #111).
+    items.push({ key: 'final', state: 'current', title: 'Отозван автором', meta: formatDateTime(withdrawn), tone: 'warning', icon: 'return' });
   } else if (doc.status !== 'DRAFT') {
     items.push({
       key: 'final',
@@ -193,6 +221,9 @@ export function DocumentCardScreen() {
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [resendBusy, setResendBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
 
   /**
@@ -287,6 +318,7 @@ export function DocumentCardScreen() {
 
   const doc = query.data;
   const currentVersion = doc.versions.find((v) => v.versionNo === doc.currentVersionNo);
+  const kind = recognizedKindOf(doc.type.code, doc.check);
   const withdrawnAt = doc.status === 'RETURNED' ? currentVersion?.withdrawnAt ?? null : null;
   const removedApprover = doc.status === 'RETURNED' && !withdrawnAt ? findRemovedApprover(doc.route, doc.currentVersionNo) : null;
   const returnReason = doc.status === 'RETURNED' && !withdrawnAt && !removedApprover ? findReturnReason(doc.route) : null;
@@ -314,6 +346,20 @@ export function DocumentCardScreen() {
       setResendError(errorMessage(err));
     } finally {
       setResendBusy(false);
+    }
+  }
+
+  async function removeDraft() {
+    if (!doc) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await deleteDocument(doc.id);
+      navigate(documentListPath('mine'), { replace: true, state: { toast: 'Черновик удалён' } });
+    } catch (error) {
+      setDeleteError(errorMessage(error));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -348,6 +394,8 @@ export function DocumentCardScreen() {
   // Закреплённые действия (DOC-2): у согласующего — главная «Согласовать»/«Утвердить» на всю ширину, ниже поровну
   // «Вернуть на доработку» и тихая «Отклонить»; у автора — то, что можно сделать с документом сейчас.
   let footer = null;
+  // DOC-4: удалить можно только черновик, который ещё ни разу не отправлялся (маршрута нет); сервер проверит то же.
+  const canDelete = doc.status === 'DRAFT' && doc.route === null && (doc.permissions.canEditFields || doc.permissions.canUploadVersion);
   if (myStep) {
     footer = (
       <>
@@ -418,7 +466,14 @@ export function DocumentCardScreen() {
           subtitle={
             <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 4 }}>
               <DocumentStatusBadge status={doc.displayStatus} />
-              <span>{doc.type.name} · {doc.author.fullName} · версия {doc.currentVersionNo}</span>
+              {kind ? (
+                <>
+                  <RecognizedKind value={kind.value} fromAi={kind.fromAi} />
+                  <span>{doc.author.fullName} · версия {doc.currentVersionNo}</span>
+                </>
+              ) : (
+                <span>{doc.type.name} · {doc.author.fullName} · версия {doc.currentVersionNo}</span>
+              )}
             </span>
           }
         />
@@ -484,6 +539,13 @@ export function DocumentCardScreen() {
 
       <HistoryAndVersions doc={doc} />
 
+      {/* DOC-4: редкое и необратимое действие — в конце карточки, тихой кнопкой, не рядом с главным. */}
+      {canDelete && (
+        <Button stretched variant="ghost" icon="cross" onClick={() => setDeleteOpen(true)}>
+          Удалить черновик
+        </Button>
+      )}
+
       {toast && <Toast message={toast} onDismiss={dismissToast} />}
 
       <BottomSheet
@@ -538,6 +600,21 @@ export function DocumentCardScreen() {
         busy={withdrawBusy}
         error={withdrawError}
         onConfirm={() => void withdraw()}
+      />
+
+      <ConfirmSheet
+        open={deleteOpen}
+        onClose={() => {
+          setDeleteOpen(false);
+          setDeleteError(null);
+        }}
+        title="Удалить черновик?"
+        description="Черновик исчезнет из приложения — его ещё никто не видел. Отменить удаление нельзя."
+        confirmLabel="Удалить"
+        destructive
+        busy={deleteBusy}
+        error={deleteError}
+        onConfirm={() => void removeDraft()}
       />
 
       <ConfirmSheet

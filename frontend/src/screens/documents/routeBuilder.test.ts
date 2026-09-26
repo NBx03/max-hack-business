@@ -8,6 +8,7 @@ import {
   moveSlot,
   moveStage,
   placeOf,
+  problemsOf,
   removeSlot,
   resolveChoice,
   toSubmit,
@@ -125,14 +126,69 @@ describe('правки автора', () => {
 
 describe('отправка', () => {
   it('пока не выбран человек для роли — отправить нельзя', () => {
-    expect(toSubmit(initialState(SUPPORT, context))).toBeNull();
+    expect(toSubmit(initialState(SUPPORT, context), context)).toBeNull();
   });
 
   it('тело — этапы по порядку и утверждающий с ролями', () => {
     const state = resolveChoice(initialState(SUPPORT, context), 'c:1:21', DAVE.user, context);
-    expect(toSubmit(state)).toEqual({
+    expect(toSubmit(state, context)).toEqual({
       stages: [{ participants: [{ userId: 4, roleId: 21 }, { userId: 5, roleId: 23 }] }],
       endorser: { userId: 6, roleId: 22 },
     });
+  });
+});
+
+describe('ревью #111', () => {
+  const authorIsDirector = (role: RoleRef): RoutePreviewParticipant => ({
+    role, mandatory: true, candidates: [], selectedUserId: null, resolution: 'AUTHOR_HOLDS_ROLE',
+  });
+
+  it('последний этап шаблона — сам автор: утверждающего по умолчанию нет, предпоследний им не становится', () => {
+    // Заявление на отпуск у директора: Кадровик → Директор (это автор)
+    const vacation: RoutePreview = {
+      stages: [
+        { stageOrder: 1, participants: [auto(ACCOUNTANT, ERIN)] },
+        { stageOrder: 2, participants: [authorIsDirector(DIRECTOR)] },
+      ],
+      problems: [], carryOver: null, previous: null,
+    };
+    const ctx = contextOf(vacation, COLLEAGUES, 6);
+    expect(who(initialState(vacation, ctx))).toEqual({ stages: [['Эрин']], endorser: null });
+    expect(ctx.authorRoles).toEqual([DIRECTOR]);
+    // шаг автора закрывает маршрут — пустой маршрут не ошибка
+    expect(problemsOf({ stages: [], endorser: null }, ctx)).toEqual([]);
+  });
+
+  it('пустой маршрут при коллегах с ролями — отправить нельзя, с подсказкой', () => {
+    const generic: RoutePreview = { stages: [], problems: [], carryOver: null, previous: null };
+    const ctx = contextOf(generic, COLLEAGUES, 1);
+    expect(problemsOf(initialState(generic, ctx), ctx)).toEqual(['Добавьте хотя бы одного согласующего']);
+    expect(problemsOf(initialState(generic, contextOf(generic, [], 1)), contextOf(generic, [], 1))).toEqual([]);
+  });
+
+  it('обязательная роль, которой в маршруте ни у кого нет, — подсказка до отправки', () => {
+    // прошлый маршрут без директора (ушёл из компании), а директор обязателен
+    const withPrevious: RoutePreview = {
+      ...SUPPORT,
+      previous: { versionNo: 1, stages: [{ participants: [{ userId: 5, roleId: 23 }] }], endorser: { userId: 99, roleId: 22 } },
+    };
+    const state = initialState(withPrevious, context);
+    expect(problemsOf(state, context)).toEqual(['Нужен обязательный согласующий: «Директор»']);
+    const fixed = addPerson(state, ALICE, { kind: 'endorser' }, context);
+    expect(problemsOf(fixed, context)).toEqual([]);
+  });
+});
+
+describe('ревью Матвея на #113', () => {
+  it('обязательная роль без носителей — не «выберите сотрудника», а «нет сотрудника» с подсказкой', () => {
+    const empty: RoutePreviewParticipant = { role: HEAD, mandatory: true, candidates: [], selectedUserId: null, resolution: 'SELECT' };
+    const memo: RoutePreview = {
+      stages: [{ stageOrder: 1, participants: [empty, auto(LAWYER, CAROL)] }],
+      problems: [], carryOver: null, previous: null,
+    };
+    const ctx = contextOf(memo, COLLEAGUES, 1);
+    const problems = problemsOf(initialState(memo, ctx), ctx);
+    expect(problems.some((problem) => problem.startsWith('Выберите сотрудника'))).toBe(false);
+    expect(problems).toContain('Нет сотрудника с ролью «Руководитель отдела» — попросите администратора назначить её или сделать необязательной');
   });
 });

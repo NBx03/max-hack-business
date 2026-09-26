@@ -179,7 +179,7 @@ export function MembersScreen() {
       </List>
 
       {excludedMembers.length > 0 && (
-        <Section title={`Исключённые · ${excludedMembers.length}`} hint="Вернуться может по коду компании или личной ссылке — займёт прежнее место.">
+        <Section title={`Исключённые · ${excludedMembers.length}`} hint="Вернуться можно по коду компании — в заявке прежние роли будут уже отмечены — или по личной ссылке.">
           {showExcluded ? (
             <List label="Исключённые">
               {excludedMembers.map((member) => (

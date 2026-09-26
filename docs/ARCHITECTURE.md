@@ -227,7 +227,8 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 - `ApprovalStep.decision`: `PENDING` / `APPROVED` / `RETURNED` / `REJECTED` / `SKIPPED`.
 - `ApprovalStep.auto_reason`: `null`, `AUTHOR_HOLDS_ROLE` или `CARRIED_OVER` (у `APPROVED`), `MEMBER_REMOVED`
   (у `SKIPPED`) — см. «Маршрут». Соответствие отметки и решения проверяет ограничение в БД (миграция 011).
-- `Document.visibility`: `PRIVATE` (автор и все, у кого есть шаг по документу в любой версии) / `ORG` (вся компания).
+- `Document.visibility`: `PRIVATE` (автор и все, у кого есть шаг по документу в любой версии) / `ORG` (вся компания —
+  **после отправки**: черновик видит только автор и те, у кого был шаг в прошлых версиях, DOC-5).
 - `RequirementRule.kind`: `LEGAL` / `INTERNAL_POLICY` / `PRODUCT_RULE`.
 
 Почему так:

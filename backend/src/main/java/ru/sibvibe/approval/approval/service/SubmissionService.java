@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -116,14 +117,16 @@ public class SubmissionService {
                             && step.getStageOrder() == firstStage.getAsInt())
                     .map(ApprovalStep::getApproverId)
                     .collect(Collectors.toSet());
+            boolean endorsement = planned.stream().anyMatch(step -> step.getStageOrder() == firstStage.getAsInt()
+                    && step.getKind() == ApprovalStep.Kind.ENDORSEMENT);
             events.publishEvent(new ApprovalRequestedEvent(documentId, document.currentVersionNo(),
-                    firstStage.getAsInt(), approvers, document.authorId(), document.title()));
+                    firstStage.getAsInt(), approvers, document.authorId(), document.title(), endorsement));
         } else {
             // Решать некому: обязательные роли только у автора, остальных нет. Согласуется сразу.
             documents.moveToApproval(documentId, null);
             documents.approve(documentId);
             events.publishEvent(new DocumentDecidedEvent(documentId, document.currentVersionNo(), document.authorId(),
-                    DocumentDecidedEvent.Outcome.APPROVED, null, document.title()));
+                    DocumentDecidedEvent.Outcome.APPROVED, null, document.title(), ApprovalStep.endorsedIn(planned)));
         }
     }
 
@@ -231,7 +234,7 @@ public class SubmissionService {
 
     /**
      * Три правила D3 и прежние правила участника. Порядок проверок — от понятных человеку ошибок к «не найдено»:
-     * пустой этап и повтор человека сообщаются текстом, ссылка на чужую роль или не-носителя — 404 (контракт,
+     * пустой этап и повтор человека сообщаются текстом, ссылка на чужую роль — 404, на человека без этой роли — 409 «обновите экран» (контракт,
      * «Идентификаторы от клиента»).
      */
     private Validated validate(DocumentSnapshot document, RouteResolver.ResolvedRoute template, Draft draft) {
@@ -264,7 +267,9 @@ public class SubmissionService {
                 return users.stream().map(UserRef::id).collect(Collectors.toSet());
             });
             if (!carriers.contains(entry.userId())) {
-                throw new NotFoundException();
+                // Роль своей компании, а человека с ней уже нет: сняли роль или исключили, пока был открыт конструктор.
+                // Это не «не найдено», а устаревший экран (ревью #111): говорим, что сделать.
+                throw ApprovalErrors.invalidState("Состав сотрудников изменился — обновите экран маршрута и проверьте согласующих");
             }
             if (!seen.add(entry.userId())) {
                 throw ApprovalErrors.validation("«" + names.getOrDefault(entry.userId(), "Сотрудник")
@@ -303,28 +308,35 @@ public class SubmissionService {
     ) {
         TemplateClaims claims = new TemplateClaims(template);
         List<ApprovalStep> planned = new ArrayList<>();
-        // Обязательная роль, которая есть только у автора: шаг сразу согласован, с отметкой в истории (CLAUDE.md, №10).
-        for (RouteResolver.Stage stage : template.stages()) {
-            for (RouteResolver.Participant participant : stage.participants()) {
-                if (participant.resolution() == RouteResolver.Resolution.AUTHOR_HOLDS_ROLE) {
-                    ApprovalStep step = step(document, 1, participant.role().id(), document.authorId(),
-                            ApprovalStep.Origin.TEMPLATE, ApprovalStep.Kind.APPROVAL, now);
-                    step.setDecision(ApprovalStep.Decision.APPROVED);
-                    step.setAutoReason(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
-                    step.setActivatedAt(now);
-                    step.setDecidedAt(now);
-                    planned.add(step);
-                }
-            }
-        }
         for (int index = 0; index < route.stages().size(); index++) {
             for (Entry entry : route.stages().get(index)) {
                 planned.add(step(document, index + 1, entry.roleId(), entry.userId(), claims.origin(entry),
                         ApprovalStep.Kind.APPROVAL, now));
             }
         }
+        // Обязательная роль, которая есть только у автора: шаг сразу согласован, с отметкой в истории (CLAUDE.md, №10).
+        // Отдельным этапом после согласующих и перед утверждением — там, где такая роль стоит в шаблоне; в этапе 1 он
+        // выглядел бы так, будто автор появился в маршруте сам (ревью #111, п. 3). Активация согласованный этап пропускает.
+        int authorStage = route.stages().size() + 1;
+        // Один шаг, даже если у автора несколько обязательных ролей, которых больше ни у кого нет: человек — один раз
+        // в маршруте (D6, ревью Ильи на #110). Шаг хранит одну роль — первую по шаблону; остальные закрыты тем же
+        // фактом — они есть у автора (validate их и не требует).
+        Optional<RouteResolver.Participant> authorRole = template.stages().stream()
+                .flatMap(stage -> stage.participants().stream())
+                .filter(participant -> participant.resolution() == RouteResolver.Resolution.AUTHOR_HOLDS_ROLE)
+                .findFirst();
+        boolean authorStep = authorRole.isPresent();
+        authorRole.ifPresent(participant -> {
+            ApprovalStep step = step(document, authorStage, participant.role().id(), document.authorId(),
+                    ApprovalStep.Origin.TEMPLATE, ApprovalStep.Kind.APPROVAL, now);
+            step.setDecision(ApprovalStep.Decision.APPROVED);
+            step.setAutoReason(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
+            step.setActivatedAt(now);
+            step.setDecidedAt(now);
+            planned.add(step);
+        });
         if (route.endorser() != null) {
-            planned.add(step(document, route.stages().size() + 1, route.endorser().roleId(), route.endorser().userId(),
+            planned.add(step(document, authorStep ? authorStage + 1 : authorStage, route.endorser().roleId(), route.endorser().userId(),
                     claims.origin(route.endorser()), ApprovalStep.Kind.ENDORSEMENT, now));
         }
         return planned;
@@ -367,7 +379,7 @@ public class SubmissionService {
     private void carryOverApprovals(DocumentSnapshot document, List<ApprovalStep> planned, Instant now) {
         carriedApprovals.of(document.id(), document.currentVersionNo()).ifPresent(carried -> planned.stream()
                 .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING)
-                .filter(step -> carried.covers(step.getRoleId(), step.getApproverId()))
+                .filter(step -> carried.covers(step.getRoleId(), step.getApproverId(), step.getKind()))
                 .forEach(step -> {
                     step.setDecision(ApprovalStep.Decision.APPROVED);
                     step.setAutoReason(ApprovalStep.AutoReason.CARRIED_OVER);

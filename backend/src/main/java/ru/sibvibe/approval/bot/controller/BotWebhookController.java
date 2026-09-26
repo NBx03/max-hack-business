@@ -64,7 +64,10 @@ public class BotWebhookController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
         // Тип события без содержимого: по логу видно, доходят ли сообщения боту (приёмка 24.09, п. 13).
-        LOGGER.info("Webhook бота: событие {}", update == null ? "без тела" : update.path("update_type").asText("?"));
+        // Вид параметра ссылки (c_/p_/d_/другой, без значения — токен личной ссылки секретный): по логам стенда видно,
+        // доходит ли startapp-параметр до bot_started (ревью Матвея на #112, п. 7).
+        LOGGER.info("Webhook бота: событие {}, параметр {}", update == null ? "без тела" : update.path("update_type").asText("?"),
+                update == null ? "нет" : payloadKind(update.path("payload").asText("")));
         try {
             handler.handle(update);
         } catch (RuntimeException exception) {
@@ -79,5 +82,16 @@ public class BotWebhookController {
         }
         return MessageDigest.isEqual(
                 expectedSecret.getBytes(StandardCharsets.UTF_8), received.getBytes(StandardCharsets.UTF_8));
+    }
+
+    static String payloadKind(String payload) {
+        if (payload == null || payload.isEmpty()) {
+            return "нет";
+        }
+        String prefix = payload.length() >= 2 ? payload.substring(0, 2) : payload;
+        return switch (prefix) {
+            case "c_", "p_", "d_" -> prefix;
+            default -> "другой";
+        };
     }
 }

@@ -3,8 +3,10 @@ package ru.sibvibe.approval.organization.service;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.organization.entity.AppUser;
+import ru.sibvibe.approval.organization.entity.JoinRequest;
 import ru.sibvibe.approval.organization.entity.OrganizationMember;
 import ru.sibvibe.approval.organization.repository.AppUserRepository;
+import ru.sibvibe.approval.organization.repository.JoinRequestRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationMemberRepository;
 
 import java.util.LinkedHashSet;
@@ -24,10 +26,24 @@ public class NotificationDirectoryService {
 
     private final AppUserRepository users;
     private final OrganizationMemberRepository members;
+    private final JoinRequestRepository joinRequests;
 
-    public NotificationDirectoryService(AppUserRepository users, OrganizationMemberRepository members) {
+    public NotificationDirectoryService(AppUserRepository users, OrganizationMemberRepository members,
+                                        JoinRequestRepository joinRequests) {
         this.users = users;
         this.members = members;
+        this.joinRequests = joinRequests;
+    }
+
+    /**
+     * Есть ли у человека заявка на рассмотрении: тогда ссылка-приглашение в мини-приложении не сработает (оно покажет
+     * прежнюю заявку), и бот не должен обещать новую (ревью Матвея на #112, п. 6).
+     */
+    @Transactional(readOnly = true)
+    public boolean hasPendingJoinRequest(long maxUserId) {
+        return users.findByMaxUserId(maxUserId)
+                .map(user -> joinRequests.existsByUserIdAndStatus(user.getId(), JoinRequest.Status.PENDING))
+                .orElse(false);
     }
 
     /** @return получатель по внутреннему id пользователя; пусто, если пользователь не найден */

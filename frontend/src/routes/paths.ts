@@ -15,6 +15,8 @@ export const ROUTE_PATTERNS = {
   documents: '/documents',
   /** Список документов одного раздела: waiting | mine | shared (NAV-2). */
   documentList: '/documents/list/:list',
+  /** Поиск по всем разделам (NAV-3, LNK-3): с главной и по кнопке бота «Показать все». */
+  documentSearch: '/documents/search',
   /** Раздел «Компания» (плитка главной): сотрудники, администрирование, правила, демо. */
   company: '/company',
   /** «Правила проверки» (#91): внутри раздела «Компания». */
@@ -45,6 +47,25 @@ export function joinPath(code?: string): string {
 
 export function joinPersonalPath(token: string): string {
   return ROUTE_PATTERNS.joinPersonal.replace(':token', encodeURIComponent(token));
+}
+
+export function documentSearchPath(query?: string): string {
+  return query ? `${ROUTE_PATTERNS.documentSearch}?q=${encodeURIComponent(query)}` : ROUTE_PATTERNS.documentSearch;
+}
+
+/**
+ * Запрос из параметра запуска s_<base64url> (LNK-3): бот кладёт туда текст, который человек искал в чате. MAX пропускает
+ * в параметре только A-Z a-z 0-9 _ -, поэтому base64url; битый — null.
+ */
+export function decodeSearchPayload(payload: string): string | null {
+  try {
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4));
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
+    return text.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function documentCardPath(id: number | string): string {
