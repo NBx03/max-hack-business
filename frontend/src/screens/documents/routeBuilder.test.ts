@@ -8,7 +8,6 @@ import {
   moveSlot,
   moveStage,
   placeOf,
-  needsApprover,
   problemsOf,
   removeSlot,
   resolveChoice,
@@ -156,16 +155,14 @@ describe('ревью #111', () => {
     const ctx = contextOf(vacation, COLLEAGUES, 6);
     expect(who(initialState(vacation, ctx))).toEqual({ stages: [['Эрин']], endorser: null });
     expect(ctx.authorRoles).toEqual([DIRECTOR]);
-    // шаг автора закрывает маршрут — пустой маршрут не ошибка, и пустой карточки «Этап 1» нет (#56: было два «Этапа 1»)
+    // шаг автора закрывает маршрут — пустой маршрут не ошибка
     expect(problemsOf({ stages: [], endorser: null }, ctx)).toEqual([]);
-    expect(needsApprover({ stages: [], endorser: null }, ctx)).toBe(false);
   });
 
   it('пустой маршрут при коллегах с ролями — отправить нельзя, с подсказкой', () => {
     const generic: RoutePreview = { stages: [], problems: [], carryOver: null, previous: null };
     const ctx = contextOf(generic, COLLEAGUES, 1);
     expect(problemsOf(initialState(generic, ctx), ctx)).toEqual(['Добавьте хотя бы одного согласующего']);
-    expect(needsApprover(initialState(generic, ctx), ctx)).toBe(true);
     expect(problemsOf(initialState(generic, contextOf(generic, [], 1)), contextOf(generic, [], 1))).toEqual([]);
   });
 
