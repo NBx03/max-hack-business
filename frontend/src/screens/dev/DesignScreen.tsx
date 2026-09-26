@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  AiExplainer,
   AiLegend,
   AiMark,
   Button,
@@ -133,7 +132,7 @@ export function DesignScreen() {
         />
       </Section>
 
-      <Section title="Значения от ИИ" aside={<AiExplainer />}>
+      <Section title="Значения от ИИ">
         <AiLegend />
       </Section>
 

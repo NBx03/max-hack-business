@@ -37,7 +37,7 @@ export function AiMark() {
   );
 }
 
-/** Что значит ✦ — одна и та же нижняя панель для легенды и для витрины дизайн-системы. */
+/** Что значит ✦ — пояснение, которое открывает легенда. */
 function AiSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <BottomSheet open={open} onClose={onClose} title="✦ — значение от ИИ">
@@ -69,19 +69,6 @@ export function AiLegend() {
           <Icon name="info" size={16} />
           Что это?
         </span>
-      </button>
-      <AiSheet open={open} onClose={() => setOpen(false)} />
-    </>
-  );
-}
-
-/** Отдельный ✦-кнопка — для мест без строки-легенды (витрина дизайн-системы). */
-export function AiExplainer() {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button type="button" className="ds-ai-button" aria-label="Что значит ✦" onClick={() => setOpen(true)}>
-        <AiGlyph size={16} />
       </button>
       <AiSheet open={open} onClose={() => setOpen(false)} />
     </>
