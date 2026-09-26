@@ -21,7 +21,7 @@ import {
 } from '../../ui';
 import { FieldInputs, fieldStyle, labelStyle, sectionStyle, stackStyle } from './DocumentFormParts';
 import { FormatsHelp } from './FormatsHelp';
-import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAX_FILE_MB, fileProblem, hasLimitedCheck } from './uploadFormats';
+import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
 
 const FORM_ID = 'document-upload-form';
 const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
@@ -160,9 +160,8 @@ export function DocumentUploadScreen() {
           file={mainFile}
           accept={MAIN_FILE_ACCEPT}
           title="Выберите файл документа"
-          caption={`PDF, DOCX или DOC · до ${MAX_FILE_MB} МБ`}
+          caption={MAIN_FILE_CAPTION}
           error={fileError}
-          note={mainFile && hasLimitedCheck(mainFile) ? 'Для этого файла автоматическая проверка недоступна — поля заполните вручную.' : undefined}
           help={<FormatsHelp />}
           onSelect={selectFile}
           onRemove={() => {

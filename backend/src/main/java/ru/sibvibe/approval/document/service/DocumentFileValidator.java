@@ -23,8 +23,6 @@ public class DocumentFileValidator {
     private static final String PDF = "application/pdf";
     private static final String DOCX =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    /** Старый формат Word (D1): хранится и идёт по маршруту, текст не читаем — как PDF-скан. */
-    public static final String DOC = "application/msword";
     private static final byte[] OLE2 = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
 
     public ValidatedFile validateMain(MultipartFile file) {
@@ -57,15 +55,17 @@ public class DocumentFileValidator {
             return DOCX;
         }
         if (isDoc(content, fileName)) {
-            return DOC;
+            // D1 (пересмотрено 26.09): DOC не принимаем — ИИ его не читает, а полуработающий формат выглядит недоделкой.
+            // Говорим, как пересохранить: это десять секунд в Word.
+            throw DocumentApiException.fileTypeNotAllowed(DOC_NOT_SUPPORTED);
         }
-        throw DocumentApiException.fileTypeNotAllowed("Основной файл должен быть PDF, DOCX или DOC");
+        throw DocumentApiException.fileTypeNotAllowed("Основной файл должен быть PDF или DOCX");
     }
 
-    /**
-     * DOC — контейнер OLE2 (тот же заголовок у старых XLS и PPT), поэтому кроме содержимого проверяется и расширение:
-     * таблица, переименованная в .doc, всё равно пройдёт как «файл без текста», не как документ с полями.
-     */
+    static final String DOC_NOT_SUPPORTED = "DOC — устаревший формат Word. Откройте файл в Word и сохраните как DOCX: "
+            + "«Файл → Сохранить как → Документ Word (.docx)»";
+
+    /** DOC — контейнер OLE2 с расширением .doc: распознаём только ради понятной ошибки с советом. */
     private boolean isDoc(byte[] content, String fileName) {
         if (content.length < OLE2.length || !fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".doc")) {
             return false;

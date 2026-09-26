@@ -50,14 +50,17 @@ class DocumentFileValidatorTest {
     }
 
     @Test
-    void acceptsLegacyWordDocumentOnlyWithTheDocExtension() {
+    void legacyWordDocumentIsRejectedWithAdviceToSaveAsDocx() {
         byte[] ole2 = new byte[512];
         byte[] header = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
         System.arraycopy(header, 0, ole2, 0, header.length);
 
-        // D1: DOC хранится и идёт по маршруту как файл без текста
-        assertThat(validator.validateMain(file("Приказ.DOC", "application/octet-stream", ole2)).mimeType())
-                .isEqualTo("application/msword");
+        // D1 (пересмотрено 26.09): DOC не принимаем, но говорим, как пересохранить
+        assertThatThrownBy(() -> validator.validateMain(file("Приказ.DOC", "application/octet-stream", ole2)))
+                .isInstanceOfSatisfying(DocumentApiException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FILE_TYPE_NOT_ALLOWED");
+                    assertThat(exception.getMessage()).contains("сохраните как DOCX");
+                });
         // тот же контейнер у старых XLS и PPT — по расширению это не документ
         assertThatThrownBy(() -> validator.validateMain(file("table.xls", "application/vnd.ms-excel", ole2)))
                 .isInstanceOfSatisfying(DocumentApiException.class,

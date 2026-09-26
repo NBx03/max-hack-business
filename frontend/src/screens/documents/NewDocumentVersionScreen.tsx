@@ -5,7 +5,7 @@ import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/
 import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
 import { FormatsHelp } from './FormatsHelp';
-import { MAIN_FILE_ACCEPT, MAX_FILE_MB, fileProblem, hasLimitedCheck } from './uploadFormats';
+import { MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
 import { ErrorState, Button, FileDrop, formatFileSize } from '../../ui';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import {
@@ -138,9 +138,8 @@ export function NewDocumentVersionScreen() {
           file={newMain}
           accept={MAIN_FILE_ACCEPT}
           title="Выберите исправленный файл"
-          caption={`PDF, DOCX или DOC · до ${MAX_FILE_MB} МБ`}
+          caption={MAIN_FILE_CAPTION}
           error={newMainError}
-          note={newMain && hasLimitedCheck(newMain) ? 'Для этого файла автоматическая проверка недоступна — поля заполните вручную.' : undefined}
           help={<FormatsHelp />}
           onSelect={(file) => {
             const problem = fileProblem(file);

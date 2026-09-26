@@ -27,7 +27,7 @@ public class PdfDocxTextExtractor implements TextExtractor {
     private static final Logger LOGGER = LoggerFactory.getLogger(PdfDocxTextExtractor.class);
     private static final String PDF = "application/pdf";
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    /** DOC (D1): текст не читаем — без Apache POI, он не укладывается в лимит сборки. Файл — «без текста», как скан. */
+    /** DOC: новые не принимаются (D1, пересмотрено 26.09); ветка — для черновиков, загруженных раньше: файл «без текста». */
     private static final String DOC = "application/msword";
     private static final String DOCUMENT_XML = "word/document.xml";
     private static final int MAX_INPUT_BYTES = 12 * 1024 * 1024;

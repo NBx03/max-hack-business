@@ -394,7 +394,8 @@ export function DocumentCheckScreen() {
   const canSaveFields = card.permissions.canEditFields || (isReturned && card.permissions.canUploadVersion);
   const canEdit = canSaveFields || card.permissions.canCorrectFile;
   const isPdf = Boolean(mainFile && mainFile.mimeType !== DOCX && mainFile.mimeType !== OLD_WORD);
-  // DOC (старый Word) ИИ не читает — это не скан, и человеку нужен другой совет (ревью Матвея на #113, п. 1).
+  // DOC (старый Word) новым файлом не принимается (D1, пересмотрено 26.09), но черновики, загруженные раньше, остались:
+  // у них текст не читается не потому, что это скан, — совет другой (ревью Матвея на #113, п. 1).
   const isOldWord = Boolean(mainFile && (mainFile.mimeType === OLD_WORD || /\.doc$/i.test(mainFile.fileName)));
   const modelAvailable = check?.modelAvailable ?? false;
   const manualCount = check?.fields.filter((field) => field.source === 'MANUAL' && field.fileValue != null).length ?? 0;

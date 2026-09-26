@@ -1,20 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { fileProblem, hasLimitedCheck } from './uploadFormats';
+import { DOC_NOT_SUPPORTED, MAIN_FILE_ACCEPT, fileProblem } from './uploadFormats';
 
 describe('какие файлы подходят (UPL-2, UPL-6)', () => {
   const file = (name: string, type = '', size = 1024) => ({ name, type, size });
 
-  it('PDF, DOCX и DOC подходят — по расширению или по типу', () => {
+  it('PDF и DOCX подходят — по расширению или по типу', () => {
     expect(fileProblem(file('Записка.PDF'))).toBeNull();
     expect(fileProblem(file('Записка.docx'))).toBeNull();
-    expect(fileProblem(file('Приказ.doc'))).toBeNull();
     expect(fileProblem(file('scan', 'application/pdf'))).toBeNull();
   });
 
   it('фото — понятным текстом, остальное — с именем файла', () => {
     expect(fileProblem(file('IMG_2031.jpg', 'image/jpeg'))).toMatch(/^Фото не подходит/);
     expect(fileProblem(file('photo.HEIC'))).toMatch(/^Фото не подходит/);
-    expect(fileProblem(file('Смета.xlsx'))).toBe('Файл «Смета.xlsx» не подходит. Загрузите PDF, DOCX или DOC.');
+    expect(fileProblem(file('Смета.xlsx'))).toBe('Файл «Смета.xlsx» не подходит. Загрузите PDF или DOCX.');
   });
 
   it('слишком большой и пустой файл', () => {
@@ -22,9 +21,11 @@ describe('какие файлы подходят (UPL-2, UPL-6)', () => {
     expect(fileProblem(file('empty.pdf', '', 0))).toMatch(/пустой/);
   });
 
-  it('ограниченная проверка — только у DOC', () => {
-    expect(hasLimitedCheck(file('Приказ.doc'))).toBe(true);
-    expect(hasLimitedCheck(file('Приказ.docx'))).toBe(false);
+  it('DOC не принимаем, но говорим, как пересохранить (D1, пересмотрено 26.09)', () => {
+    expect(fileProblem(file('Приказ.doc'))).toBe(DOC_NOT_SUPPORTED);
+    expect(fileProblem(file('scan', 'application/msword'))).toBe(DOC_NOT_SUPPORTED);
+    expect(MAIN_FILE_ACCEPT).not.toContain('.doc,');
+    expect(MAIN_FILE_ACCEPT).not.toContain('msword');
   });
 });
 
