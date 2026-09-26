@@ -21,13 +21,11 @@ import {
 } from '../../ui';
 import { FieldInputs, fieldStyle, labelStyle, sectionStyle, stackStyle } from './DocumentFormParts';
 import { FormatsHelp } from './FormatsHelp';
-import { MAIN_FILE_ACCEPT, MAX_FILE_MB, fileProblem, hasLimitedCheck } from './uploadFormats';
+import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAX_FILE_MB, fileProblem, hasLimitedCheck } from './uploadFormats';
 
 const FORM_ID = 'document-upload-form';
 const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
 const AUTO = 0;
-/** Шаги создания документа (UPL-3) — одинаковые на экранах загрузки, проверки и маршрута. */
-export const CREATE_STEPS = ['Файл', 'Проверка', 'Маршрут'];
 
 /**
  * Что будет проверено — подпись под выбором вида. Человек, загрузивший свой файл, не обязан знать наши виды: по

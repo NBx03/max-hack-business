@@ -432,22 +432,17 @@ export function DocumentCardScreen() {
     );
   } else if (doc.status === 'DRAFT' && doc.permissions.canSubmit) {
     footer = (
-      <>
-        <Button variant="primary" stretched onClick={() => navigate(routePreviewPath(doc.id))}>
-          Далее: выбрать согласующих
-        </Button>
-      </>
+      <Button variant="primary" stretched onClick={() => navigate(routePreviewPath(doc.id))}>
+        Далее: выбрать согласующих
+      </Button>
     );
   } else if (doc.status === 'DRAFT' && doc.check) {
     // canSubmit = false на черновике — из-за блокирующих замечаний; без этой кнопки карточка была бы тупиком (#71).
     footer = (
-      <>
-        <Button variant="primary" stretched onClick={() => navigate(documentCheckPath(doc.id))}>
-          Исправить замечания
-        </Button>
-      </>
+      <Button variant="primary" stretched onClick={() => navigate(documentCheckPath(doc.id))}>
+        Исправить замечания
+      </Button>
     );
-
   } else if (doc.status === 'RETURNED' && doc.permissions.canUploadVersion) {
     footer = (
       <>

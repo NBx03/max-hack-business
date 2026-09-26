@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
 import { launchDataFromHash, launchDataToReloadFor, relaunchMark, startParamOf } from '../app/launch';
-import { parentRoute } from './backNavigation';
+import { backTarget, parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
 
@@ -190,5 +190,22 @@ describe('relaunchMark — перезагрузка только ради нов
   it('пустой мост — не трогаем', () => {
     expect(relaunchMark(launch('d_5', 1), '', null)).toBeNull();
     expect(startParamOf('')).toBe('');
+  });
+});
+
+describe('backTarget — системная «Назад» туда же, куда ссылка в шапке (ревью Матвея на #110)', () => {
+  it('карточка из списка — обратно в список, из поиска — в поиск', () => {
+    expect(backTarget('/documents/5', { from: '/documents/list/mine' }, '/home')).toBe('/documents/list/mine');
+    expect(backTarget('/documents/5', { from: '/documents/search?q=%D0%B0' }, '/home')).toBe('/documents/search?q=%D0%B0');
+  });
+
+  it('конструктор с экрана проверки — на проверку', () => {
+    expect(backTarget('/documents/5/route', { from: 'check' }, '/home')).toBe('/documents/5/check');
+  });
+
+  it('без state и с чужим адресом — логический родитель', () => {
+    expect(backTarget('/documents/5', null, '/home')).toBe('/home');
+    expect(backTarget('/documents/5', { from: '//evil.example' }, '/home')).toBe('/home');
+    expect(backTarget('/documents/5/route', {}, '/home')).toBe('/documents/5');
   });
 });

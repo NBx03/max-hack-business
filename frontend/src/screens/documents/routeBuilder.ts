@@ -265,8 +265,15 @@ export function problemsOf(state: BuilderState, context: BuilderContext): string
   const problems: string[] = [];
   const slots = allSlots(state);
   const choices = slots.filter((slot) => slot.kind === 'choice');
-  if (choices.length > 0) {
-    problems.push(`Выберите сотрудника: ${choices.map((slot) => `«${slot.roleName}»`).join(', ')}`);
+  const toChoose = choices.filter((slot) => slot.candidates.length > 0);
+  const nobody = choices.filter((slot) => slot.candidates.length === 0);
+  if (toChoose.length > 0) {
+    problems.push(`Выберите сотрудника: ${toChoose.map((slot) => `«${slot.roleName}»`).join(', ')}`);
+  }
+  // Обязательная роль, которой в компании ни у кого нет: выбирать некого, убрать нельзя. Отправку всё равно не пустит
+  // сервер (ROUTE_ROLE_EMPTY); здесь — что делать (ревью Матвея на #113, п. 4).
+  if (nobody.length > 0) {
+    problems.push(`Нет сотрудника с ролью ${nobody.map((slot) => `«${slot.roleName}»`).join(', ')} — попросите администратора назначить её или сделать необязательной`);
   }
   if (slots.length === 0 && context.authorRoles.length === 0 && context.colleagues.length > 0) {
     problems.push('Добавьте хотя бы одного согласующего');

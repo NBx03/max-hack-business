@@ -194,12 +194,12 @@ export function changeDocumentType(documentId: number, versionNo: number, docume
   });
 }
 
-/** Автор отзывает документ с согласования: документ возвращается к нему, маршрут начнётся заново. */
 /** DOC-4: удалить черновик, который ещё не отправлялся. */
 export function deleteDocument(documentId: number): Promise<void> {
   return apiRequest<void>(`/documents/${documentId}`, { method: 'DELETE' });
 }
 
+/** Автор отзывает документ с согласования: документ возвращается к нему, маршрут начнётся заново. */
 export function withdrawDocument(documentId: number): Promise<DocumentCard> {
   return apiRequest<DocumentCard>(`/documents/${documentId}/withdraw`, { method: 'POST' });
 }

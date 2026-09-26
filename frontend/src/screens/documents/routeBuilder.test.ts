@@ -178,3 +178,17 @@ describe('ревью #111', () => {
     expect(problemsOf(fixed, context)).toEqual([]);
   });
 });
+
+describe('ревью Матвея на #113', () => {
+  it('обязательная роль без носителей — не «выберите сотрудника», а «нет сотрудника» с подсказкой', () => {
+    const empty: RoutePreviewParticipant = { role: HEAD, mandatory: true, candidates: [], selectedUserId: null, resolution: 'SELECT' };
+    const memo: RoutePreview = {
+      stages: [{ stageOrder: 1, participants: [empty, auto(LAWYER, CAROL)] }],
+      problems: [], carryOver: null, previous: null,
+    };
+    const ctx = contextOf(memo, COLLEAGUES, 1);
+    const problems = problemsOf(initialState(memo, ctx), ctx);
+    expect(problems.some((problem) => problem.startsWith('Выберите сотрудника'))).toBe(false);
+    expect(problems).toContain('Нет сотрудника с ролью «Руководитель отдела» — попросите администратора назначить её или сделать необязательной');
+  });
+});

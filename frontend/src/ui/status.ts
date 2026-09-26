@@ -55,7 +55,8 @@ export function stepDecisionMeta(decision: StepDecision, autoReason?: AutoReason
     return { text: 'Согласовано ранее', tone: 'success', icon: 'check' };
   }
   if (autoReason === 'MEMBER_REMOVED') {
-    return { text: 'Выбыл', tone: 'warning', icon: 'return' };
+    // Без глагола с родом: пол сотрудника неизвестен (HANDOFF §9, ревью Матвея на #110).
+    return { text: 'Больше не участвует', tone: 'warning', icon: 'return' };
   }
   return STEP_DECISION_META[decision];
 }

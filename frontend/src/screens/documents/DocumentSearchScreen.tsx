@@ -11,7 +11,7 @@ import {
   documentSearchPath,
   type DocumentListKey,
 } from '../../routes/paths';
-import { EmptyState, ErrorState, List, Loading, Muted, Page, PageHeader, SearchField, Section } from '../../ui';
+import { EmptyState, ErrorState, List, Loading, Muted, Page, PageHeader, SEARCH_MAX_LENGTH, SearchField, Section } from '../../ui';
 import { DocumentRow } from './DocumentListScreen';
 
 const ORDER: DocumentListKey[] = ['waiting', 'mine', 'shared'];
@@ -37,7 +37,8 @@ async function searchEverywhere(query: string): Promise<Found> {
 export function DocumentSearchScreen() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const query = params.get('q')?.trim() ?? '';
+  // Из бота или адреса может прийти длиннее, чем ищет сервер, — обрезаем, а не показываем ошибку.
+  const query = (params.get('q') ?? '').trim().slice(0, SEARCH_MAX_LENGTH);
   const [text, setText] = useState(query);
 
   // Запрос — в адресе: «назад» с карточки возвращает к тем же результатам.

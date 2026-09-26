@@ -1,9 +1,10 @@
 import { Switch } from '@maxhub/max-ui';
 import { useState } from 'react';
 import { errorMessage } from '../../api/errors';
-import { setRouteRoleMandatory } from '../../api/organization';
+import { getColleagues, setRouteRoleMandatory } from '../../api/organization';
+import { useAsync } from '../../hooks/useAsync';
 import type { DocumentType, RouteOverview } from '../../api/types';
-import { BottomSheet, Icon, InlineError, List, Muted, Row, Section } from '../../ui';
+import { BottomSheet, ConfirmSheet, Icon, InlineError, List, Muted, Row, Section } from '../../ui';
 import { isOutsideTemplates } from '../documents/documentKind';
 
 /** Как на экране загрузки: по алфавиту, «Другой документ» последним. */
@@ -83,7 +84,13 @@ function RouteLine({ route }: { route: RouteOverview }) {
 function MandatoryEditor({ type, route, onSaved }: { type: DocumentType; route: RouteOverview; onSaved: (routes: RouteOverview[]) => void }) {
   const [busyRoleId, setBusyRoleId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRole, setConfirmRole] = useState<{ id: number; name: string } | null>(null);
   const participants = route.stages.flatMap((stage) => stage.participants);
+  // У кого есть роль: обязательная роль без носителей останавливает отправку всех документов этого вида — об этом
+  // предупреждаем до сохранения, но не запрещаем: роль могут назначить позже (ревью Матвея на #113, п. 4).
+  const colleagues = useAsync(() => getColleagues(), []);
+  const hasCarrier = (roleId: number) =>
+    colleagues.status !== 'ready' || colleagues.data.some((member) => member.roles.some((role) => role.id === roleId));
 
   async function toggle(roleId: number, mandatory: boolean) {
     setBusyRoleId(roleId);
@@ -108,18 +115,38 @@ function MandatoryEditor({ type, route, onSaved }: { type: DocumentType; route: 
           <label key={participant.role.id} className="ds-row" style={{ cursor: 'pointer' }}>
             <span className="ds-row__body">
               <span className="ds-row__title">{participant.role.name}</span>
-              <span className="ds-row__subtitle">{participant.mandatory ? 'Обязательна — с замком' : 'Можно убрать'}</span>
+              <span className="ds-row__subtitle">
+                {participant.mandatory ? 'Обязательна — с замком' : 'Можно убрать'}
+                {!hasCarrier(participant.role.id) && ' · сейчас ни у кого нет этой роли'}
+              </span>
             </span>
             <Switch
               checked={participant.mandatory}
               disabled={busyRoleId !== null}
-              onChange={(event) => void toggle(participant.role.id, event.target.checked)}
+              onChange={(event) => {
+                if (event.target.checked && !hasCarrier(participant.role.id)) {
+                  setConfirmRole(participant.role);
+                } else {
+                  void toggle(participant.role.id, event.target.checked);
+                }
+              }}
             />
           </label>
         ))}
       </List>
       {error && <InlineError>{error}</InlineError>}
       <Muted>Изменение действует на новые маршруты; документы, уже отправленные на согласование, не меняются.</Muted>
+      <ConfirmSheet
+        open={confirmRole !== null}
+        onClose={() => setConfirmRole(null)}
+        title={`Сделать «${confirmRole?.name ?? ''}» обязательной?`}
+        description={`Сейчас ни у кого в компании нет роли «${confirmRole?.name ?? ''}». Пока её никому не назначат, документы вида «${type.name}» нельзя будет отправить на согласование.`}
+        confirmLabel="Всё равно сделать"
+        onConfirm={() => {
+          if (confirmRole) void toggle(confirmRole.id, true);
+          setConfirmRole(null);
+        }}
+      />
     </>
   );
 }

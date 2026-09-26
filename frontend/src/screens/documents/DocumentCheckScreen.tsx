@@ -38,7 +38,7 @@ import {
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
-import { CREATE_STEPS } from './DocumentUploadScreen';
+import { CREATE_STEPS } from './uploadFormats';
 import { isOutsideTemplates, recognizedKindOf } from './documentKind';
 import { KIND_LABELS, SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
 import {
@@ -61,6 +61,7 @@ const SEVERITY_LABELS: Record<Severity, string> = RULE_SEVERITY_LABELS;
 const BASIS_LABELS: Record<RuleKind, string> = KIND_LABELS;
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const OLD_WORD = 'application/msword';
 
 const correctionApi: CorrectionApi = {
   correctFile,
@@ -392,7 +393,9 @@ export function DocumentCheckScreen() {
   // (приёмка 24.09, п. 9 — раньше для этого нужно было «Загрузить исправленный файл» без файла).
   const canSaveFields = card.permissions.canEditFields || (isReturned && card.permissions.canUploadVersion);
   const canEdit = canSaveFields || card.permissions.canCorrectFile;
-  const isPdf = Boolean(mainFile && mainFile.mimeType !== DOCX);
+  const isPdf = Boolean(mainFile && mainFile.mimeType !== DOCX && mainFile.mimeType !== OLD_WORD);
+  // DOC (старый Word) ИИ не читает — это не скан, и человеку нужен другой совет (ревью Матвея на #113, п. 1).
+  const isOldWord = Boolean(mainFile && (mainFile.mimeType === OLD_WORD || /\.doc$/i.test(mainFile.fileName)));
   const modelAvailable = check?.modelAvailable ?? false;
   const manualCount = check?.fields.filter((field) => field.source === 'MANUAL' && field.fileValue != null).length ?? 0;
   // Сменить тип можно у своего черновика: тем же правом, что и правка полей.
@@ -483,13 +486,14 @@ export function DocumentCheckScreen() {
       )}
 
       {showKindNotice && (
-        <GenericKindNotice kind={recognized} canChangeType={canChangeType} onChangeType={openTypeSheet} />
+        <GenericKindNotice kind={recognized} textMissing={Boolean(check?.textMissing)} canChangeType={canChangeType} onChangeType={openTypeSheet} />
       )}
 
       <HowChecked
         modelAvailable={modelAvailable}
         sensitive={sensitive}
         textMissing={Boolean(check?.textMissing)}
+        oldWord={isOldWord}
         canEdit={canEdit}
         isForm={isForm}
       />
@@ -709,12 +713,15 @@ function HowChecked({
   modelAvailable,
   sensitive,
   textMissing,
+  oldWord,
   canEdit,
   isForm,
 }: {
   modelAvailable: boolean;
   sensitive: boolean;
   textMissing: boolean;
+  /** Основной файл — DOC: текст не читается не потому, что это скан. */
+  oldWord: boolean;
   canEdit: boolean;
   /** Записка заполнена в приложении (#59): распознавать нечего — это не «распознавание недоступно». */
   isForm: boolean;
@@ -722,6 +729,8 @@ function HowChecked({
   const fill = canEdit ? 'Заполните поля кнопкой «Изменить»' : 'Поля заполняет автор';
   const text = isForm
     ? 'Записка заполнена в приложении — правила проверили её поля.'
+    : textMissing && oldWord
+    ? `Старый формат Word (DOC): ИИ его не читает. ${fill} — правила проверят их так же — или сохраните файл как DOCX и замените.`
     : textMissing
     ? `Похоже, это скан: в файле нет текста. ${fill} или загрузите файл с текстом.`
     : modelAvailable
@@ -743,10 +752,13 @@ function HowChecked({
  */
 function GenericKindNotice({
   kind,
+  textMissing,
   canChangeType,
   onChangeType,
 }: {
   kind: { value: string; fromAi: boolean } | null;
+  /** Текста в файле нет — ИИ вид и не мог распознать: так и говорим, а не «не распознан». */
+  textMissing: boolean;
   canChangeType: boolean;
   onChangeType: () => void;
 }) {
@@ -758,13 +770,16 @@ function GenericKindNotice({
             {kind.fromAi ? 'ИИ распознал' : 'Вид'}: {kind.value}
             {kind.fromAi && <AiMark />}
           </>
+        ) : textMissing ? (
+          'Вид не определён: текст файла не прочитан'
         ) : (
           'Вид документа не распознан'
         )}
       </strong>
       <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-        Такого вида нет в шаблонах компании — проверим общие реквизиты: дату, номер, заголовок и подпись. Согласующих
-        выберете сами.
+        {kind
+          ? 'Такого вида нет в шаблонах компании — проверим общие реквизиты: дату, номер, заголовок и подпись. Согласующих выберете сами.'
+          : 'Если это документ одного из видов компании — выберите вид из списка, проверка будет подробнее. Иначе проверим общие реквизиты: дату, номер, заголовок и подпись.'}
       </Typography.Text>
       {canChangeType && (
         <div>

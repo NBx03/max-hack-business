@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getDocuments, getDocumentTypes } from '../../api/documents';
 import { getColleagues } from '../../api/organization';
@@ -124,6 +124,8 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
 
   // Следующие страницы — дописываются к первой; новые фильтры начинают список заново.
   const [more, setMore] = useState<MorePages>(NO_MORE_PAGES);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => {
@@ -138,7 +140,10 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
     setLoadingMore(true);
     setMoreError(null);
     try {
+      const requested = filters;
       const next = await getDocuments(meta.tab, toQuery(filters, more.nextPage, PAGE_SIZE));
+      // Фильтры сменились, пока грузилась страница, — её строки к новому списку не относятся (ревью Матвея на #113, п. 7).
+      if (filtersRef.current !== requested) return;
       setMore((current) => withPage(current, firstPage, next.items));
     } catch (error) {
       setMoreError(errorMessage(error));

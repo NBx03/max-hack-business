@@ -40,6 +40,23 @@ export function parentRoute(pathname: string, entryRoute: string): string {
 }
 
 /**
+ * Куда ведёт системная «Назад» MAX — туда же, куда ссылка «‹ …» в шапке (ревью Матвея на #110, п. 3). Экран,
+ * открытый из списка или поиска, получает путь возврата в state.from; конструктор, открытый с экрана проверки, —
+ * from: 'check'. Без этого системная кнопка с карточки всегда вела на главную, а ссылка — в список.
+ */
+export function backTarget(pathname: string, state: unknown, entryRoute: string): string {
+  const from = typeof state === 'object' && state !== null ? (state as { from?: unknown }).from : undefined;
+  if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//')) {
+    return from;
+  }
+  const route = pathname.match(/^(\/documents\/\d+)\/route$/);
+  if (route && from === 'check') {
+    return `${route[1]}/check`;
+  }
+  return parentRoute(pathname, entryRoute);
+}
+
+/**
  * Функция «вернуться к target». Всегда прямой переход с заменой текущего экрана, а не шаг назад
  * по истории браузера (приёмка 24.09, п. 6 и 11). Внутри веб-версии MAX приложение живёт во фрейме,
  * а у фрейма и страницы MAX общая история: history.back() отменял последний переход самого MAX

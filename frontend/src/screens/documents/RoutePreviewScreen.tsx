@@ -25,7 +25,7 @@ import {
   Stepper,
   type SelectOption,
 } from '../../ui';
-import { CREATE_STEPS } from './DocumentUploadScreen';
+import { CREATE_STEPS } from './uploadFormats';
 import {
   addPerson,
   contextOf,
@@ -162,7 +162,14 @@ function RouteBuilder({
       slot={slot}
       locked={isLocked(state, slot, context)}
       carried={carried(slot, kind) ? (kind === 'ENDORSEMENT' ? 'утверждение сохранится — документ не менялся' : 'согласие сохранится — документ не менялся') : null}
-      onOpen={() => (slot.kind === 'choice' ? setAdding({ kind: 'choice', slotId: slot.id }) : setMenuSlotId(slot.id))}
+      onOpen={() => {
+        if (slot.kind === 'choice') {
+          // Без кандидатов выбирать некого — панель выбора не открываем.
+          if (slot.candidates.length > 0) setAdding({ kind: 'choice', slotId: slot.id });
+        } else {
+          setMenuSlotId(slot.id);
+        }
+      }}
       onRemove={() => setState((current) => removeSlot(current, slot.id, context))}
       onDragStart={(event) => drag.start(event, slot)}
     />
@@ -192,7 +199,8 @@ function RouteBuilder({
         </>
       }
     >
-      {serverProblems.map((problem) => (
+      {/* Роль без носителей конструктор показывает сам — строкой в этапе и подсказкой у кнопки; сверху не повторяем. */}
+      {serverProblems.filter((problem) => problem.code !== 'ROUTE_ROLE_EMPTY').map((problem) => (
         <Notice key={problem.code} tone="danger">{problem.message}</Notice>
       ))}
       <Muted>
@@ -261,8 +269,14 @@ function RouteBuilder({
           <List label="Согласуется автоматически">
             <div className="ds-row" role="listitem">
               <span className="ds-row__body">
-                <span className="ds-row__title">Вы · {authorRoles.map((role) => role.name).join(', ')}</span>
-                <span className="ds-row__subtitle">Согласуется автоматически: эта роль в компании только у вас. Будет видно в истории.</span>
+                {/* В истории шаг хранит одну роль — первую; остальные названы ниже, чтобы конструктор и карточка не расходились. */}
+                <span className="ds-row__title">Вы · {authorRoles[0].name}</span>
+                <span className="ds-row__subtitle">
+                  {authorRoles.length > 1
+                    ? `Роли ${authorRoles.map((role) => `«${role.name}»`).join(', ')} в компании только у вас — согласуются автоматически одним шагом.`
+                    : 'Согласуется автоматически: эта роль в компании только у вас.'}{' '}
+                  Будет видно в истории.
+                </span>
               </span>
               <span style={{ display: 'inline-flex', width: 44, justifyContent: 'center', color: 'var(--status-success-fg)' }}>
                 <Icon name="check" size={20} />
@@ -379,10 +393,15 @@ function SlotRow({
   onRemove: () => void;
   onDragStart: (event: ReactPointerEvent<HTMLSpanElement>) => void;
 }) {
-  const title = slot.kind === 'person' ? slot.name : `${slot.roleName}: выберите сотрудника`;
+  const nobody = slot.kind === 'choice' && slot.candidates.length === 0;
+  const title = slot.kind === 'person'
+    ? slot.name
+    : nobody ? `${slot.roleName} — нет сотрудника с этой ролью` : `${slot.roleName}: выберите сотрудника`;
   const subtitle = slot.kind === 'person'
     ? [slot.roleName, carried].filter(Boolean).join(' · ')
-    : `Роль есть у нескольких: ${slot.candidates.map((candidate) => candidate.fullName).join(', ')}`;
+    : nobody
+      ? 'Назначить роль или сделать её необязательной может администратор'
+      : `Роль есть у нескольких: ${slot.candidates.map((candidate) => candidate.fullName).join(', ')}`;
   return (
     <div className="ds-row" role="listitem" style={{ paddingLeft: 8 }}>
       {/* Только для пальца и мыши: с клавиатуры и экранного диктора человек переносится через меню (нажатие на него). */}
@@ -409,7 +428,7 @@ function SlotRow({
           cursor: 'pointer',
         }}
       >
-        <span className="ds-row__title" style={slot.kind === 'choice' ? { color: 'var(--status-warning-fg)' } : undefined}>{title}</span>
+        <span className="ds-row__title" style={slot.kind === 'choice' ? { color: nobody ? 'var(--status-danger-fg)' : 'var(--status-warning-fg)' } : undefined}>{title}</span>
         <span className="ds-row__subtitle">{subtitle}</span>
       </button>
       {locked ? (

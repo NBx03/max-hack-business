@@ -2,6 +2,9 @@ import type { ReactNode } from 'react';
 import { IconButton } from './Button';
 import { Icon } from './icons';
 
+/** Предел длины поискового запроса — тот же, что на сервере (GET /documents?q=). */
+export const SEARCH_MAX_LENGTH = 100;
+
 /** Поле поиска сверху списка (NAV-3): иконка, текст, крестик очистки. */
 export function SearchField({
   value,
@@ -26,6 +29,8 @@ export function SearchField({
         placeholder={placeholder}
         aria-label={placeholder}
         autoFocus={autoFocus}
+        // Сервер ищет по запросу до 100 символов, длиннее — ошибка (ревью Матвея на #113, п. 2).
+        maxLength={SEARCH_MAX_LENGTH}
         onChange={(event) => onChange(event.target.value)}
       />
       {value && <IconButton className="ds-search__clear" icon="close" label="Очистить" size={18} onClick={() => onChange('')} />}
