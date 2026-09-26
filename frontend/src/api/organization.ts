@@ -14,7 +14,7 @@ export function getOrganizationMetrics(period: MetricsPeriod = {}): Promise<Orga
   return apiRequest<OrganizationMetrics>(`/orgs/current/metrics${query ? `?${query}` : ''}`);
 }
 
-/** Только счётчик для бейджа на вкладке "Админ" - список заявок делает #54. */
+/** Число заявок на вступление — счётчик на плитке «Компания» и в её разделе (администратору). */
 export function getPendingJoinRequestsCount(): Promise<number> {
   return apiRequest<{ id: number }[]>('/orgs/current/join-requests?status=PENDING').then((items) => items.length);
 }

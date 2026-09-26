@@ -26,18 +26,6 @@ export const fieldStyle: CSSProperties = {
   gap: 6,
 };
 
-export const inputStyle: CSSProperties = {
-  width: '100%',
-  minHeight: 'var(--ds-control)',
-  padding: '10px 12px',
-  border: '1px solid var(--divider-primary)',
-  borderRadius: 'var(--ds-radius-m)',
-  background: 'var(--background-primary)',
-  color: 'var(--text-primary)',
-  font: 'inherit',
-  boxSizing: 'border-box',
-};
-
 /** Подпись поля формы — одна на все экраны документов. */
 export const labelStyle: CSSProperties = { fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)' };
 

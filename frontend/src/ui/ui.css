@@ -1171,16 +1171,6 @@ button.ds-row:active {
   text-align: center;
 }
 
-.ds-filedrop__note {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--ds-space-xs);
-  width: 100%;
-  font-size: var(--ds-text-s);
-  line-height: 20px;
-  color: var(--text-secondary);
-}
-
 .ds-filedrop__note > svg {
   flex: none;
   margin-top: 1px;

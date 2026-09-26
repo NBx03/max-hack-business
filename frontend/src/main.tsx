@@ -24,7 +24,7 @@ createRoot(container).render(
   <StrictMode>
     <MaxUI resetBody className="app-root">
       <ThemeSync />
-      {/* Рамка приложения: на широком экране всё — шапка демо, экран и нижнее меню — одной колонкой (theme/tokens.css). */}
+      {/* Рамка приложения: на широком экране всё — шапка демо, экран и закреплённые кнопки — одной колонкой (theme/tokens.css). */}
       <div className="app-frame">
         <SessionProvider>
           <App />
