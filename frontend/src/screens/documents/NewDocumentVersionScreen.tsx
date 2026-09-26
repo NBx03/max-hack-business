@@ -144,7 +144,7 @@ export function NewDocumentVersionScreen() {
           onSelect={(file) => {
             const problem = fileProblem(file);
             setNewMainError(problem);
-            setNewMain(problem ? null : file);
+            if (!problem) setNewMain(file);
           }}
           onRemove={() => {
             setNewMain(null);

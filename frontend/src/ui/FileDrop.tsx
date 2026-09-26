@@ -20,21 +20,18 @@ export function FileDrop({
   title,
   caption,
   error,
-  note,
   help,
   onSelect,
   onRemove,
 }: {
   file: File | null;
   accept: string;
-  /** «Выберите файл PDF, DOCX или DOC». */
+  /** «Выберите файл документа». */
   title: string;
-  /** Некликабельная строка под зоной: «PDF, DOCX или DOC · до 10 МБ». */
+  /** Некликабельная строка под зоной: «PDF или DOCX · до 10 МБ». */
   caption: string;
   /** Файл не подошёл — текст в зоне, красная обводка. */
   error?: string | null;
-  /** Спокойная информационная строка на карточке файла (ограниченная проверка), не ошибка. */
-  note?: ReactNode;
   /** Содержимое справки «Какие файлы подходят». */
   help: ReactNode;
   onSelect: (file: File) => void;
@@ -50,7 +47,8 @@ export function FileDrop({
         <button type="button" className="ds-filedrop__help" aria-label="Какие файлы подходят" onClick={() => setHelpOpen(true)}>
           <Icon name="help" size={20} />
         </button>
-        {file && !error ? (
+        {/* Выбранный файл остаётся, даже если следующий не подошёл: ошибка — под ним (ревью Никиты на #113, п. 4). */}
+        {file ? (
           <div className="ds-filedrop__file">
             <span className="ds-filedrop__icon"><Icon name="file" size={28} /></span>
             <span className="ds-row__body">
@@ -64,15 +62,17 @@ export function FileDrop({
             <span className="ds-filedrop__title">{error ? 'Выберите другой файл' : title}</span>
           </button>
         )}
-        {error && <p className="ds-filedrop__error" role="alert">{error}</p>}
-        {file && !error && (
-          <>
-            {note && <div className="ds-filedrop__note"><Icon name="info" size={18} />{note}</div>}
-            <div className="ds-button-row" style={{ width: '100%' }}>
-              <Button compact onClick={pick}>Заменить</Button>
-              <Button compact onClick={onRemove}>Убрать</Button>
-            </div>
-          </>
+        {error && (
+          <p className="ds-filedrop__error" role="alert">
+            {error}
+            {file ? ' Остался прежний файл.' : ''}
+          </p>
+        )}
+        {file && (
+          <div className="ds-button-row" style={{ width: '100%' }}>
+            <Button compact onClick={pick}>Заменить</Button>
+            <Button compact onClick={onRemove}>Убрать</Button>
+          </div>
         )}
         <input
           ref={inputRef}

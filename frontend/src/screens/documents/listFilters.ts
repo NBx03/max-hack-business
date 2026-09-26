@@ -61,20 +61,74 @@ export const LIST_STATUSES: Record<'waiting' | 'mine' | 'shared', DisplayStatus[
 };
 
 /**
- * Следующие страницы списка: номер следующей страницы — отдельным счётчиком, а не из числа строк. Иначе дубль между
- * страницами (документ обновился и поднялся наверх между запросами) давал 59 строк, floor(59/30) = 1, и «Показать ещё»
- * вечно запрашивала ту же страницу (ревью Ильи на #110). Дубли не показываются дважды.
+ * Страницы списка сверх первой. Сервер сортирует по времени изменения, а оно меняется: если между запросами документ со
+ * второй страницы обновился и поднялся наверх, смещение сдвигается — следующая страница приносит дубль, а поднявшийся
+ * документ не попадает ни в одну (ревью Ильи на #110). Поэтому дубль — сигнал перечитать все загруженные страницы с
+ * начала: список снова полный и без повторов. `items` — весь список, когда он перечитан; иначе — первая страница из
+ * основного запроса плюс `extra`.
  */
 export interface MorePages {
   extra: DocumentListItem[];
+  /** Весь список после перечитывания — заменяет первую страницу и extra. */
+  items: DocumentListItem[] | null;
   nextPage: number;
+  /** Сколько всего документов по последнему ответу сервера; null — ещё не догружали. */
+  total: number | null;
+  /** Больше грузить нечего: сервер вернул пустую страницу. */
+  done: boolean;
 }
 
-export const NO_MORE_PAGES: MorePages = { extra: [], nextPage: 1 };
+export const NO_MORE_PAGES: MorePages = { extra: [], items: null, nextPage: 1, total: null, done: false };
 
-export function withPage(state: MorePages, firstPage: DocumentListItem[], incoming: DocumentListItem[]): MorePages {
-  const seen = new Set([...firstPage, ...state.extra].map((item) => item.id));
-  return { extra: [...state.extra, ...incoming.filter((item) => !seen.has(item.id))], nextPage: state.nextPage + 1 };
+type PageResponse = { items: DocumentListItem[]; total: number };
+
+function unique(items: DocumentListItem[]): DocumentListItem[] {
+  const seen = new Set<number>();
+  return items.filter((item) => (seen.has(item.id) ? false : (seen.add(item.id), true)));
+}
+
+/** Все строки списка: первая страница основного запроса и догруженные — или перечитанный целиком список. */
+export function listItems(firstPage: DocumentListItem[], state: MorePages): DocumentListItem[] {
+  return state.items ?? [...firstPage, ...state.extra];
+}
+
+/** Показывать ли «Показать ещё». */
+export function hasMore(firstPage: DocumentListItem[], firstTotal: number, state: MorePages): boolean {
+  return !state.done && listItems(firstPage, state).length < (state.total ?? firstTotal);
+}
+
+/** Догрузить следующую страницу; при сдвиге — перечитать с начала страницы 0…nextPage. */
+export async function loadNextPage(
+  fetchPage: (page: number) => Promise<PageResponse>,
+  firstPage: DocumentListItem[],
+  state: MorePages,
+): Promise<MorePages> {
+  const known = listItems(firstPage, state);
+  const seen = new Set(known.map((item) => item.id));
+  const next = await fetchPage(state.nextPage);
+  if (next.items.length === 0) {
+    return { ...state, total: next.total, done: true };
+  }
+  if (!next.items.some((item) => seen.has(item.id))) {
+    return {
+      ...state,
+      extra: state.items ? state.extra : [...state.extra, ...next.items],
+      items: state.items ? [...state.items, ...next.items] : null,
+      nextPage: state.nextPage + 1,
+      total: next.total,
+    };
+  }
+  const pages: PageResponse[] = [];
+  for (let page = 0; page <= state.nextPage; page += 1) {
+    pages.push(await fetchPage(page));
+  }
+  return {
+    extra: [],
+    items: unique(pages.flatMap((response) => response.items)),
+    nextPage: state.nextPage + 1,
+    total: pages[pages.length - 1].total,
+    done: pages[pages.length - 1].items.length === 0,
+  };
 }
 
 /**

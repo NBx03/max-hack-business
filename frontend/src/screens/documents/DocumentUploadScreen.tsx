@@ -85,7 +85,7 @@ export function DocumentUploadScreen() {
   function selectFile(file: File) {
     const problem = fileProblem(file);
     setFileError(problem);
-    setMainFile(problem ? null : file);
+    if (!problem) setMainFile(file);
   }
 
   async function submit(event: FormEvent) {

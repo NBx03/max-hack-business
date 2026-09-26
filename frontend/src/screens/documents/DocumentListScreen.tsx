@@ -44,7 +44,9 @@ import {
   NO_MORE_PAGES,
   PERIODS,
   authorOptions,
-  withPage,
+  hasMore,
+  listItems,
+  loadNextPage,
   type MorePages,
   moreFiltersCount,
   toQuery,
@@ -133,24 +135,25 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
     setMoreError(null);
   }, [filters]);
   const firstPage = useMemo(() => (query.status === 'ready' ? query.data.items : []), [query]);
-  const items = useMemo(() => [...firstPage, ...more.extra], [firstPage, more]);
-  const total = query.status === 'ready' ? query.data.total : 0;
+  const items = useMemo(() => listItems(firstPage, more), [firstPage, more]);
+  const firstTotal = query.status === 'ready' ? query.data.total : 0;
+  const total = more.total ?? firstTotal;
 
   const loadMore = useCallback(async () => {
     setLoadingMore(true);
     setMoreError(null);
     try {
       const requested = filters;
-      const next = await getDocuments(meta.tab, toQuery(filters, more.nextPage, PAGE_SIZE));
+      const next = await loadNextPage((page) => getDocuments(meta.tab, toQuery(filters, page, PAGE_SIZE)), firstPage, more);
       // Фильтры сменились, пока грузилась страница, — её строки к новому списку не относятся (ревью Матвея на #113, п. 7).
       if (filtersRef.current !== requested) return;
-      setMore((current) => withPage(current, firstPage, next.items));
+      setMore(next);
     } catch (error) {
       setMoreError(errorMessage(error));
     } finally {
       setLoadingMore(false);
     }
-  }, [filters, firstPage, more.nextPage, meta.tab]);
+  }, [filters, firstPage, more, meta.tab]);
 
   useEffect(() => {
     if (items.length === 0) return;
@@ -225,7 +228,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
               <DocumentRow key={item.id} item={item} list={list} onOpen={() => openCard(item)} />
             ))}
           </List>
-          {more.nextPage * PAGE_SIZE < total && (
+          {hasMore(firstPage, firstTotal, more) && (
             <>
               <Muted>Показаны {items.length} из {total}</Muted>
               {moreError && <InlineError>{moreError}</InlineError>}

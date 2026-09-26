@@ -5,10 +5,14 @@ export function isOutsideTemplates(typeCode: string | undefined): boolean {
   return typeCode === 'GENERIC';
 }
 
-/** Заголовок документа часто набран заглавными («АКТ»): показываем как обычное слово — «Акт». */
+/**
+ * Заголовок документа часто набран заглавными («АКТ»): показываем как обычное слово — «Акт». Короткие сокращения и
+ * обозначения с цифрами и дефисами («КП», «ТЗ», «КС-2») не трогаем (ревью Никиты на #113, п. 3). Не длиннее 80 символов —
+ * значение от модели.
+ */
 export function kindLabel(value: string): string {
-  const text = value.trim();
-  if (text.length > 1 && /\p{L}/u.test(text) && text === text.toUpperCase()) {
+  const text = value.trim().slice(0, 80);
+  if (/^[\p{L} ]{3,}$/u.test(text) && text === text.toUpperCase()) {
     return text.charAt(0) + text.slice(1).toLowerCase();
   }
   return text;

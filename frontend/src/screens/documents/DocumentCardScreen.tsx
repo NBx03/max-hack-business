@@ -609,7 +609,7 @@ export function DocumentCardScreen() {
           setDeleteError(null);
         }}
         title="Удалить черновик?"
-        description="Черновик и его файлы исчезнут из приложения. Его ещё никто не видел — отменить удаление нельзя."
+        description="Черновик исчезнет из приложения — его ещё никто не видел. Отменить удаление нельзя."
         confirmLabel="Удалить"
         destructive
         busy={deleteBusy}

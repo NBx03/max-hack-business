@@ -35,6 +35,9 @@ describe('вид «Другого документа» (DOC-7)', () => {
     expect(kindLabel('АКТ')).toBe('Акт');
     expect(kindLabel('Договор аренды')).toBe('Договор аренды');
     expect(kindLabel('№ 5')).toBe('№ 5');
+    expect(['КП', 'ТЗ', 'КС-2'].map(kindLabel)).toEqual(['КП', 'ТЗ', 'КС-2']);
+    expect(kindLabel('ДОГОВОР АРЕНДЫ')).toBe('Договор аренды');
+    expect(kindLabel('А'.repeat(200))).toHaveLength(80);
     const check = { versionNo: 1, status: 'CHECKED' as const, modelAvailable: true, issues: [],
       fields: [{ name: 'doc_kind', value: 'ПРИКАЗ', source: 'MODEL' as const, quote: null, page: null }] };
     expect(recognizedKindOf('GENERIC', check)).toEqual({ value: 'Приказ', fromAi: true });

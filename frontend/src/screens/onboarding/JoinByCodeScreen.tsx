@@ -98,7 +98,6 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
       void check().then((checkedCode) => (checkedCode ? send(checkedCode) : undefined));
     }
     // Только один раз при открытии экрана по ссылке, поэтому зависимостей нет.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const edit = (value: string) => {

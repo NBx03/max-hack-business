@@ -70,38 +70,9 @@ export function launchDataToReloadFor(hash: string, bridgeInitData: string | und
   if (bridgeInitData === undefined) return null;
   const next = launchDataFromHash(hash);
   if (!next || next === bridgeInitData) return null;
-  return relaunchMark(bridgeInitData, next, reloadedFor);
-}
-
-/** Поле строки данных запуска (start_param, query_id); пусто — нет. */
-function launchField(initData: string, name: string): string {
-  try {
-    return new URLSearchParams(initData).get(name) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-/** Параметр ссылки (startapp) из строки данных запуска; пусто — открыли без параметра. */
-export function startParamOf(initData: string): string {
-  return launchField(initData, 'start_param');
-}
-
-/**
- * Перезагружать ли страницу ради новых данных запуска — и по какой отметке это запомнить. Новый запуск — пришёл параметр
- * ссылки и он другой, либо та же ссылка открыта заново: у каждого открытия свой query_id (повторное нажатие «Открыть
- * документ» по d_5, когда человек уже ушёл с карточки, ревью Ильи на #110). Обновление одной подписи или времени
- * (auth_date, hash) при том же query_id — не новый запуск: перезагрузка стёрла бы введённое (ревью #112, п. 2).
- * Без query_id отличить повторное открытие от обновления подписи нельзя — тогда не перезагружаем. Не больше одного
- * раза на строку.
- */
-export function relaunchMark(current: string, next: string, reloadedFor: string | null): string | null {
-  if (!next || next === current) return null;
-  const param = startParamOf(next);
-  if (!param) return null;
-  const queryId = launchField(next, 'query_id');
-  const reopened = param !== startParamOf(current) || (queryId !== '' && queryId !== launchField(current, 'query_id'));
-  if (!reopened) return null;
+  // Любая новая строка в хэше — новый запуск: MAX кладёт её туда, только когда приложение открывают заново, в том числе
+  // по той же ссылке или по кнопке бота без параметра («Заявка одобрена»). Мост при этом новых данных сам не прочитает:
+  // initData он берёт из хэша один раз, при загрузке (сверено с st.max.ru/js/max-web-app.js 26.09, ревью Матвея на #112).
   const mark = fingerprint(next);
   return mark === reloadedFor ? null : mark;
 }
@@ -119,7 +90,8 @@ function readReloadedFor(): string | null {
  * Следит за повторным открытием уже открытого мини-приложения (приёмка 24.09, п. 6). Если MAX поменял
  * только хэш (новые данные запуска без перезагрузки), перезагружаем страницу: мост MAX читает initData
  * лишь при загрузке, и без перезагрузки все запросы ушли бы со старыми данными запуска, а переход
- * по ссылке из уведомления не случился бы. Проверяем не только hashchange: смену адреса фрейма
+ * по ссылке из уведомления не случился бы. Сам мост новых данных не прочитает — initData он берёт из хэша один раз,
+ * при загрузке, поэтому признак нового запуска — только хэш. Проверяем не только hashchange: смену адреса фрейма
  * браузер может сообщить и как popstate, а возвращение к открытому приложению — как focus или
  * visibilitychange.
  *
@@ -128,24 +100,16 @@ function readReloadedFor(): string | null {
  * с меткой [approval] (уровень debug): так поведение конкретного клиента MAX можно проверить.
  */
 export function watchRelaunch(): void {
-  // Данные запуска, с которыми страница загрузилась. Если мост позже отдаст другие (MAX обновил их в уже открытом
-  // приложении, не меняя хэш), это новый запуск — например, кнопка «Открыть документ» из бота (LNK-2).
-  const loadedWith = getWebApp()?.initData ?? '';
   const check = (reason: string) => {
     const webApp = getWebApp();
-    const bridgeNow = webApp?.initData ?? '';
-    const bridgeChanged = bridgeNow !== '' && loadedWith !== '' && bridgeNow !== loadedWith;
-    const reloadedFor = readReloadedFor();
-    const mark = bridgeChanged
-      ? relaunchMark(loadedWith, bridgeNow, reloadedFor)
-      : launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, reloadedFor);
+    const mark = launchDataToReloadFor(window.location.hash, webApp ? webApp.initData ?? '' : undefined, readReloadedFor());
     if (mark === null) return;
     try {
       sessionStorage.setItem(RELOADED_FOR_KEY, mark);
     } catch {
       return;
     }
-    console.info('[approval] новый запуск мини-приложения:', reason, bridgeChanged ? '(мост отдал новые данные запуска)' : '(хэш)');
+    console.info('[approval] новый запуск мини-приложения:', reason, '(хэш)');
     window.location.reload();
   };
   window.addEventListener('hashchange', () => check('hashchange'));
