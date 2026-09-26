@@ -22,6 +22,7 @@ import type {
 import {
   AiLegend,
   AiMark,
+  Icon,
   BottomSheet,
   Button,
   scrollScreenToTop,
@@ -33,11 +34,14 @@ import { companyRulesPath, documentCardPath, documentNewVersionPath, routePrevie
 import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
 import { IssueList } from './IssueList';
+import { pendingReturn } from './versionOutcome';
 import { CREATE_STEPS } from './uploadFormats';
 import { isOutsideTemplates, recognizedKindOf } from './documentKind';
 import {
   DocumentScreen,
   FieldInputs,
+  fieldIssues,
+  ISSUE_TONE,
   LoadingState,
   Notice,
   sectionStyle,
@@ -355,6 +359,9 @@ export function DocumentCheckScreen() {
   const mustFix = check?.status === 'FAILED' || hasBlocker;
   const isDraft = card.status === 'DRAFT';
   const isReturned = card.status === 'RETURNED';
+  // Что просил согласующий — там же, где автор исправляет (#56, аудит 27.09).
+  const returned = pendingReturn(card);
+  const issuesByField = fieldIssues(check?.issues ?? []);
   const currentVersion = card.versions.find((version) => version.versionNo === card.currentVersionNo);
   const mainFile = currentVersion?.files.find((file) => file.kind === 'MAIN');
   const sensitive = currentVersion?.containsSensitive ?? false;
@@ -386,8 +393,9 @@ export function DocumentCheckScreen() {
   // с типом, и у чистого черновика тоже; внизу — только куда дальше: к маршруту или сохранить черновик.
   // «Заменить файл», а не «Другой файл»: это новый файл этого же документа, а не другой документ (п. 8).
   const canReplaceFile = card.permissions.canUploadVersion && !editing && !isForm;
-  // Шаги создания (UPL-3) — пока документ идёт к первой отправке: черновик, который автор может отправить.
-  const inCreateFlow = isDraft && card.permissions.canSubmit;
+  // Шаги создания (UPL-3) — весь путь автора до первой отправки, и когда критичные замечания ещё мешают: исправлять их
+  // и есть шаг «Проверка». Раньше шаги пропадали, пока отправить нельзя (#56, аудит 27.09).
+  const inCreateFlow = isDraft && card.route === null && (card.permissions.canSubmit || card.permissions.canUploadVersion);
   const recognized = recognizedKindOf(card.type.code, check ?? null);
   const showKindNotice = isOutsideTemplates(card.type.code) && isDraft;
   const hasAiFields = check?.fields.some((field) => field.source === 'MODEL' && field.value) ?? false;
@@ -431,6 +439,13 @@ export function DocumentCheckScreen() {
           </Button>
         )}
       </div>
+
+      {returned && (
+        <Notice tone="warning" icon="return">
+          <strong>Вернули на доработку</strong> — {returned.approver.fullName}
+          {returned.comment && <div style={{ marginTop: 4, color: 'var(--text-primary)' }}>«{returned.comment}»</div>}
+        </Notice>
+      )}
 
       {correction && (
         <Notice tone={correction.checked ? 'success' : 'danger'}>
@@ -534,6 +549,7 @@ export function DocumentCheckScreen() {
             <FieldInputs
               typeCode={type?.code}
               definitions={definitions}
+              issues={issuesByField}
               values={fields}
               onChange={(name, value) => setFields((current) => ({ ...current, [name]: value }))}
             />
@@ -589,7 +605,15 @@ export function DocumentCheckScreen() {
               const origin = fieldOrigin(field, modelAvailable);
               return (
                 <div key={field.name} style={{ padding: '10px 0', borderTop: index > 0 ? '1px solid var(--divider-primary)' : undefined }}>
-                  <dt style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{labels.get(field.name) ?? field.name}</dt>
+                  <dt style={{ color: 'var(--text-tertiary)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {labels.get(field.name) ?? field.name}
+                    {/* Поле с замечанием — значок цвета важности: связь с замечанием выше видна без правки (#56). */}
+                    {issuesByField[field.name] && (
+                      <span className={`ds-field-issue ds-field-issue--${ISSUE_TONE[issuesByField[field.name].severity]}`}>
+                        <Icon name="alert" size={14} label="есть замечание" />
+                      </span>
+                    )}
+                  </dt>
                   <dd style={{ margin: '3px 0 0', overflowWrap: 'anywhere', color: field.value ? undefined : 'var(--text-tertiary)' }}>
                     {field.value || 'Не заполнено'}
                     {field.source === 'MODEL' && field.value && <> <AiMark /></>}

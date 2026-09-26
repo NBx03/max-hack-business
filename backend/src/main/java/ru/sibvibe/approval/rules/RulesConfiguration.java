@@ -15,6 +15,7 @@ public class RulesConfiguration {
     RuleEngine ruleEngine(ObjectMapper objectMapper) {
         // Запасной вариант для старого метода — дата сервера, не бизнес-дата пользователя.
         // Дату пользователя/организации вызывающий код передаёт через ValidationContext.
-        return new DefaultRuleEngine(Clock.system(ZoneId.of("Europe/Moscow")), objectMapper);
+        // Тот же пояс, что у DocumentRuleService: «сегодня» — по самому восточному региону России.
+        return new DefaultRuleEngine(Clock.system(ZoneId.of("Asia/Kamchatka")), objectMapper);
     }
 }

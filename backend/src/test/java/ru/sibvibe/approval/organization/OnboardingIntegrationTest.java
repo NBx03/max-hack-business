@@ -365,6 +365,36 @@ class OnboardingIntegrationTest {
         assertThat(call(alice, "GET", "/api/v1/orgs/current/members", null).code()).isEqualTo("NOT_ADMIN");
     }
 
+    /** Выйти из компании самому (#56, аудит 27.09): как исключение, но последний администратор не бросает коллег. */
+    @Test
+    void memberLeavesTheCompanyButTheOnlyAdministratorStaysWhileOthersRemain() {
+        long alice = newUser();
+        long bob = newUser();
+        createCompany(alice, "Ромашка");
+        Map<String, Long> roles = roleIds(alice);
+        long bobRequest = submit(bob, inviteCode(alice));
+        ok(call(alice, "POST", "/api/v1/orgs/current/join-requests/" + bobRequest + "/approve",
+                Map.of("roleIds", List.of(roles.get("LAWYER")))));
+        long bobUserId = ok(call(bob, "GET", "/api/v1/me", null)).path("user").path("id").asLong();
+        long aliceUserId = ok(call(alice, "GET", "/api/v1/me", null)).path("user").path("id").asLong();
+        long awaited = insertPendingStep(aliceUserId, bobUserId, roles.get("LAWYER"));
+
+        // Alice — единственный администратор, а Bob остаётся: компанией некому было бы управлять
+        Resp aliceLeaves = call(alice, "POST", "/api/v1/orgs/current/members/me/leave", null);
+        assertThat(aliceLeaves.status()).isEqualTo(409);
+        assertThat(aliceLeaves.code()).isEqualTo("LAST_ADMIN");
+
+        // Bob выходит: документ, который ждал его решения, вернулся автору, компании у него больше нет
+        assertThat(call(bob, "POST", "/api/v1/orgs/current/members/me/leave", null).status()).isEqualTo(204);
+        assertThat(stepState(awaited)).isEqualTo("SKIPPED/MEMBER_REMOVED/RETURNED");
+        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").isNull()).isTrue();
+
+        // теперь Alice одна — выходит и она; вернуться можно по коду, как новый сотрудник
+        assertThat(call(alice, "POST", "/api/v1/orgs/current/members/me/leave", null).status()).isEqualTo(204);
+        assertThat(ok(call(alice, "GET", "/api/v1/me", null)).path("membership").isNull()).isTrue();
+        assertThat(call(alice, "POST", "/api/v1/orgs/current/members/me/leave", null).status()).isEqualTo(403);
+    }
+
     @Test
     void removingARoleOrTheMemberReturnsTheAwaitedDocumentToItsAuthorAtOnce() {
         long alice = newUser();

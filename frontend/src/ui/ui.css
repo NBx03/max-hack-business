@@ -1334,3 +1334,29 @@ button.ds-row:active {
   margin: -6px 0;
   font-size: var(--ds-text-xs);
 }
+
+/* ---------- Поле с замечанием при правке (#56) ---------- */
+
+/* Обводка цвета важности: у поля видно, что с ним не так, не листая к списку замечаний. У Input из max-ui рамку
+   рисует label внутри контейнера (контейнер включает и подсказку), у Textarea — его обёртка (класс ставится на неё). */
+.ds-input-issue.ds-input-issue--danger > label[class], .ds-textarea-issue.ds-textarea-issue--danger[class] { box-shadow: inset 0 0 0 1.5px var(--status-danger-fg); }
+.ds-input-issue.ds-input-issue--warning > label[class], .ds-textarea-issue.ds-textarea-issue--warning[class] { box-shadow: inset 0 0 0 1.5px var(--status-warning-fg); }
+.ds-input-issue.ds-input-issue--neutral > label[class], .ds-textarea-issue.ds-textarea-issue--neutral[class] { box-shadow: inset 0 0 0 1.5px var(--icon-mute); }
+
+.ds-field-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: var(--ds-text-xs);
+  line-height: 18px;
+}
+
+.ds-field-issue svg { flex: none; margin-top: 2px; }
+.ds-field-issue--danger { color: var(--status-danger-fg); }
+.ds-field-issue--warning { color: var(--status-warning-fg); }
+.ds-field-issue--neutral { color: var(--text-secondary); }
+
+/* Тихая кнопка необратимого действия («Выйти из компании»): контур как у ghost, текст — цветом опасности. */
+.ds-button--ghost.ds-button--quiet-danger {
+  color: var(--status-danger-fg);
+}
