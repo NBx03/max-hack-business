@@ -172,6 +172,7 @@ type MemberView = {               // участник компании: отве
 | `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView & { returnedDocuments: number }`. Снятая роль действует сразу: документы, где человек ещё не решил в этой роли, возвращаются авторам (приёмка 24.09, п. 15); `returnedDocuments` — сколько, администратор видит это в сообщении. 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
 | *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView & { returnedDocuments: number }`; сразу, повторный вызов ничего не меняет (`returnedDocuments: 0`). Документы, где человек ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` |
+| `POST /orgs/current/members/me/leave` | участник | → 204. Выйти из компании самому (#56): как исключение — документы, где он ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` — единственный администратор, а в компании есть другие сотрудники; 403 — из демо-песочницы или уже не участник |
 
 Заявка, участник, роль и приглашение ищутся **в компании администратора**: чужой id — 404, в том
 числе роль другой компании в `roleIds`.

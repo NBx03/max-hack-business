@@ -157,6 +157,34 @@ public class MemberService {
     }
 
     /**
+     * Сотрудник сам выходит из компании (#56, аудит 27.09): раньше выхода не было, и кто создал компанию, тем же
+     * аккаунтом не мог ни вступить в другую, ни вернуться к приветствию. Последствия — как у исключения: документы,
+     * где он ещё не решил, возвращаются авторам. Единственный администратор при других сотрудниках не выходит —
+     * иначе компанией некому управлять; один в компании — выходит, компания остаётся без участников.
+     * Из демо-песочницы не выходят так: для неё «Выйти из демо».
+     */
+    @Transactional
+    public void leave(CurrentUser actor) {
+        if (actor.actingAsDemo()) {
+            throw OrganizationErrors.forbidden();
+        }
+        long orgId = OrganizationAccess.requireMemberOrg(actor);
+        organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
+        OrganizationMember member = memberRepository.findByIdAndOrgIdForUpdate(actor.memberId(), orgId)
+                .orElseThrow(OrganizationErrors::notFound);
+        if (member.isDemo() || member.getStatus() != OrganizationMember.Status.ACTIVE) {
+            throw OrganizationErrors.forbidden();
+        }
+        boolean othersStay = memberRepository.countByOrgIdAndStatus(orgId, OrganizationMember.Status.ACTIVE) > 1;
+        if (member.isAdmin() && othersStay && activeAdmins(orgId) <= 1) {
+            throw OrganizationErrors.lastAdmin(
+                    "Вы единственный администратор. Сначала сделайте администратором другого сотрудника");
+        }
+        member.setStatus(OrganizationMember.Status.DISABLED);
+        pendingStepsGuard.releaseSteps(orgId, member.getUserId(), null);
+    }
+
+    /**
      * Человек, который подаёт заявку, создаёт компанию или вступает по ссылке, не должен уже
      * состоять в настоящей компании и не должен иметь заявку на рассмотрении. Вызывать под
      * блокировкой строки пользователя, иначе две одновременные попытки проскочат обе.

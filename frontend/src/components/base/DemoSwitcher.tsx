@@ -3,7 +3,7 @@ import { errorMessage } from '../../api/errors';
 import { useNavigate } from 'react-router-dom';
 import { useSession } from '../../app/SessionContext';
 import { demoEntryUser } from '../../app/demo';
-import { BottomSheet, Button, Icon, InlineError, List, Row } from '../../ui';
+import { BottomSheet, Button, ButtonRow, Icon, InlineError, List, Row } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 
 function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
@@ -25,6 +25,8 @@ export function DemoSwitcher() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
+  // Сброс стирает всё, что проверяющий сделал в демо: сначала подтверждение в той же панели (#56, аудит 27.09).
+  const [confirmRestart, setConfirmRestart] = useState(false);
   const navigate = useNavigate();
 
   // Только внутри песочницы (docs/SCREENS.md): вне её вход в демо — кнопкой на экране приветствия.
@@ -51,51 +53,63 @@ export function DemoSwitcher() {
 
       <BottomSheet
         open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        title="Участники песочницы"
+        onClose={() => {
+          setSheetOpen(false);
+          setConfirmRestart(false);
+        }}
+        title={confirmRestart ? 'Начать демонстрацию заново?' : 'Участники песочницы'}
         dismissible={!restarting}
       >
-        <List label="Участники песочницы">
-          {sandboxUsers.map((participant) => (
-            <Row
-              key={participant.user.id}
-              title={participant.user.fullName}
-              subtitle={roleLabel(participant.roles, participant.isAdmin)}
-              after={me.actingAs?.user.id === participant.user.id ? <Icon name="check" size={22} label="Сейчас вы действуете как этот участник" /> : undefined}
-              chevron={false}
-              onClick={() => {
-                // На главную: у нового участника может не быть доступа к экрану, на котором стоял прежний.
-                void actAs(participant.user.id).then(() => navigate(ROUTE_PATTERNS.home));
-                setSheetOpen(false);
-              }}
-            />
-          ))}
-        </List>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Button
-            stretched
-            loading={restarting}
-            onClick={() => {
-              // Шторка остаётся открытой до результата: ошибку пересоздания человек видит здесь же,
-              // а не теряет молча (ревью #87). Прежнего участника при сбое возвращает startSandbox.
-              setRestarting(true);
-              setRestartError(null);
-              startSandbox()
-                .then((users) => {
-                  // После пересоздания прежние id недействительны - сразу входим от имени автора.
-                  const entry = demoEntryUser(users);
-                  setSheetOpen(false);
-                  return entry === null ? undefined : actAs(entry);
-                })
-                .catch((err: unknown) => setRestartError(errorMessage(err)))
-                .finally(() => setRestarting(false));
-            }}
-          >
-            Начать заново
-          </Button>
-          {restartError && <InlineError>{restartError}</InlineError>}
-          {me.actingAs && (
+        {confirmRestart ? (
+          <>
+            <p className="ds-text-secondary">Документы и решения в демо-компании удалятся — она станет как в начале.</p>
+            {restartError && <InlineError>{restartError}</InlineError>}
+            <ButtonRow>
+              <Button disabled={restarting} onClick={() => setConfirmRestart(false)}>
+                Отмена
+              </Button>
+              <Button
+                variant="danger"
+                loading={restarting}
+                onClick={() => {
+                  // Панель остаётся открытой до результата: ошибку пересоздания человек видит здесь же,
+                  // а не теряет молча (ревью #87). Прежнего участника при сбое возвращает startSandbox.
+                  setRestarting(true);
+                  setRestartError(null);
+                  startSandbox()
+                    .then((users) => {
+                      // После пересоздания прежние id недействительны — сразу входим от имени автора.
+                      const entry = demoEntryUser(users);
+                      setSheetOpen(false);
+                      setConfirmRestart(false);
+                      return entry === null ? undefined : actAs(entry).then(() => navigate(ROUTE_PATTERNS.home));
+                    })
+                    .catch((err: unknown) => setRestartError(errorMessage(err)))
+                    .finally(() => setRestarting(false));
+                }}
+              >
+                Начать заново
+              </Button>
+            </ButtonRow>
+          </>
+        ) : (
+          <>
+            <List label="Участники песочницы">
+              {sandboxUsers.map((participant) => (
+                <Row
+                  key={participant.user.id}
+                  title={participant.user.fullName}
+                  subtitle={roleLabel(participant.roles, participant.isAdmin)}
+                  after={me.actingAs?.user.id === participant.user.id ? <Icon name="check" size={22} label="Сейчас вы действуете как этот участник" /> : undefined}
+                  chevron={false}
+                  onClick={() => {
+                    // На главную: у нового участника может не быть доступа к экрану, на котором стоял прежний.
+                    void actAs(participant.user.id).then(() => navigate(ROUTE_PATTERNS.home));
+                    setSheetOpen(false);
+                  }}
+                />
+              ))}
+            </List>
             <Button
               stretched
               onClick={() => {
@@ -105,8 +119,12 @@ export function DemoSwitcher() {
             >
               Выйти из демо
             </Button>
-          )}
-        </div>
+            {/* Редкое и необратимое — внизу и тихо, не рядом с выбором участника. */}
+            <Button stretched variant="ghost" onClick={() => setConfirmRestart(true)}>
+              Начать заново
+            </Button>
+          </>
+        )}
       </BottomSheet>
     </>
   );

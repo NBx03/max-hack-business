@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RestController;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.dto.AdminFlagRequest;
@@ -49,6 +51,13 @@ public class MemberController {
             @Valid @RequestBody AdminFlagRequest request
     ) {
         return memberService.setAdmin(currentUser, memberId, request.isAdmin());
+    }
+
+    /** Выйти из компании самому (#56). 204; единственный администратор при других сотрудниках — 409 LAST_ADMIN. */
+    @PostMapping("/me/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void leave(@AuthenticationPrincipal CurrentUser currentUser) {
+        memberService.leave(currentUser);
     }
 
     @PostMapping("/{memberId}/disable")

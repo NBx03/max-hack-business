@@ -34,6 +34,8 @@ public interface OrganizationMemberRepository extends JpaRepository<Organization
 
     long countByOrgIdAndStatusAndAdminTrue(Long orgId, OrganizationMember.Status status);
 
+    long countByOrgIdAndStatus(Long orgId, OrganizationMember.Status status);
+
     /** Активные администраторы компании - получатели уведомлений о заявках (bot.NotificationDirectoryService). */
     List<OrganizationMember> findByOrgIdAndStatusAndAdminTrue(Long orgId, OrganizationMember.Status status);
 }

@@ -78,6 +78,11 @@ export function setMemberAdmin(memberId: number, isAdmin: boolean): Promise<Memb
 }
 
 /** SHOULD: повторный вызов ничего не меняет - тот же ответ, без ошибки. */
+/** Выйти из компании самому (#56): 409 LAST_ADMIN — единственный администратор при других сотрудниках. */
+export function leaveCompany(): Promise<void> {
+  return apiRequest<void>('/orgs/current/members/me/leave', { method: 'POST' });
+}
+
 export function disableMember(memberId: number): Promise<MemberChange> {
   return apiRequest<MemberChange>(`/orgs/current/members/${memberId}/disable`, { method: 'POST' });
 }
