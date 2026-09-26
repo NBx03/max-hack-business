@@ -11,7 +11,7 @@ export const ADMIN_BACK = { to: ROUTE_PATTERNS.company, label: 'Компания
 /**
  * Ошибка первой загрузки экрана. 403 (не ADMIN) - не временный сбой, «Повторить» здесь
  * никогда не поможет: показываем AccessErrorState со ссылкой на документы (PR #72, ревью
- * №5). Раздел открыт по прямому адресу и без вкладки «Админ» (#71, только для ADMIN).
+ * №5). Экраны администрирования открываются из раздела «Компания» или по прямому адресу — только для ADMIN.
  */
 export function AdminLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   const navigate = useNavigate();
