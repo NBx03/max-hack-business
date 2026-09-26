@@ -178,7 +178,7 @@ public class DecisionService {
 
     private void publish(DocumentSnapshot document, DocumentDecidedEvent.Outcome outcome, long deciderUserId) {
         events.publishEvent(new DocumentDecidedEvent(document.id(), document.currentVersionNo(),
-                document.authorId(), outcome, deciderUserId, document.title()));
+                document.authorId(), outcome, deciderUserId, document.title(), false)); // возврат и отказ — не утверждение
     }
 
     private static ApprovalStep.Decision decisionOf(DecisionRequest.Action action) {

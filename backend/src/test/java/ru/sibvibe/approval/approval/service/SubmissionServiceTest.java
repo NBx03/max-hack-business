@@ -499,6 +499,20 @@ class SubmissionServiceTest {
     }
 
     @Test
+    void nobodyLeftToDecideWithACarriedEndorsementIsEndorsed() {
+        // ревью Матвея на #112, п. 3: ветка «решать некому», утверждение перенесено с прошлой версии
+        givenDocument(DocumentState.DRAFT);
+        givenRoute(List.of(row(1, 22, false)), Map.of(22L, List.of(CAROL)));
+        when(carried.of(DOC, 3)).thenReturn(Optional.of(new CarriedApprovals.Carried(2,
+                Set.of(new CarriedApprovals.Key(22L, CAROL.id(), ApprovalStep.Kind.ENDORSEMENT)))));
+
+        service.submit(author(), DOC, route(List.of(), p(CAROL, 22)));
+
+        verify(documents).approve(DOC);
+        assertThat(event(DocumentDecidedEvent.class).endorsed()).isTrue();
+    }
+
+    @Test
     void emptyRouteIsAllowedOnlyWhenNobodyElseCanApprove() {
         givenDocument(DocumentState.DRAFT);
         givenRoute(List.of(row(1, 22, false)), Map.of(22L, List.of(CAROL)));

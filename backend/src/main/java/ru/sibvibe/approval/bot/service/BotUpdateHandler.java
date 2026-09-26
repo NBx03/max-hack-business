@@ -136,7 +136,8 @@ public class BotUpdateHandler {
         if (payload == null || !PAYLOAD.matcher(payload).matches()) {
             return false;
         }
-        if (membership.isPresent() && (payload.startsWith("c_") || payload.startsWith("p_"))) {
+        boolean invite = payload.startsWith("c_") || payload.startsWith("p_");
+        if (invite && (membership.isPresent() || directory.hasPendingJoinRequest(userId))) {
             return false;
         }
         String link = links.startLink(payload);

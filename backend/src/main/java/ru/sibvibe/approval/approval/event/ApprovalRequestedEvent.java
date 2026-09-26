@@ -24,10 +24,4 @@ public record ApprovalRequestedEvent(
     public ApprovalRequestedEvent {
         approverUserIds = Set.copyOf(approverUserIds);
     }
-
-    public ApprovalRequestedEvent(
-            long documentId, int versionNo, int stageOrder, Set<Long> approverUserIds, long authorUserId, String documentTitle
-    ) {
-        this(documentId, versionNo, stageOrder, approverUserIds, authorUserId, documentTitle, false);
-    }
 }

@@ -21,7 +21,8 @@ class NotificationDirectoryServiceTest {
 
     private final AppUserRepository users = mock(AppUserRepository.class);
     private final OrganizationMemberRepository members = mock(OrganizationMemberRepository.class);
-    private final NotificationDirectoryService service = new NotificationDirectoryService(users, members);
+    private final NotificationDirectoryService service = new NotificationDirectoryService(users, members,
+            mock(ru.sibvibe.approval.organization.repository.JoinRequestRepository.class));
 
     @Test
     void findReturnsMaxUserIdAndDisplayName() {

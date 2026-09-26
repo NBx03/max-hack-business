@@ -93,6 +93,20 @@ class BotUpdateHandlerTest {
     }
 
     @Test
+    void inviteToSomeoneWithAPendingJoinRequestIsJustTheGreeting() throws Exception {
+        // ревью Матвея на #112, п. 6: приложение покажет прежнюю заявку — новую не обещаем
+        when(links.appLink()).thenReturn(APP_LINK);
+        when(directory.hasPendingJoinRequest(910000042L)).thenReturn(true);
+
+        handler.handle(json("""
+                { "update_type": "bot_started", "payload": "c_KX7M2PQR", "user": { "user_id": 910000042 } }
+                """));
+
+        verify(notifier).send(eq(910000042L), anyString(), anyString(), eq(APP_LINK));
+        verify(links, never()).startLink(anyString());
+    }
+
+    @Test
     void payloadLengthLimitIsFiveHundredAfterThePrefix() throws Exception {
         when(links.appLink()).thenReturn(APP_LINK);
         String fits = "d_" + "1".repeat(500);

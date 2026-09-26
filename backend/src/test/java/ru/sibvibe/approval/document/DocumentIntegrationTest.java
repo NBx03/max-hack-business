@@ -276,6 +276,13 @@ class DocumentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].recognizedKind.value").value("Приказ"))
                 .andExpect(jsonPath("$.items[0].recognizedKind.fromAi").value(true));
+        // fields — JSON null: список и поиск не падают (ревью Никиты на #113, п. 2)
+        jdbc.update("update document_version set extracted_fields = '{\"fields\": null}'::jsonb where document_id = ?", documentId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "ничего").header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].recognizedKind").isEmpty());
 
         mvc.perform(put("/api/v1/documents/{id}/versions/1/type", documentId)
                         .contentType(MediaType.APPLICATION_JSON)

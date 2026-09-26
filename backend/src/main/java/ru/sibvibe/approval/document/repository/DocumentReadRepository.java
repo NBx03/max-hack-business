@@ -173,13 +173,15 @@ public class DocumentReadRepository {
         String search = searchText == null || searchText.isBlank() ? null : searchText.strip();
         if (search != null) {
             // NAV-3: название, автор, номер документа в приложении или регистрационный номер из самого документа.
+            // fields бывает JSON null (не SQL NULL) — jsonb_array_elements на нём падал бы и ронял весь список (ревью Никиты).
             where.append("""
                      and (d.title ilike :search escape '\\'
                           or exists (select 1 from app_user search_author
                                      where search_author.id = d.author_id and search_author.full_name ilike :search escape '\\')
                           or cast(d.id as text) = :searchExact
                           or exists (select 1 from document_version search_version,
-                                            jsonb_array_elements(search_version.extracted_fields -> 'fields') search_field
+                                            jsonb_array_elements(case when jsonb_typeof(search_version.extracted_fields -> 'fields') = 'array'
+                                       then search_version.extracted_fields -> 'fields' else '[]'::jsonb end) search_field
                                      where search_version.document_id = d.id
                                        and search_version.version_no = d.current_version_no
                                        and search_field ->> 'name' = 'reg_number'
@@ -228,9 +230,11 @@ public class DocumentReadRepository {
                              and waiting.decision = 'PENDING'
                        ) as waiting_since,
                        (
-                           select kind_field ->> 'value'
+                           -- до 80 символов: значение пришло от модели и в строке списка длинным быть не должно
+                           select left(kind_field ->> 'value', 80)
                            from document_version kind_version,
-                                jsonb_array_elements(kind_version.extracted_fields -> 'fields') kind_field
+                                jsonb_array_elements(case when jsonb_typeof(kind_version.extracted_fields -> 'fields') = 'array'
+                                       then kind_version.extracted_fields -> 'fields' else '[]'::jsonb end) kind_field
                            where dt.code = 'GENERIC'
                              and kind_version.document_id = d.id
                              and kind_version.version_no = d.current_version_no
@@ -241,7 +245,8 @@ public class DocumentReadRepository {
                        (
                            select kind_field ->> 'source'
                            from document_version kind_version,
-                                jsonb_array_elements(kind_version.extracted_fields -> 'fields') kind_field
+                                jsonb_array_elements(case when jsonb_typeof(kind_version.extracted_fields -> 'fields') = 'array'
+                                       then kind_version.extracted_fields -> 'fields' else '[]'::jsonb end) kind_field
                            where dt.code = 'GENERIC'
                              and kind_version.document_id = d.id
                              and kind_version.version_no = d.current_version_no
