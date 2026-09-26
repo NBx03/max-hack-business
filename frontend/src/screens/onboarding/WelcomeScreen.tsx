@@ -37,16 +37,17 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
           <Button variant="primary" stretched onClick={onCreate}>
             Создать компанию
           </Button>
-          <Button variant="secondary" stretched onClick={onJoin}>
-            Присоединиться по коду
-          </Button>
+          {/* Демонстрация — второй: так проверяющий проходит весь сценарий один и не пропустит кнопку внизу (#56).
+              Одно название всегда: «Продолжить» ставило в тупик того, кто открыл приложение впервые. */}
           {me?.demoMode && (
-            <Button variant="ghost" stretched loading={demo.busy} onClick={() => void demo.open()}>
-              {/* Одно название всегда: «Продолжить» ставило в тупик того, кто открыл приложение впервые (#56). */}
+            <Button variant="secondary" stretched loading={demo.busy} onClick={() => void demo.open()}>
               Посмотреть демонстрацию
             </Button>
           )}
           {demo.error && <ErrorText>{demo.error}</ErrorText>}
+          <Button variant={me?.demoMode ? 'ghost' : 'secondary'} stretched onClick={onJoin}>
+            Присоединиться по коду
+          </Button>
         </>
       }
     >
