@@ -3,14 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
 import { getDocumentTypes } from '../../api/documents';
 import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount, getRoutes } from '../../api/organization';
-import { leaveCompany } from '../../api/admin';
 import type { MemberView } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
 import { demoEntryUser } from '../../app/demo';
 import { useAsync } from '../../hooks/useAsync';
 import { ROUTE_PATTERNS } from '../../routes/paths';
-import { Button, ConfirmSheet, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section } from '../../ui';
+import { Button, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section } from '../../ui';
 import { MetricsCard } from './MetricsCard';
 import { RoutesCard } from './RoutesCard';
 
@@ -20,7 +19,7 @@ import { RoutesCard } from './RoutesCard';
  */
 export function CompanyScreen() {
   const navigate = useNavigate();
-  const { me, actAs, startSandbox, refresh } = useSession();
+  const { me, actAs, startSandbox } = useSession();
   const demo = useOpenDemo();
   const inDemo = Boolean(me?.actingAs);
   const actor = me?.actingAs ?? (me?.membership ? { user: me.user, roles: me.membership.roles, isAdmin: me.membership.isAdmin } : null);
@@ -34,23 +33,6 @@ export function CompanyScreen() {
 
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
-  const [confirmRestart, setConfirmRestart] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-  const [leaveError, setLeaveError] = useState<string | null>(null);
-
-  // Выход из компании (#56, аудит 27.09): после него /me без компании — охранник сам уведёт на приветствие.
-  async function leave() {
-    setLeaving(true);
-    setLeaveError(null);
-    try {
-      await leaveCompany();
-      await refresh();
-    } catch (err) {
-      setLeaveError(errorMessage(err));
-      setLeaving(false);
-    }
-  }
 
   async function restartDemo() {
     if (restarting) return;
@@ -63,7 +45,6 @@ export function CompanyScreen() {
         setRestartError('Не удалось открыть демонстрацию, попробуйте ещё раз');
         return;
       }
-      setConfirmRestart(false);
       await actAs(entry);
     } catch (err) {
       // Песочницу создать не удалось — startSandbox уже вернул прежнего участника.
@@ -151,24 +132,10 @@ export function CompanyScreen() {
               <Button stretched disabled={restarting} onClick={() => void actAs(null)}>
                 Выйти из демонстрации
               </Button>
-              <Button stretched variant="ghost" disabled={restarting} onClick={() => setConfirmRestart(true)}>
+              <Button stretched variant="ghost" loading={restarting} onClick={() => void restartDemo()}>
                 Начать заново
               </Button>
-              {/* Сброс стирает всё, что сделано в демо, — только после подтверждения (#56, аудит 27.09). */}
-              <ConfirmSheet
-                open={confirmRestart}
-                onClose={() => {
-                  setConfirmRestart(false);
-                  setRestartError(null);
-                }}
-                title="Начать демонстрацию заново?"
-                description="Документы и решения в демо-компании удалятся — она станет как в начале."
-                confirmLabel="Начать заново"
-                destructive
-                busy={restarting}
-                error={restartError}
-                onConfirm={() => void restartDemo()}
-              />
+              {restartError && <InlineError>{restartError}</InlineError>}
             </>
           ) : (
             <>
@@ -179,28 +146,6 @@ export function CompanyScreen() {
               {demo.error && <InlineError>{demo.error}</InlineError>}
             </>
           )}
-        </Section>
-      )}
-      {/* Редкое и необратимое — в самом конце и тихо. В демо не показываем: там «Выйти из демонстрации». */}
-      {!inDemo && me?.membership && (
-        <Section>
-          <Button stretched variant="ghost" className="ds-button--quiet-danger" onClick={() => setLeaveOpen(true)}>
-            Выйти из компании
-          </Button>
-          <ConfirmSheet
-            open={leaveOpen}
-            onClose={() => {
-              setLeaveOpen(false);
-              setLeaveError(null);
-            }}
-            title={`Выйти из компании ${me.membership.orgName}?`}
-            description="Документы, которые ждут вашего решения, вернутся авторам. Вернуться можно по коду компании."
-            confirmLabel="Выйти"
-            destructive
-            busy={leaving}
-            error={leaveError}
-            onConfirm={() => void leave()}
-          />
         </Section>
       )}
     </Page>

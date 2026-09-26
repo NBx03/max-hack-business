@@ -26,13 +26,7 @@ import java.util.stream.Collectors;
 @Service
 public class DocumentRuleService {
 
-    /**
-     * «Сегодня» для правила «не позже сегодняшнего дня» — по самому восточному часовому поясу России (UTC+12). Дату
-     * ставит человек по своим часам: в Новосибирске после полуночи уже 27-е, а в Москве ещё 26-е, и сегодняшняя дата
-     * считалась будущей — критичное замечание, отправить нельзя (#56, аудит 27.09). Так дата «сегодня» проходит в любом
-     * регионе; цена — вечером по Москве пропускается и московское «завтра», это безопаснее ложного запрета.
-     */
-    static final ZoneId LATEST_RUSSIAN_ZONE = ZoneId.of("Asia/Kamchatka");
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Europe/Moscow");
     private static final int MAX_FIELDS = 100;
     private static final int MAX_FIELD_VALUE_LENGTH = 10_000;
 
@@ -121,7 +115,7 @@ public class DocumentRuleService {
                         values,
                         prepared.rules(),
                         new RuleEngine.ValidationContext(
-                                LocalDate.ofInstant(clock.instant(), LATEST_RUSSIAN_ZONE), locations))
+                                LocalDate.ofInstant(clock.instant(), BUSINESS_ZONE), locations))
                 .stream()
                 .map(issue -> new DocumentCardResponse.ValidationIssueView(
                         issue.ruleId(),
