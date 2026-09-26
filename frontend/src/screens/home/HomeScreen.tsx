@@ -3,8 +3,11 @@ import { getDocuments } from '../../api/documents';
 import { getPendingJoinRequestsCount } from '../../api/organization';
 import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
-import { DOCUMENT_LISTS, ROUTE_PATTERNS, documentListPath } from '../../routes/paths';
-import { Button, IconButton, Page, PageHeader, Tile, Tiles } from '../../ui';
+import { DOCUMENT_LISTS, ROUTE_PATTERNS, documentCardPath, documentListPath } from '../../routes/paths';
+import { DocumentRow } from '../documents/DocumentListScreen';
+import { Button, IconButton, List, Muted, Page, PageHeader, Section, Tile, Tiles } from '../../ui';
+
+const RECENT_COUNT = 3;
 
 function roleLine(roles: { name: string }[], isAdmin: boolean): string {
   const names = roles.map((role) => role.name);
@@ -15,7 +18,7 @@ function roleLine(roles: { name: string }[], isAdmin: boolean): string {
 /**
  * Главная (NAV-1, NAV-2): четыре плитки разделов — что за документы и что там сделать — и одно главное действие
  * «Новый документ». Заменяет вкладки «Ждут меня / Мои / Доступные мне» и нижнее меню, которые новичок не понимал.
- * Всё помещается без прокрутки на 360×640.
+ * Плитки помещаются без прокрутки на 360×640; ниже — недавние документы.
  */
 export function HomeScreen() {
   const navigate = useNavigate();
@@ -29,6 +32,8 @@ export function HomeScreen() {
   const requests = useAsync(() => (isAdmin ? getPendingJoinRequestsCount() : Promise.resolve(0)), [isAdmin]);
   const waitingCount = waiting.status === 'ready' ? waiting.data.total : undefined;
   const requestsCount = requests.status === 'ready' ? requests.data : undefined;
+  // Недавние — под плитками, чтобы не было пустого места до «Нового документа» (замечание Ильи, #56).
+  const recent = useAsync(() => getDocuments(DOCUMENT_LISTS.mine.tab, { size: RECENT_COUNT }), []);
 
   const who = actor ? [actor.user.fullName, roleLine(actor.roles, actor.isAdmin)].filter(Boolean).join(' · ') : undefined;
 
@@ -78,6 +83,21 @@ export function HomeScreen() {
           onClick={() => navigate(ROUTE_PATTERNS.company)}
         />
       </Tiles>
+
+      {/* Второстепенный блок: при ошибке просто не показываем, главная не должна выглядеть сломанной. */}
+      {recent.status === 'ready' && (
+        <Section title="Недавние документы">
+          {recent.data.items.length === 0 ? (
+            <Muted>Здесь появятся ваши документы. Нажмите «Новый документ» — сервис проверит оформление и предложит маршрут.</Muted>
+          ) : (
+            <List label="Недавние документы">
+              {recent.data.items.map((item) => (
+                <DocumentRow key={item.id} item={item} list="mine" onOpen={() => navigate(documentCardPath(item.id))} />
+              ))}
+            </List>
+          )}
+        </Section>
+      )}
     </Page>
   );
 }

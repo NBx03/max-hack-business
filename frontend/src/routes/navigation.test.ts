@@ -3,7 +3,7 @@ import type { MeResponse } from '../api/types';
 import { launchDataFromHash, launchDataToReloadFor } from '../app/launch';
 import { backTarget, parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
-import { resolveEntryRoute } from './resolveEntryRoute';
+import { launchTargetFor, launchTargetReached, resolveEntryRoute } from './resolveEntryRoute';
 
 // Навигация по /me - docs/SCREENS.md, "Навигация". Проверяем чистые функции: какой экран
 // открыть при входе и куда увести с экрана при изменившемся /me.
@@ -172,5 +172,25 @@ describe('backTarget — системная «Назад» туда же, куд
     expect(backTarget('/documents/5', null, '/home')).toBe('/home');
     expect(backTarget('/documents/5', { from: '//evil.example' }, '/home')).toBe('/home');
     expect(backTarget('/documents/5/route', {}, '/home')).toBe('/documents/5');
+  });
+});
+
+describe('launchTargetFor и launchTargetReached — экран ссылки держится, пока не откроется (#56)', () => {
+  // Раньше ссылка снималась в том же такте, что и переход на неё, и приглашения открывали приветствие.
+  it('ссылка с кодом и личная ведут на свои экраны, пока запуск не обработан', () => {
+    expect(launchTargetFor({ ...base, startParam: 'c_ABCD2345' }, false)).toBe('/join?code=ABCD2345');
+    expect(launchTargetFor({ ...base, startParam: 'p_token' }, false)).toBe('/join/personal/token');
+    expect(launchTargetFor({ ...base, startParam: 'c_ABCD2345' }, true)).toBeNull();
+    expect(launchTargetFor(base, false)).toBeNull();
+  });
+
+  it('ссылка, которая ничего не меняет, — не цель: участнику компании приглашение не показываем', () => {
+    expect(launchTargetFor({ ...member, startParam: 'c_ABCD2345' }, false)).toBeNull();
+  });
+
+  it('цель достигнута по пути, без параметров адреса', () => {
+    expect(launchTargetReached('/join?code=ABCD2345', '/join')).toBe(true);
+    expect(launchTargetReached('/join?code=ABCD2345', '/')).toBe(false);
+    expect(launchTargetReached('/documents/5', '/documents/5')).toBe(true);
   });
 });

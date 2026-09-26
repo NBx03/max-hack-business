@@ -11,11 +11,15 @@ import {
 } from '../../api/admin';
 import { errorMessage } from '../../api/errors';
 import type { InviteCodeInfo, PersonalInviteView, RoleRef } from '../../api/types';
-import { BottomSheet, ConfirmSheet, Button, Toast } from '../../ui';
+import { BottomSheet, ConfirmSheet, Button, Icon, Toast } from '../../ui';
 import { RolePicker } from '../../components/base/RolePicker';
 import { copyToClipboard, shareOrCopy } from '../../lib/share';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
 import { ADMIN_BACK, AdminLoadError, formatTimeLeft, roleNames } from './AdminFormParts';
+
+function upperFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 export function InviteScreen() {
   const [code, setCode] = useState<InviteCodeInfo | null>(null);
@@ -40,6 +44,7 @@ export function InviteScreen() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [invitesOpen, setInvitesOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -186,32 +191,43 @@ export function InviteScreen() {
                 Активных личных ссылок нет.
               </Typography.Text>
             ) : (
+              // Список свёрнут: пять одинаковых карточек с длинными адресами выглядели как спам (замечание Ильи, #56).
+              // Адрес не показываем — «Поделиться» отправляет или копирует его сам.
               <div style={stackStyle}>
-                {personalInvites.map((invite) => (
+                <button
+                  type="button"
+                  className="ds-link-toggle"
+                  aria-expanded={invitesOpen}
+                  onClick={() => setInvitesOpen((open) => !open)}
+                >
+                  {invitesOpen ? 'Скрыть' : 'Показать'} неиспользованные ссылки ({personalInvites.length})
+                  <span style={{ display: 'inline-flex', transform: invitesOpen ? 'rotate(180deg)' : undefined }}>
+                    <Icon name="chevronDown" size={16} />
+                  </span>
+                </button>
+                {invitesOpen && personalInvites.map((invite) => (
                   <div
                     key={invite.id}
                     style={{
                       display: 'flex',
-                      flexDirection: 'column',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
                       gap: 8,
-                      padding: '10px 0',
-                      borderBottom: '1px solid var(--divider-primary)',
+                      padding: '8px 0',
+                      borderTop: '1px solid var(--divider-primary)',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ flex: '1 1 140px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <strong>{roleNames(invite.roles)}</strong>
-                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                        {formatTimeLeft(invite.expiresAt)}
+                      <span style={{ fontSize: 'var(--ds-text-xs)', color: 'var(--text-tertiary)' }}>
+                        {upperFirst(formatTimeLeft(invite.expiresAt))}
                       </span>
                     </div>
-                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', overflowWrap: 'anywhere' }}>
-                      {invite.link}
-                    </span>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <Button compact variant="secondary" onClick={() => void share(invite.link, 'Личное приглашение в компанию')}>
                         Поделиться
                       </Button>
-                      <Button compact variant="secondary" onClick={() => void revoke(invite)}>Отозвать</Button>
+                      <Button compact variant="ghost" onClick={() => void revoke(invite)}>Отозвать</Button>
                     </div>
                   </div>
                 ))}

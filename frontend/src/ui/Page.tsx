@@ -225,3 +225,18 @@ export function Count({ value, accent }: { value: number; accent?: boolean }) {
 export function Muted({ children }: { children: ReactNode }) {
   return <p className="ds-text-secondary">{children}</p>;
 }
+
+/** Инициалы человека в кружке — чтобы список людей читался по лицам, а не сплошным текстом. */
+export function Initials({ name }: { name: string }) {
+  const letters = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+  return (
+    <span className="ds-initials" aria-hidden>
+      {letters || '?'}
+    </span>
+  );
+}
