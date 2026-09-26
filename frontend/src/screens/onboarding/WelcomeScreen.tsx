@@ -1,4 +1,5 @@
-import { Button, Typography } from '@maxhub/max-ui';
+import { Typography } from '@maxhub/max-ui';
+import { Button } from '../../ui';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
 import { ErrorText, OnboardingLayout } from './OnboardingLayout';
@@ -33,14 +34,14 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
       subtitle="Готовьте, проверяйте и согласовывайте документы компании прямо в MAX."
       footer={
         <>
-          <Button size="large" stretched onClick={onCreate}>
+          <Button variant="primary" stretched onClick={onCreate}>
             Создать компанию
           </Button>
-          <Button size="large" variant="secondary" stretched onClick={onJoin}>
+          <Button variant="secondary" stretched onClick={onJoin}>
             Присоединиться по коду
           </Button>
           {me?.demoMode && (
-            <Button size="large" variant="ghost" stretched loading={demo.busy} onClick={() => void demo.open()}>
+            <Button variant="ghost" stretched loading={demo.busy} onClick={() => void demo.open()}>
               {demo.hasSandbox ? 'Продолжить демонстрацию' : 'Посмотреть демонстрацию'}
             </Button>
           )}

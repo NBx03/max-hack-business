@@ -45,11 +45,17 @@ public class DemoSandboxContentService implements DemoSandboxContentSeeder {
                         scenario.accountant, created, created,
                         decidedAt(scenario.accountant, created),
                         scenario == Scenario.REJECTED ? "Закупка не входит в утверждённый бюджет" : null),
-                step(documentId, seed.directorId(), seed.directorRoleId(), 2,
+                // Директор — утверждающий (D4): так демонстрация сразу показывает «Утверждение» и статус «Утверждён».
+                endorse(step(documentId, seed.directorId(), seed.directorRoleId(), 2,
                         scenario.director, created,
                         scenario == Scenario.APPROVED ? created.plusSeconds(1800) : null,
-                        decidedAt(scenario.director, created.plusSeconds(1800)), null)
+                        decidedAt(scenario.director, created.plusSeconds(1800)), null))
         );
+    }
+
+    private static ApprovalStep endorse(ApprovalStep step) {
+        step.setKind(ApprovalStep.Kind.ENDORSEMENT);
+        return step;
     }
 
     private ApprovalStep step(

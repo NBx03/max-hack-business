@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
+import { Button } from '../../ui';
+import { Spinner, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { acceptPersonalInvite, previewPersonalInvite } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
@@ -18,7 +19,16 @@ type State =
  * 4б. Вступление по личной ссылке (docs/SCREENS.md, SHOULD). При открытии ничего не происходит:
  * человек видит компанию и роли и вступает только по кнопке (CLAUDE.md, онбординг).
  */
-export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; onJoinByCode: () => void }) {
+export function PersonalInviteScreen({
+  token,
+  onJoinByCode,
+  onDecline,
+}: {
+  token: string;
+  onJoinByCode: () => void;
+  /** «Не сейчас» — по ссылке основной путь, и без выхода экран был бы тупиком (ревью Матвея на #112). */
+  onDecline: () => void;
+}) {
   const { refresh } = useSession();
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
@@ -74,7 +84,7 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       <OnboardingLayout
         title="Приглашение"
         footer={
-          <Button size="large" stretched onClick={() => void load()}>
+          <Button variant="primary" stretched onClick={() => void load()}>
             Повторить
           </Button>
         }
@@ -89,7 +99,7 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       <OnboardingLayout
         title="Ссылка недействительна"
         footer={
-          <Button size="large" stretched onClick={onJoinByCode}>
+          <Button variant="primary" stretched onClick={onJoinByCode}>
             Присоединиться по коду
           </Button>
         }
@@ -107,9 +117,14 @@ export function PersonalInviteScreen({ token, onJoinByCode }: { token: string; o
       title={invite.orgName}
       subtitle="Вас пригласили в компанию. После вступления вы получите роли:"
       footer={
-        <Button size="large" stretched loading={busy} onClick={() => void join()}>
-          Вступить
-        </Button>
+        <>
+          <Button variant="primary" stretched loading={busy} onClick={() => void join()}>
+            Вступить
+          </Button>
+          <Button variant="ghost" stretched disabled={busy} onClick={onDecline}>
+            Не сейчас
+          </Button>
+        </>
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

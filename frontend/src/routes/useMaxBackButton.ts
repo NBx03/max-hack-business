@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { getWebApp, isInsideMax, type MaxBackButton } from '../max/webApp';
-import { parentRoute, useGoBack } from './backNavigation';
+import { backTarget, useGoBack } from './backNavigation';
 import { ROOT_ROUTE_PATTERNS } from './paths';
 
 // isInsideMax(), не просто наличие window.WebApp - тот же признак, что уже использует
@@ -18,10 +18,10 @@ export function useMaxBackButton(entryRoute: string): void {
   const location = useLocation();
   const goBack = useGoBack();
 
-  // Последний путь и entryRoute - в ref, чтобы не переподписывать onClick моста
-  // на каждый переход (см. components/base/Toast.tsx, тот же приём с onDismissRef).
-  const latest = useRef({ pathname: location.pathname, entryRoute, goBack });
-  latest.current = { pathname: location.pathname, entryRoute, goBack };
+  // Последний путь, его state и entryRoute - в ref, чтобы не переподписывать onClick моста
+  // на каждый переход (тот же приём, что onDismissRef в ui/State.tsx, Toast).
+  const latest = useRef({ pathname: location.pathname, state: location.state as unknown, entryRoute, goBack });
+  latest.current = { pathname: location.pathname, state: location.state as unknown, entryRoute, goBack };
 
   useEffect(() => {
     const backButton = activeBackButton();
@@ -41,8 +41,8 @@ export function useMaxBackButton(entryRoute: string): void {
       return;
     }
     function handleClick() {
-      const { pathname, entryRoute, goBack } = latest.current;
-      goBack(parentRoute(pathname, entryRoute));
+      const { pathname, state, entryRoute, goBack } = latest.current;
+      goBack(backTarget(pathname, state, entryRoute));
     }
     backButton.onClick(handleClick);
     return () => backButton.offClick(handleClick);

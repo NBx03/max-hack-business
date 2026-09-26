@@ -1,68 +1,36 @@
 import type { ReactNode } from 'react';
-import { Typography } from '@maxhub/max-ui';
-import { CenteredColumn, ScreenShell } from '../../components/base/Layout';
+import { InlineError, Page, PageHeader } from '../../ui';
 
 /**
- * Общая раскладка экранов подключения на колонке каркаса (#53): заголовок сверху,
- * главное действие внизу (docs/SCREENS.md, «Общие правила»).
+ * Раскладка экранов подключения на каркасе дизайн-системы (ui/Page): заголовок и текст прокручиваются, действия
+ * закреплены внизу — на невысоком телефоне «Создать компанию» не уезжает за край (приёмка 24.09, LAY-1).
  */
 export function OnboardingLayout({
   title,
   subtitle,
   children,
   footer,
+  back,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
+  back?: { to: string; label: string };
 }) {
-  // Текст прокручивается, действия внизу закреплены: на невысоком телефоне «Создать компанию» не
-  // должна уезжать за край экрана (приёмка 24.09).
   return (
-    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <ScreenShell>
-        <CenteredColumn
-          style={{
-            flex: 1,
-            boxSizing: 'border-box',
-            padding: '24px 16px 16px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Title large-strong в max-ui — 16 px, как основной текст; заголовок экрана — Headline (24 px). */}
-            <Typography.Headline variant="large-strong">{title}</Typography.Headline>
-            {subtitle && <span style={{ fontSize: 16, lineHeight: '22px', color: 'var(--text-secondary)' }}>{subtitle}</span>}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>{children}</div>
-        </CenteredColumn>
-      </ScreenShell>
-      {footer && (
-        <div style={{ flex: 'none', background: 'var(--background-primary)', padding: '12px 0 calc(12px + env(safe-area-inset-bottom, 0px))' }}>
-          <CenteredColumn style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>{footer}</CenteredColumn>
-        </div>
-      )}
-    </div>
+    <Page header={<PageHeader title={title} subtitle={subtitle} back={back} />} footer={footer}>
+      {children}
+    </Page>
   );
 }
 
-/** Ошибка с сервера — его же текстом (docs/SCREENS.md: «Ошибки бэкенда показываем его текстом»). */
+/** Ошибка с сервера — его же текстом, в видимой зоне рядом с действием (принцип 9). */
 export function ErrorText({ children }: { children: ReactNode }) {
-  return (
-    <div role="alert" style={{ color: 'var(--text-negative)' }}>
-      <Typography.Body variant="medium">{children}</Typography.Body>
-    </div>
-  );
+  return <InlineError>{children}</InlineError>;
 }
 
 /** Подсказка второго плана: пояснения под полями, сроки, служебный текст. */
 export function Hint({ children }: { children: ReactNode }) {
-  return (
-    <div style={{ color: 'var(--text-secondary)' }}>
-      <Typography.Body variant="small">{children}</Typography.Body>
-    </div>
-  );
+  return <p className="ds-section__hint" style={{ margin: 0 }}>{children}</p>;
 }

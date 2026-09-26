@@ -51,7 +51,8 @@ public final class RouteResolver {
                 } else {
                     participant = new Participant(role, true, List.of(), Resolution.SELECT, null);
                     problems.add(new Problem("ROUTE_ROLE_EMPTY",
-                            "В компании нет сотрудника с ролью «" + role.name() + "»", role));
+                            "В компании нет сотрудника с ролью «" + role.name() + "» — попросите администратора назначить эту роль "
+                                    + "или сделать её необязательной", role));
                 }
             } else if (candidates.size() == 1) {
                 participant = new Participant(role, row.mandatory(), candidates, Resolution.AUTO,

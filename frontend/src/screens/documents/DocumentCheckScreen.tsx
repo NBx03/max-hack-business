@@ -1,4 +1,4 @@
-import { Button, Typography } from '@maxhub/max-ui';
+import { Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -22,19 +22,30 @@ import type {
   Severity,
   ValidationIssue,
 } from '../../api/types';
-import { BottomSheet } from '../../components/base/BottomSheet';
-import { scrollScreenToTop } from '../../components/base/Layout';
-import { ErrorState } from '../../components/base/StateCard';
+import {
+  AiExplainer,
+  AiLegend,
+  AiMark,
+  BottomSheet,
+  Button,
+  scrollScreenToTop,
+  ErrorState,
+  SelectField,
+  StatusBadge,
+  Stepper,
+  type StatusMeta,
+} from '../../ui';
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
+import { CREATE_STEPS } from './uploadFormats';
+import { isOutsideTemplates, recognizedKindOf } from './documentKind';
 import { KIND_LABELS, SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
 import {
   DocumentScreen,
   FieldInputs,
   LoadingState,
   Notice,
-  inputStyle,
   linkStyle,
   sectionStyle,
   stackStyle,
@@ -50,6 +61,7 @@ const SEVERITY_LABELS: Record<Severity, string> = RULE_SEVERITY_LABELS;
 const BASIS_LABELS: Record<RuleKind, string> = KIND_LABELS;
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const OLD_WORD = 'application/msword';
 
 const correctionApi: CorrectionApi = {
   correctFile,
@@ -84,16 +96,11 @@ function fieldDefinitions(type: DocumentType | undefined, check: CheckResult | n
   return check?.fields.map((field) => ({ name: field.name, type: 'STRING', label: field.name, hint: '' })) ?? [];
 }
 
-function severityColor(severity: Severity): string {
-  if (severity === 'BLOCKER') return 'var(--status-danger-bg)';
-  if (severity === 'WARNING') return 'var(--status-warning-bg)';
-  return 'var(--status-neutral-bg)';
-}
-
-function severityTextColor(severity: Severity): string {
-  if (severity === 'BLOCKER') return 'var(--status-danger-fg)';
-  if (severity === 'WARNING') return 'var(--status-warning-fg)';
-  return 'var(--status-neutral-fg)';
+/** Важность замечания — тон палитры, значок и слово (DOC-3): не только цвет. */
+function severityMeta(severity: Severity): StatusMeta {
+  if (severity === 'BLOCKER') return { text: SEVERITY_LABELS[severity], tone: 'danger', icon: 'alert' };
+  if (severity === 'WARNING') return { text: SEVERITY_LABELS[severity], tone: 'warning', icon: 'alert' };
+  return { text: SEVERITY_LABELS[severity], tone: 'neutral', icon: 'info' };
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { BLOCKER: 0, WARNING: 1, INFO: 2 };
@@ -386,7 +393,10 @@ export function DocumentCheckScreen() {
   // (приёмка 24.09, п. 9 — раньше для этого нужно было «Загрузить исправленный файл» без файла).
   const canSaveFields = card.permissions.canEditFields || (isReturned && card.permissions.canUploadVersion);
   const canEdit = canSaveFields || card.permissions.canCorrectFile;
-  const isPdf = Boolean(mainFile && mainFile.mimeType !== DOCX);
+  const isPdf = Boolean(mainFile && mainFile.mimeType !== DOCX && mainFile.mimeType !== OLD_WORD);
+  // DOC (старый Word) новым файлом не принимается (D1, пересмотрено 26.09), но черновики, загруженные раньше, остались:
+  // у них текст не читается не потому, что это скан, — совет другой (ревью Матвея на #113, п. 1).
+  const isOldWord = Boolean(mainFile && (mainFile.mimeType === OLD_WORD || /\.doc$/i.test(mainFile.fileName)));
   const modelAvailable = check?.modelAvailable ?? false;
   const manualCount = check?.fields.filter((field) => field.source === 'MANUAL' && field.fileValue != null).length ?? 0;
   // Сменить тип можно у своего черновика: тем же правом, что и правка полей.
@@ -405,36 +415,47 @@ export function DocumentCheckScreen() {
   // с типом, и у чистого черновика тоже; внизу — только куда дальше: к маршруту или сохранить черновик.
   // «Заменить файл», а не «Другой файл»: это новый файл этого же документа, а не другой документ (п. 8).
   const canReplaceFile = card.permissions.canUploadVersion && !editing && !isForm;
+  // Шаги создания (UPL-3) — пока документ идёт к первой отправке: черновик, который автор может отправить.
+  const inCreateFlow = isDraft && card.permissions.canSubmit;
+  const recognized = recognizedKindOf(card.type.code, check ?? null);
+  const showKindNotice = isOutsideTemplates(card.type.code) && isDraft;
+  const hasAiFields = check?.fields.some((field) => field.source === 'MODEL' && field.value) ?? false;
+  const openTypeSheet = () => {
+    setNextTypeId(card.type.id);
+    setTypeSheetOpen(true);
+  };
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
-      <Button stretched variant="primary" size="large" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>К маршруту</Button>
-      <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
+      <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>Далее: выбрать согласующих</Button>
+      <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
     </div>
   ) : isDraft && canEdit ? (
-    <Button stretched variant="secondary" size="large" onClick={saveDraft}>Сохранить черновик</Button>
+    <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
   ) : null;
 
   return (
     <DocumentScreen back={back} title={card.title} footer={footer}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: -8 }}>
-        <span style={{ color: 'var(--text-secondary)' }}>
-          {card.type.name}
-          {card.type.autoDetected ? ' · определён автоматически' : ''} · версия {card.currentVersionNo}
+      {inCreateFlow && <Stepper steps={CREATE_STEPS} current={1} />}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: inCreateFlow ? 0 : -8 }}>
+        <span style={{ color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          {/* У «Другого документа» вид — в плашке ниже, здесь не повторяем. */}
+          {showKindNotice ? (
+            `Версия ${card.currentVersionNo}`
+          ) : (
+            <>
+              {recognized ? recognized.value : card.type.name}
+              {(recognized ? recognized.fromAi : card.type.autoDetected) && <AiMark />}
+              {' · '}версия {card.currentVersionNo}
+            </>
+          )}
         </span>
-        {canChangeType && (
-          <Button
-            size="small"
-            variant="secondary"
-            onClick={() => {
-              setNextTypeId(card.type.id);
-              setTypeSheetOpen(true);
-            }}
-          >
-            Сменить тип
+        {canChangeType && !isOutsideTemplates(card.type.code) && (
+          <Button compact variant="secondary" onClick={openTypeSheet}>
+            Сменить вид
           </Button>
         )}
         {canReplaceFile && (
-          <Button size="small" variant="secondary" onClick={() => navigate(documentNewVersionPath(card.id))}>
+          <Button compact variant="secondary" onClick={() => navigate(documentNewVersionPath(card.id))}>
             Заменить файл
           </Button>
         )}
@@ -465,10 +486,15 @@ export function DocumentCheckScreen() {
         </Notice>
       )}
 
+      {showKindNotice && (
+        <GenericKindNotice kind={recognized} textMissing={Boolean(check?.textMissing)} canChangeType={canChangeType} onChangeType={openTypeSheet} />
+      )}
+
       <HowChecked
         modelAvailable={modelAvailable}
         sensitive={sensitive}
         textMissing={Boolean(check?.textMissing)}
+        oldWord={isOldWord}
         canEdit={canEdit}
         isForm={isForm}
       />
@@ -498,7 +524,7 @@ export function DocumentCheckScreen() {
           {/* У возвращённого — тоже (ревью #103, п. 2): проверяется новая версия-черновик, возвращённая остаётся в истории. */}
           {(isDraft || isReturned) && card.permissions.canUploadVersion && !editing && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-              <Button size="small" variant="secondary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void recheck()}>
+              <Button compact variant="secondary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void recheck()}>
                 Проверить заново
               </Button>
             </div>
@@ -509,34 +535,26 @@ export function DocumentCheckScreen() {
         ) : (
           <div style={{ ...stackStyle, gap: 12 }}>
             {sortIssues(check.issues).map((issue) => (
+              // Без цветных полос слева (DOC-3, принцип 8): важность — меткой со значком и словом.
               <article
                 key={`${issue.ruleId}:${issue.fieldName}`}
                 style={{
                   ...stackStyle,
                   gap: 8,
                   padding: 12,
-                  borderRadius: 8,
+                  borderRadius: 'var(--ds-radius-m)',
                   background: 'var(--background-primary)',
-                  borderLeft: `3px solid ${severityTextColor(issue.severity)}`,
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: 999,
-                      background: severityColor(issue.severity),
-                      color: severityTextColor(issue.severity),
-                      fontSize: 12,
-                    }}
-                  >
-                    {SEVERITY_LABELS[issue.severity]}
-                  </span>
+                  <StatusBadge meta={severityMeta(issue.severity)} />
                   <strong>{labels.get(issue.fieldName) ?? issue.fieldName}</strong>
                 </div>
                 <Typography.Text>{issue.message}</Typography.Text>
+                {/* «Рекомендация сервиса» у всех рекомендаций одинакова — её не повторяем; основание показываем
+                    только у закона и правила компании. */}
                 <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                  <span>{BASIS_LABELS[issue.kind]}{issue.kind === 'PRODUCT_RULE' ? '' : ': '}</span>
+                  {issue.kind !== 'PRODUCT_RULE' && <span>{BASIS_LABELS[issue.kind]}: </span>}
                   {issue.kind === 'PRODUCT_RULE' ? null : issue.sourceUrl ? (
                     <a href={issue.sourceUrl} target="_blank" rel="noreferrer" style={linkStyle}>{issue.sourceTitle}</a>
                   ) : (
@@ -545,7 +563,7 @@ export function DocumentCheckScreen() {
                   {issue.kind !== 'PRODUCT_RULE' && issue.sourceRef && <span> · {issue.sourceRef}</span>}
                   {isAdmin && (
                     <>
-                      {' · '}
+                      {issue.kind !== 'PRODUCT_RULE' && ' · '}
                       <button
                         type="button"
                         onClick={() => navigate(companyRulesPath(issue.ruleId))}
@@ -557,7 +575,7 @@ export function DocumentCheckScreen() {
                   )}
                 </div>
                 {issue.quote && (
-                  <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: '3px solid var(--divider-primary)', color: 'var(--text-secondary)' }}>
+                  <blockquote style={{ margin: 0, padding: '8px 12px', borderRadius: 'var(--ds-radius-s)', background: 'var(--ds-surface)', color: 'var(--text-secondary)' }}>
                     «{issue.quote}»{issue.page !== null ? `, стр. ${issue.page}` : ''}
                   </blockquote>
                 )}
@@ -569,10 +587,13 @@ export function DocumentCheckScreen() {
 
       <section ref={fieldsRef} style={{ ...sectionStyle, scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <Typography.Headline variant="medium">Данные документа</Typography.Headline>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
+            {hasAiFields && !editing && <AiExplainer />}
+          </span>
           {canEdit && !editing && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-              <Button size="small" variant={mustFix || isReturned ? 'primary' : 'secondary'} onClick={startEditing}>Изменить</Button>
+              <Button compact variant={mustFix || isReturned ? 'primary' : 'secondary'} onClick={startEditing}>Изменить</Button>
             </div>
           )}
         </div>
@@ -603,7 +624,7 @@ export function DocumentCheckScreen() {
             {actionError && <Notice tone="danger">{actionError}</Notice>}
             <div style={{ ...stackStyle, gap: 8 }}>
               {card.permissions.canCorrectFile && (
-                <Button stretched variant="primary" size="large" loading={busy === 'file'} disabled={busy !== null} onClick={() => void writeIntoFile()}>
+                <Button stretched variant="primary" loading={busy === 'file'} disabled={busy !== null} onClick={() => void writeIntoFile()}>
                   Исправить и проверить
                 </Button>
               )}
@@ -612,7 +633,6 @@ export function DocumentCheckScreen() {
                   <Button
                     stretched
                     variant={card.permissions.canCorrectFile ? 'secondary' : 'primary'}
-                    size="large"
                     loading={busy === 'fields'}
                     disabled={busy !== null}
                     onClick={() => void saveFieldsOnly()}
@@ -627,17 +647,19 @@ export function DocumentCheckScreen() {
                 </>
               )}
               {!card.permissions.canCorrectFile && card.permissions.canUploadVersion && !isForm && (
-                <Button stretched variant="secondary" size="large" disabled={busy !== null} onClick={() => navigate(documentNewVersionPath(card.id))}>
+                <Button stretched variant="secondary" disabled={busy !== null} onClick={() => navigate(documentNewVersionPath(card.id))}>
                   Заменить файл
                 </Button>
               )}
-              <Button stretched variant="secondary" size="large" disabled={busy !== null} onClick={cancelEditing}>
+              <Button stretched variant="secondary" disabled={busy !== null} onClick={cancelEditing}>
                 Отмена
               </Button>
             </div>
             {busy === 'file' && <Notice>Вписываем исправления и проверяем — до минуты.</Notice>}
           </div>
         ) : check?.fields.length ? (
+          <>
+          {hasAiFields && <AiLegend />}
           <dl style={{ margin: 0 }}>
             {check.fields.map((field, index) => {
               const origin = fieldOrigin(field, modelAvailable);
@@ -646,6 +668,7 @@ export function DocumentCheckScreen() {
                   <dt style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>{labels.get(field.name) ?? field.name}</dt>
                   <dd style={{ margin: '3px 0 0', overflowWrap: 'anywhere', color: field.value ? undefined : 'var(--text-tertiary)' }}>
                     {field.value || 'Не заполнено'}
+                    {field.source === 'MODEL' && field.value && <> <AiMark /></>}
                   </dd>
                   {origin && (
                     <dd style={{ margin: '3px 0 0', fontSize: 13, overflowWrap: 'anywhere', color: field.fileValue ? 'var(--status-warning-fg)' : 'var(--text-secondary)' }}>
@@ -656,6 +679,7 @@ export function DocumentCheckScreen() {
               );
             })}
           </dl>
+          </>
         ) : (
           <Typography.Text>Данных для отображения нет.</Typography.Text>
         )}
@@ -664,21 +688,21 @@ export function DocumentCheckScreen() {
       <BottomSheet
         open={typeSheetOpen}
         onClose={() => setTypeSheetOpen(false)}
-        title="Тип документа"
+        title="Вид документа"
         dismissible={busy !== 'type'}
       >
         <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-          От типа зависят поля, правила и маршрут. Документ проверится заново.
+          От вида зависят поля, правила и маршрут. Документ проверится заново.
         </Typography.Text>
-        <select
-          style={inputStyle}
-          value={nextTypeId ?? ''}
-          onChange={(event) => setNextTypeId(Number(event.target.value))}
-        >
-          {sortTypes(types).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
+        <SelectField
+          placeholder="Выберите вид"
+          sheetTitle="Вид документа"
+          options={sortTypes(types).map((item) => ({ value: item.id, label: item.name }))}
+          value={nextTypeId ?? null}
+          onChange={setNextTypeId}
+        />
         <Button stretched variant="primary" loading={busy === 'type'} disabled={busy !== null} onClick={() => void applyType()}>
-          Проверить по этому типу
+          Проверить по этому виду
         </Button>
       </BottomSheet>
     </DocumentScreen>
@@ -690,12 +714,15 @@ function HowChecked({
   modelAvailable,
   sensitive,
   textMissing,
+  oldWord,
   canEdit,
   isForm,
 }: {
   modelAvailable: boolean;
   sensitive: boolean;
   textMissing: boolean;
+  /** Основной файл — DOC: текст не читается не потому, что это скан. */
+  oldWord: boolean;
   canEdit: boolean;
   /** Записка заполнена в приложении (#59): распознавать нечего — это не «распознавание недоступно». */
   isForm: boolean;
@@ -703,6 +730,8 @@ function HowChecked({
   const fill = canEdit ? 'Заполните поля кнопкой «Изменить»' : 'Поля заполняет автор';
   const text = isForm
     ? 'Записка заполнена в приложении — правила проверили её поля.'
+    : textMissing && oldWord
+    ? `Старый формат Word (DOC): ИИ его не читает. ${fill} — правила проверят их так же — или сохраните файл как DOCX и замените.`
     : textMissing
     ? `Похоже, это скан: в файле нет текста. ${fill} или загрузите файл с текстом.`
     : modelAvailable
@@ -715,5 +744,49 @@ function HowChecked({
       <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Как проверялся документ</summary>
       <Typography.Text style={{ color: 'var(--text-secondary)' }}>{text}</Typography.Text>
     </details>
+  );
+}
+
+/**
+ * «Другой документ» на шаге проверки (D2, DOC-7): что распознал ИИ, что это значит для проверки и маршрута, и выход —
+ * выбрать вид из списка. Честно: у такого документа правила проверяют только общие реквизиты (DECISIONS.md, противоречие 6).
+ */
+function GenericKindNotice({
+  kind,
+  textMissing,
+  canChangeType,
+  onChangeType,
+}: {
+  kind: { value: string; fromAi: boolean } | null;
+  /** Текста в файле нет — ИИ вид и не мог распознать: так и говорим, а не «не распознан». */
+  textMissing: boolean;
+  canChangeType: boolean;
+  onChangeType: () => void;
+}) {
+  return (
+    <section style={{ ...sectionStyle, gap: 8 }}>
+      <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        {kind ? (
+          <>
+            {kind.fromAi ? 'ИИ распознал' : 'Вид'}: {kind.value}
+            {kind.fromAi && <AiMark />}
+          </>
+        ) : textMissing ? (
+          'Вид не определён: текст файла не прочитан'
+        ) : (
+          'Вид документа не распознан'
+        )}
+      </strong>
+      <Typography.Text style={{ color: 'var(--text-secondary)' }}>
+        {kind
+          ? 'Такого вида нет в шаблонах компании — проверим общие реквизиты: дату, номер, заголовок и подпись. Согласующих выберете сами.'
+          : 'Если это документ одного из видов компании — выберите вид из списка, проверка будет подробнее. Иначе проверим общие реквизиты: дату, номер, заголовок и подпись.'}
+      </Typography.Text>
+      {canChangeType && (
+        <div>
+          <Button compact variant="secondary" onClick={onChangeType}>Выбрать вид из списка</Button>
+        </div>
+      )}
+    </section>
   );
 }

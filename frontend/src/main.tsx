@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MaxUI } from '@maxhub/max-ui';
 import '@maxhub/max-ui/styles.css';
 import './theme/tokens.css';
+import { ThemeSync } from './ui';
 
 import { App } from './App';
 import { SessionProvider } from './app/SessionContext';
@@ -22,6 +23,7 @@ if (!container) {
 createRoot(container).render(
   <StrictMode>
     <MaxUI resetBody className="app-root">
+      <ThemeSync />
       {/* Рамка приложения: на широком экране всё — шапка демо, экран и нижнее меню — одной колонкой (theme/tokens.css). */}
       <div className="app-frame">
         <SessionProvider>

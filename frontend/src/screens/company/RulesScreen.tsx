@@ -1,14 +1,12 @@
-import { Button, Input, Radio, Switch, Textarea, Typography } from '@maxhub/max-ui';
+import { Input, Radio, Switch, Textarea, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
 import { getCompanyRules, resetCompanyRule, updateCompanyRule } from '../../api/organization';
 import type { CompanyRule, CompanyRules, RuleSettingInput, Severity } from '../../api/types';
-import { BottomSheet } from '../../components/base/BottomSheet';
-import { ErrorState } from '../../components/base/StateCard';
-import { Toast } from '../../components/base/Toast';
+import { BottomSheet, Button, ErrorState, Toast, SelectField } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
-import { DocumentScreen, LoadingState, Notice, inputStyle, stackStyle } from '../documents/DocumentFormParts';
+import { DocumentScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
 import { KIND_LABELS, SEVERITY_HINTS, SEVERITY_LABELS, ruleBasis, ruleTitle } from './ruleText';
 
 const SEVERITIES: Severity[] = ['BLOCKER', 'WARNING', 'INFO'];
@@ -91,7 +89,7 @@ export function RulesScreen() {
   if (loading && !data) return <LoadingState />;
   if (loadError || !data) {
     return (
-      <DocumentScreen title="Правила проверки" back={BACK} nav>
+      <DocumentScreen title="Правила проверки" back={BACK}>
         <ErrorState message={loadError ?? 'Не удалось загрузить правила'} onRetry={() => void load()} />
       </DocumentScreen>
     );
@@ -100,7 +98,7 @@ export function RulesScreen() {
   const changedCount = data.types.reduce((sum, type) => sum + type.rules.filter((rule) => rule.customized).length, 0);
 
   return (
-    <DocumentScreen title="Правила проверки" back={BACK} nav>
+    <DocumentScreen title="Правила проверки" back={BACK}>
       <Typography.Text style={{ color: 'var(--text-secondary)', marginTop: -8 }}>
         {data.canEdit
           ? 'Типовые правила сервиса. Нажмите на правило, чтобы подстроить его под документы компании.'
@@ -110,16 +108,13 @@ export function RulesScreen() {
         <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Изменено компанией: {changedCount}</span>
       )}
 
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Вид документа</span>
-        <select style={inputStyle} value={typeId ?? ''} onChange={(event) => setTypeId(Number(event.target.value))}>
-          {data.types.map((type) => (
-            <option key={type.documentTypeId} value={type.documentTypeId}>
-              {type.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <SelectField
+        label="Вид документа"
+        placeholder="Выберите вид"
+        options={data.types.map((type) => ({ value: type.documentTypeId, label: type.name }))}
+        value={typeId}
+        onChange={setTypeId}
+      />
 
       <div style={{ ...stackStyle, gap: 10 }}>
         {selected?.rules.map((rule) => (
@@ -174,6 +169,11 @@ function RuleCard({ rule, highlighted, onOpen }: { rule: CompanyRule; highlighte
     flexDirection: 'column' as const,
     gap: 6,
     width: '100%',
+    // Без border-box ширина 100% плюс отступы вылезала за экран на 28 px — появлялась прокрутка вбок, и карточки
+    // казались шире поля выбора вида (замечание Никиты, скриншот 3).
+    boxSizing: 'border-box' as const,
+    minWidth: 0,
+    overflowWrap: 'anywhere' as const,
     textAlign: 'left' as const,
     padding: '12px 14px',
     borderRadius: 12,

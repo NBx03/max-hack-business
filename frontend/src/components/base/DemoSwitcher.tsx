@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import { errorMessage } from '../../api/errors';
-import { ErrorText } from './StateCard';
 import { useNavigate } from 'react-router-dom';
-import { Button, CellList, CellSimple } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { demoEntryUser } from '../../app/demo';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet, Button, Icon, InlineError, List, Row } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 
 function roleLabel(roles: { name: string }[], isAdmin: boolean): string {
@@ -34,48 +32,20 @@ export function DemoSwitcher() {
     return null;
   }
 
-  // Та же roleLabel, что и в строках списка ниже - иначе плашка и список могут
-  // разойтись (например, у админа с ролью в плашке была видна только роль,
-  // без "Администратор", а в списке - оба).
+  // Та же roleLabel, что и в строках списка ниже — плашка и список не расходятся.
   const activeRole = roleLabel(me.actingAs.roles, me.actingAs.isAdmin).toLowerCase();
-  const label = `Демо: действую как ${me.actingAs.user.fullName} (${activeRole})`;
 
   return (
     <>
-      {/* Полоса в потоке страницы, а не плавающая плашка поверх: поверх она закрывала
-          заголовок экрана и ссылку «‹ назад» (тест 23.09). sticky - остаётся видна при прокрутке. */}
-      <div
-        style={{
-          flex: 'none',
-          padding: 'calc(8px + env(safe-area-inset-top)) 16px 8px',
-          background: 'var(--background-primary)',
-          borderBottom: '1px solid var(--divider-primary)',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setSheetOpen(true)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            maxWidth: 528,
-            width: '100%',
-            margin: '0 auto',
-            padding: '8px 12px',
-            borderRadius: 20,
-            border: 'none',
-            background: 'var(--text-primary)',
-            color: 'var(--background-primary)',
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          <span style={{ flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {label}
+      {/* Полоса в потоке страницы, а не поверх: поверх она закрывала заголовок (тест 23.09). Отступ сверху —
+          ровные 8 px без safe-area: шапку над мини-приложением рисует сам MAX, а на Android safe-area давала
+          лишний сантиметр пустоты (LAY-3). Подпись переносится, а не обрезается (принцип 6). */}
+      <div className="ds-demo-bar">
+        <button type="button" className="ds-demo-bar__button" onClick={() => setSheetOpen(true)}>
+          <span className="ds-demo-bar__label">
+            <strong>Демо</strong> · вы действуете как {me.actingAs.user.fullName} ({activeRole})
           </span>
-          <span aria-hidden>⌄</span>
+          <Icon name="chevronDown" size={18} />
         </button>
       </div>
 
@@ -85,34 +55,26 @@ export function DemoSwitcher() {
         title="Участники песочницы"
         dismissible={!restarting}
       >
-        <CellList mode="full-width">
-          {sandboxUsers.map((participant, index) => (
-            <CellSimple
+        <List label="Участники песочницы">
+          {sandboxUsers.map((participant) => (
+            <Row
               key={participant.user.id}
-              as="button"
-              separator={index > 0}
-              onClick={() => {
-                // К списку документов: у нового участника может не быть доступа к экрану,
-                // на котором стоял прежний (чужой черновик, админка без прав).
-                void actAs(participant.user.id).then(() => navigate(ROUTE_PATTERNS.documents));
-                setSheetOpen(false);
-              }}
               title={participant.user.fullName}
               subtitle={roleLabel(participant.roles, participant.isAdmin)}
-              after={
-                me.actingAs?.user.id === participant.user.id ? (
-                  <span style={{ color: 'var(--text-primary)', fontSize: 14 }} aria-label="Текущий участник">
-                    ●
-                  </span>
-                ) : undefined
-              }
+              after={me.actingAs?.user.id === participant.user.id ? <Icon name="check" size={22} label="Сейчас вы действуете как этот участник" /> : undefined}
+              chevron={false}
+              onClick={() => {
+                // На главную: у нового участника может не быть доступа к экрану, на котором стоял прежний.
+                void actAs(participant.user.id).then(() => navigate(ROUTE_PATTERNS.home));
+                setSheetOpen(false);
+              }}
             />
           ))}
-        </CellList>
+        </List>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Button
-            variant="secondary"
+            stretched
             loading={restarting}
             onClick={() => {
               // Шторка остаётся открытой до результата: ошибку пересоздания человек видит здесь же,
@@ -132,10 +94,10 @@ export function DemoSwitcher() {
           >
             Начать заново
           </Button>
-          {restartError && <ErrorText>{restartError}</ErrorText>}
+          {restartError && <InlineError>{restartError}</InlineError>}
           {me.actingAs && (
             <Button
-              variant="secondary"
+              stretched
               onClick={() => {
                 void actAs(null);
                 setSheetOpen(false);

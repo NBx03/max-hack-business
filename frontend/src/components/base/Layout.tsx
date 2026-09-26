@@ -1,97 +1,38 @@
 import type { CSSProperties, ReactNode } from 'react';
 
-// Ширина и прибитая к низу кнопка - docs/SCREENS.md, "Общие правила" ("Главное действие
-// экрана - одна заметная кнопка внизу") и "Адаптация под мобильный и веб": колонка до 560px
-// по центру на широком окне, кнопка не "утекает" вниз вместе с длинным списком.
+// Переходный каркас для экранов, которые ещё не собраны на ui/Page: карточка документа, проверка и маршрут
+// переделываются в PR 2 и PR 4 из #108 и тогда уходят на Page, а этот файл удаляется. Поведение то же, что у
+// Page (LAY-1): прокручивается только экран, нижняя панель закреплена и отделена чертой, как ds-page__footer.
 
 const columnStyle: CSSProperties = {
   width: '100%',
-  maxWidth: 560,
-  margin: '0 auto',
-  // Экраны задают колонке внутренние отступы: без border-box ширина 100% + padding
-  // выходила за экран телефона, и страница прокручивалась вбок.
   boxSizing: 'border-box',
 };
 
-/** Колонка контента - оборачивает экран целиком, чтобы на вебе/десктопе он не растягивался. */
 export function CenteredColumn({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return <div style={{ ...columnStyle, ...style }}>{children}</div>;
 }
 
-/**
- * Внешняя обёртка экрана, у которого есть BottomActionBar - растягивает экран на весь
- * вьюпорт, чтобы кнопка внизу не повисала сразу под коротким контентом (см. BottomActionBar
- * про то, почему одного position:sticky для этого недостаточно). CenteredColumn с самим
- * контентом внутри всё равно нужно пометить flex:1 - ScreenShell этого не делает сам,
- * чтобы не навязывать, что именно должно растягиваться на экранах с несколькими блоками.
- */
 export function ScreenShell({ children }: { children: ReactNode }) {
-  // Прокручивается сам экран, а не страница: высота приложения равна видимой области MAX
-  // (theme/tokens.css), поэтому нижняя панель всегда в кадре. data-scroll-root — для scrollToTop.
   return (
-    <div
-      data-scroll-root
-      style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}
-    >
+    <div data-scroll-root className="ds-page__scroll" style={{ display: 'flex', flexDirection: 'column' }}>
       {children}
     </div>
   );
 }
 
-/** Прокрутить текущий экран к началу (вместо window.scrollTo — страница сама не прокручивается). */
-export function scrollScreenToTop(): void {
-  document.querySelector('[data-scroll-root]')?.scrollTo({ top: 0 });
-}
-
-/** Центрирует контент по всему экрану - загрузка и общая ошибка сессии (App.tsx). */
 export function FullscreenCenter({ children }: { children: ReactNode }) {
   return (
-    <div
-      style={{
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       {children}
     </div>
   );
 }
 
-/**
- * Главная кнопка экрана, прибитая к низу вьюпорта - остаётся видимой на длинных экранах
- * (карточка, результат проверки, список) независимо от прокрутки контента над ней.
- *
- * position:sticky держит кнопку у низа только пока есть что прокручивать. На коротком
- * экране (мало данных, пустое состояние) без прокрутки кнопка просто встанет сразу под
- * контентом, а не у края экрана. Чтобы этого не было, экран нужно обернуть в ScreenShell,
- * а CenteredColumn с основным контентом внутри пометить `flex:1` (растягивается и
- * выталкивает эту панель к низу). Не кладите BottomActionBar внутрь того же
- * CenteredColumn, что и контент - у него свой внутренний CenteredColumn, и
- * паддинг/stretch применятся дважды (см. screens/documents/DocumentListScreen.tsx
- * как пример правильной раскладки).
- */
-export function BottomActionBar({ children, nav }: { children?: ReactNode; nav?: ReactNode }) {
-  // Нижнее меню (AppNav) живёт в той же закреплённой панели, что и главная кнопка: два
-  // отдельных sticky-блока с bottom:0 легли бы друг на друга.
+export function BottomActionBar({ children }: { children?: ReactNode }) {
   return (
-    <div
-      style={{
-        position: 'sticky',
-        bottom: 0,
-        zIndex: 10,
-        background: 'var(--background-primary)',
-      }}
-    >
-      {children && (
-        <div style={{ paddingTop: 12, paddingBottom: nav ? 12 : 'calc(12px + env(safe-area-inset-bottom))' }}>
-          <CenteredColumn style={{ padding: '0 16px' }}>{children}</CenteredColumn>
-        </div>
-      )}
-      {nav}
+    <div className="ds-page__footer" style={{ position: 'sticky', bottom: 0, zIndex: 10 }}>
+      {children}
     </div>
   );
 }

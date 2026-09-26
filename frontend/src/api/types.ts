@@ -1,7 +1,7 @@
 // Общие объекты и ответ GET /me - см. docs/API_CONTRACTS.md.
-import type { AutoReason, DocumentStatus, StepDecision } from '../theme/status';
+import type { AutoReason, DisplayStatus, DocumentStatus, StepDecision } from '../ui/status';
 
-export type { DocumentStatus, StepDecision };
+export type { DisplayStatus, DocumentStatus, StepDecision };
 
 export interface UserRef {
   id: number;
@@ -110,6 +110,8 @@ export interface JoinRequestView {
   user: UserRef;
   status: JoinRequestStatus;
   createdAt: string;
+  /** Роли, с которыми человек уже был в компании до исключения (D5): отмечены заранее. Пусто — человек новый. */
+  previousRoles: RoleRef[];
 }
 
 export type MemberStatus = 'ACTIVE' | 'DISABLED';
@@ -181,12 +183,16 @@ export interface DocumentListItem {
   title: string;
   type: DocumentTypeRef;
   status: DocumentStatus;
+  /** Как статус видит человек (D4): «На утверждении», «Утверждён». Показывать — его. */
+  displayStatus: DisplayStatus;
   author: UserRef;
   currentVersionNo: number;
   currentStage: number | null;
   updatedAt: string;
-  /** Только во вкладке "Ждут меня" - activatedAt моего шага, для "ждёт N дней". */
+  /** Только в разделе «На моём согласовании» (WAITING_ME) — activatedAt моего шага, для «ждёт N дней». */
   waitingSince: string | null;
+  /** У «Другого документа» — вид, как его назвал документ («Договор аренды»); fromAi — нашёл ИИ (DOC-7). */
+  recognizedKind: { value: string; fromAi: boolean } | null;
 }
 
 export interface ValidationIssue {
@@ -236,6 +242,7 @@ export interface DocumentVersion {
 }
 
 export type StepOrigin = 'TEMPLATE' | 'ADDED_BY_AUTHOR';
+export type StepKind = 'APPROVAL' | 'ENDORSEMENT';
 export type StageState = 'WAITING' | 'ACTIVE' | 'DONE';
 
 export interface StepView {
@@ -245,6 +252,8 @@ export interface StepView {
   role: RoleRef;
   approver: UserRef;
   origin: StepOrigin;
+  /** ENDORSEMENT — утверждение, последний шаг маршрута (D4): кнопка «Утвердить». */
+  kind: StepKind;
   decision: StepDecision;
   comment: string | null;
   activatedAt: string | null;
@@ -280,8 +289,11 @@ export interface DocumentCard {
   id: number;
   title: string;
   /** autoDetected — тип выбрал ИИ по тексту документа при загрузке. */
-  type: { id: number; name: string; isGeneric: boolean; autoDetected: boolean };
+  /** code GENERIC — «Другой документ», вид вне шаблонов (DOC-7). isGeneric — вид без схемы полей. */
+  type: { id: number; code: string; name: string; isGeneric: boolean; autoDetected: boolean };
   status: DocumentStatus;
+  /** Как статус видит человек (D4): «На утверждении», «Утверждён». Показывать — его. */
+  displayStatus: DisplayStatus;
   visibility: Visibility;
   author: UserRef;
   currentVersionNo: number;
@@ -391,5 +403,18 @@ export interface RoutePreview {
   stages: RoutePreviewStage[];
   problems: RoutePreviewProblem[];
   /** Кто уже одобрил прошлую версию, если документ с тех пор не менялся — повторно их не спросят. */
-  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number }[] } | null;
+  // kind — одобрение переносится только в шаг того же вида: «согласовал» не становится «утвердил» (ревью #111).
+  carryOver: { fromVersionNo: number; approvals: { roleId: number; userId: number; kind: StepKind }[] } | null;
+  /** Маршрут прошлой отправки — им, а не шаблоном, заполняется конструктор (RTE-6); null — ещё не отправлялся. */
+  previous: {
+    versionNo: number;
+    stages: { participants: RoutePerson[] }[];
+    endorser: RoutePerson | null;
+  } | null;
+}
+
+/** Человек в маршруте и роль, под которой он согласует. */
+export interface RoutePerson {
+  userId: number;
+  roleId: number;
 }

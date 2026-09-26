@@ -42,10 +42,12 @@ class CarriedApprovalsTest {
         CarriedApprovals.Carried result = carried.of(1L, 2).orElseThrow();
 
         assertThat(result.fromVersionNo()).isEqualTo(1);
-        assertThat(result.approvals()).containsExactly(new CarriedApprovals.Key(21L, 3L));
+        assertThat(result.approvals()).containsExactly(new CarriedApprovals.Key(21L, 3L, ApprovalStep.Kind.APPROVAL));
         // вернувший документ решает заново, автосогласование автора при отправке получится само
-        assertThat(result.covers(22L, 4L)).isFalse();
-        assertThat(result.covers(24L, 9L)).isFalse();
+        assertThat(result.covers(22L, 4L, ApprovalStep.Kind.APPROVAL)).isFalse();
+        assertThat(result.covers(24L, 9L, ApprovalStep.Kind.APPROVAL)).isFalse();
+        // ревью #111, п. 1: «согласовал» не становится «утвердил»
+        assertThat(result.covers(21L, 3L, ApprovalStep.Kind.ENDORSEMENT)).isFalse();
     }
 
     @Test

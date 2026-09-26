@@ -42,3 +42,11 @@ export function resetCompanyRule(ruleId: number): Promise<CompanyRules> {
 export function getRoutes(): Promise<RouteOverview[]> {
   return apiRequest<RouteOverview[]>('/orgs/current/routes');
 }
+
+/** Сделать роль обязательной в маршруте вида документа (#109) — только администратор. Ответ — все маршруты заново. */
+export function setRouteRoleMandatory(documentTypeId: number, roleId: number, mandatory: boolean): Promise<RouteOverview[]> {
+  return apiRequest<RouteOverview[]>(`/orgs/current/routes/${documentTypeId}/roles/${roleId}`, {
+    method: 'PATCH',
+    body: { mandatory },
+  });
+}

@@ -25,7 +25,7 @@ public class DocumentLookupService implements DocumentLookup {
             return List.of();
         }
         return repository.findByTitleFragment(orgId, userId, trimmed, limit).stream()
-                .map(row -> new Match(row.id(), row.title(), row.status().name(), row.currentStage()))
+                .map(row -> new Match(row.id(), row.title(), row.displayStatus().name(), row.currentStage()))
                 .toList();
     }
 }

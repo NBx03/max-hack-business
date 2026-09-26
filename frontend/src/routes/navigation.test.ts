@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
 import { launchDataFromHash, launchDataToReloadFor } from '../app/launch';
-import { parentRoute } from './backNavigation';
+import { backTarget, parentRoute } from './backNavigation';
 import { guardTarget } from './guards';
 import { resolveEntryRoute } from './resolveEntryRoute';
 
@@ -33,13 +33,13 @@ const inSandbox: MeResponse = {
 };
 
 describe('resolveEntryRoute', () => {
-  it('без компании и ссылки - приветствие, с компанией - список', () => {
+  it('без компании и ссылки - приветствие, с компанией - главная', () => {
     expect(resolveEntryRoute(base)).toBe('/welcome');
-    expect(resolveEntryRoute(member)).toBe('/documents');
+    expect(resolveEntryRoute(member)).toBe('/home');
   });
 
   it('проверяющий в песочнице - к документам, хотя реальной компании нет', () => {
-    expect(resolveEntryRoute(inSandbox)).toBe('/documents');
+    expect(resolveEntryRoute(inSandbox)).toBe('/home');
   });
 
   it('песочница есть, но участник не выбран - приветствие («Вернуться в демо»)', () => {
@@ -52,13 +52,24 @@ describe('resolveEntryRoute', () => {
     expect(resolveEntryRoute({ ...member, startParam: 'd_5' })).toBe('/documents/5');
   });
 
+  it('кнопки бота: s_ — результаты поиска (LNK-3), a_requests — заявки (LNK-4)', () => {
+    // «записка отпуск» в base64url — так бот кладёт запрос в параметр запуска.
+    expect(resolveEntryRoute({ ...member, startParam: 's_0LfQsNC_0LjRgdC60LAg0L7RgtC_0YPRgdC6' })).toBe(
+      `/documents/search?q=${encodeURIComponent('записка отпуск')}`,
+    );
+    expect(resolveEntryRoute({ ...member, startParam: 's_%%%' })).toBe('/documents/search');
+    expect(resolveEntryRoute({ ...member, startParam: 'a_requests' })).toBe('/admin/requests');
+    // Без компании эти кнопки не ведут никуда особенного.
+    expect(resolveEntryRoute({ ...base, startParam: 'a_requests' })).toBe('/welcome');
+  });
+
   it('приглашение игнорируется, если человек уже в компании или ждёт решения', () => {
-    expect(resolveEntryRoute({ ...member, startParam: 'c_KX7M2PQR' })).toBe('/documents');
+    expect(resolveEntryRoute({ ...member, startParam: 'c_KX7M2PQR' })).toBe('/home');
     expect(resolveEntryRoute({ ...pending, startParam: 'p_token' })).toBe('/pending');
   });
 
   it('отработавший startParam больше не учитывается', () => {
-    expect(resolveEntryRoute({ ...member, startParam: 'd_5' }, false)).toBe('/documents');
+    expect(resolveEntryRoute({ ...member, startParam: 'd_5' }, false)).toBe('/home');
     expect(resolveEntryRoute({ ...base, startParam: 'c_KX7M2PQR' }, false)).toBe('/welcome');
   });
 });
@@ -66,8 +77,8 @@ describe('resolveEntryRoute', () => {
 describe('guardTarget', () => {
   it('экраны подключения: компания появилась - к документам, подана заявка - к ожиданию', () => {
     expect(guardTarget('onboarding', base, '/welcome')).toBeNull();
-    expect(guardTarget('onboarding', member, '/documents')).toBe('/documents');
-    expect(guardTarget('onboarding', inSandbox, '/documents')).toBe('/documents');
+    expect(guardTarget('onboarding', member, '/home')).toBe('/home');
+    expect(guardTarget('onboarding', inSandbox, '/home')).toBe('/home');
     expect(guardTarget('onboarding', pending, '/pending')).toBe('/pending');
   });
 
@@ -78,7 +89,7 @@ describe('guardTarget', () => {
 
   it('ожидание решения: заявку одобрили - к документам, отменили или отклонили - по /me', () => {
     expect(guardTarget('pending', pending, '/pending')).toBeNull();
-    expect(guardTarget('pending', member, '/documents')).toBe('/documents');
+    expect(guardTarget('pending', member, '/home')).toBe('/home');
     expect(guardTarget('pending', base, '/welcome')).toBe('/welcome');
   });
 
@@ -90,25 +101,29 @@ describe('guardTarget', () => {
 });
 
 describe('parentRoute — куда ведут «назад» и ссылки «‹ …»', () => {
-  it('экраны документа - к карточке, карточка и загрузка - к списку', () => {
-    expect(parentRoute('/documents/5/check', '/documents')).toBe('/documents/5');
-    expect(parentRoute('/documents/5/route', '/documents')).toBe('/documents/5');
-    expect(parentRoute('/documents/5/new-version', '/documents')).toBe('/documents/5');
-    expect(parentRoute('/documents/5', '/documents')).toBe('/documents');
-    expect(parentRoute('/documents/new', '/documents')).toBe('/documents');
-    expect(parentRoute('/documents/new/memo', '/documents')).toBe('/documents/new');
+  it('экраны документа - к карточке; карточка, списки, загрузка и «Компания» - на главную', () => {
+    expect(parentRoute('/documents/5/check', '/home')).toBe('/documents/5');
+    expect(parentRoute('/documents/5/route', '/home')).toBe('/documents/5');
+    expect(parentRoute('/documents/5/new-version', '/home')).toBe('/documents/5');
+    expect(parentRoute('/documents/5', '/home')).toBe('/home');
+    expect(parentRoute('/documents/list/waiting', '/home')).toBe('/home');
+    expect(parentRoute('/documents/new', '/home')).toBe('/home');
+    expect(parentRoute('/documents/new/memo', '/home')).toBe('/documents/new');
+    expect(parentRoute('/company', '/home')).toBe('/home');
   });
 
   it('администрирование - к разделу «Компания», подключение - к приветствию', () => {
-    expect(parentRoute('/admin/invite', '/documents')).toBe('/company');
-    expect(parentRoute('/admin/members', '/documents')).toBe('/company');
+    expect(parentRoute('/admin/invite', '/home')).toBe('/company');
+    expect(parentRoute('/admin/members', '/home')).toBe('/company');
+    expect(parentRoute('/company/rules', '/home')).toBe('/company');
     expect(parentRoute('/company/create', '/welcome')).toBe('/welcome');
     expect(parentRoute('/join', '/welcome')).toBe('/welcome');
     expect(parentRoute('/join/personal/abc', '/welcome')).toBe('/welcome');
   });
 
   it('у корневых экранов родителя нет - туда, куда ведёт /me', () => {
-    expect(parentRoute('/company', '/documents')).toBe('/documents');
+    expect(parentRoute('/home', '/home')).toBe('/home');
+    expect(parentRoute('/pending', '/pending')).toBe('/pending');
   });
 });
 
@@ -122,10 +137,13 @@ describe('launchDataFromHash — данные повторного запуск�
 
 describe('launchDataToReloadFor', () => {
   // Повторное открытие из бота: перезагрузка — только ради новых данных запуска и только один раз (ревью #96).
-  const hash = '#WebAppData=new-launch';
+  const hash = `#WebAppData=${encodeURIComponent('query_id=q2&auth_date=2&start_param=d_5')}`;
 
-  it('перезагружает ради новых данных запуска', () => {
-    expect(launchDataToReloadFor(hash, 'old-launch', null)).not.toBeNull();
+  it('перезагружает ради любых новых данных запуска в хэше — и по той же ссылке, и без параметра', () => {
+    // открыли d_5 → ушли → снова d_5: MAX кладёт в хэш новую строку (ревью Ильи на #110, Матвея на #112)
+    expect(launchDataToReloadFor(hash, 'query_id=q1&auth_date=1&start_param=d_5', null)).not.toBeNull();
+    // кнопка бота без параметра («Заявка одобрена»)
+    expect(launchDataToReloadFor(`#WebAppData=${encodeURIComponent('query_id=q3&auth_date=3')}`, 'query_id=q1&auth_date=1', null)).not.toBeNull();
   });
 
   it('не перезагружает второй раз ради той же строки — даже если мост её так и не принял', () => {
@@ -137,5 +155,22 @@ describe('launchDataToReloadFor', () => {
     expect(launchDataToReloadFor(hash, undefined, null)).toBeNull();
     expect(launchDataToReloadFor('', 'old-launch', null)).toBeNull();
     expect(launchDataToReloadFor('#WebAppData=same', 'same', null)).toBeNull();
+  });
+});
+
+describe('backTarget — системная «Назад» туда же, куда ссылка в шапке (ревью Матвея на #110)', () => {
+  it('карточка из списка — обратно в список, из поиска — в поиск', () => {
+    expect(backTarget('/documents/5', { from: '/documents/list/mine' }, '/home')).toBe('/documents/list/mine');
+    expect(backTarget('/documents/5', { from: '/documents/search?q=%D0%B0' }, '/home')).toBe('/documents/search?q=%D0%B0');
+  });
+
+  it('конструктор с экрана проверки — на проверку', () => {
+    expect(backTarget('/documents/5/route', { from: 'check' }, '/home')).toBe('/documents/5/check');
+  });
+
+  it('без state и с чужим адресом — логический родитель', () => {
+    expect(backTarget('/documents/5', null, '/home')).toBe('/home');
+    expect(backTarget('/documents/5', { from: '//evil.example' }, '/home')).toBe('/home');
+    expect(backTarget('/documents/5/route', {}, '/home')).toBe('/documents/5');
   });
 });

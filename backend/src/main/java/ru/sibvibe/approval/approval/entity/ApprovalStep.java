@@ -41,6 +41,11 @@ public class ApprovalStep {
     @Column(name = "decision", nullable = false, length = 32)
     private Decision decision;
 
+    /** APPROVAL — согласование на этапе, ENDORSEMENT — утверждение, последний шаг маршрута (D4). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 32)
+    private Kind kind = Kind.APPROVAL;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "auto_reason", length = 32)
     private AutoReason autoReason;
@@ -62,6 +67,17 @@ public class ApprovalStep {
     private Instant lastRemindedAt;
 
     public enum Origin { TEMPLATE, ADDED_BY_AUTHOR }
+
+    /**
+     * Документ утверждён, а не просто согласован: в версии есть одобренный шаг утверждения. То же правило, что у
+     * показываемого статуса ENDORSED (DocumentReadRepository.DISPLAY_STATUS), — бот и приложение не расходятся, в том
+     * числе когда утверждение перенесено с прошлой версии, а последним решал согласующий раннего этапа (ревью #112, п. 1).
+     */
+    public static boolean endorsedIn(java.util.Collection<ApprovalStep> versionSteps) {
+        return versionSteps.stream().anyMatch(step -> step.getKind() == Kind.ENDORSEMENT && step.getDecision() == Decision.APPROVED);
+    }
+
+    public enum Kind { APPROVAL, ENDORSEMENT }
 
     public enum Decision { PENDING, APPROVED, RETURNED, REJECTED, SKIPPED }
 

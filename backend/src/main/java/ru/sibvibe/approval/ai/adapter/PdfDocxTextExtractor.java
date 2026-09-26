@@ -27,6 +27,8 @@ public class PdfDocxTextExtractor implements TextExtractor {
     private static final Logger LOGGER = LoggerFactory.getLogger(PdfDocxTextExtractor.class);
     private static final String PDF = "application/pdf";
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    /** DOC: новые не принимаются (D1, пересмотрено 26.09); ветка — для черновиков, загруженных раньше: файл «без текста». */
+    private static final String DOC = "application/msword";
     private static final String DOCUMENT_XML = "word/document.xml";
     private static final int MAX_INPUT_BYTES = 12 * 1024 * 1024;
     private static final int MAX_TEXT_CHARS = 5_000_000;
@@ -42,6 +44,9 @@ public class PdfDocxTextExtractor implements TextExtractor {
             }
             if (DOCX.equals(mimeType)) {
                 return extractDocx(content);
+            }
+            if (DOC.equals(mimeType)) {
+                return Optional.of(new ExtractedText(List.of(""), false));
             }
             return Optional.empty();
         } catch (IOException | RuntimeException | XMLStreamException exception) {

@@ -241,6 +241,26 @@ public class DocumentPersistenceService {
         return document;
     }
 
+    /**
+     * DOC-4: удалить черновик, который ни разу не отправлялся (у отправленного есть история — её не стираем). Строки
+     * версий и файлов удаляются, сами файлы в хранилище остаются: они неизменяемы и в MVP не удаляются (CLAUDE.md).
+     */
+    @Transactional
+    public void deleteDraft(long documentId, long orgId, long authorId, java.util.function.BooleanSupplier everSubmitted) {
+        Document document = documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
+        requireAuthor(document, orgId, authorId);
+        if (document.getStatus() != Document.Status.DRAFT || everSubmitted.getAsBoolean()) {
+            throw DocumentApiException.invalidState("Удалить можно только черновик, который ещё не отправлялся");
+        }
+        List<DocumentVersion> versions = versionRepository.findByDocumentIdOrderByVersionNoAsc(documentId);
+        fileRepository.deleteAll(fileRepository.findByVersionIdInOrderByVersionIdAscPositionAsc(
+                versions.stream().map(DocumentVersion::getId).toList()));
+        fileRepository.flush();
+        versionRepository.deleteAll(versions);
+        versionRepository.flush();
+        documentRepository.delete(document);
+    }
+
     /** Версия документа-формы: содержимое заполнено в приложении, а не загружено файлом (#59). */
     static boolean isForm(DocumentVersion version) {
         return version.getContent() != null && version.getContent().isObject();

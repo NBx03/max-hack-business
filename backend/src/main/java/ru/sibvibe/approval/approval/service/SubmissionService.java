@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -33,8 +34,15 @@ import java.util.stream.Collectors;
  *
  * Всё выполняется одной транзакцией под блокировкой строки документа (ARCHITECTURE.md, «Конкурентность»):
  * повторная отправка или новая версия одновременно с ней дождутся своей очереди и получат 409.
- * Шаги создаются сразу для всех этапов версии; активируется первый этап, где есть кому решать.
- * Если решать некому вообще (все шаги автосогласованы), документ становится «Согласован» тут же.
+ *
+ * Маршрут составляет автор (конструктор, D3): шаблон вида документа только предзаполняет его. Сервер проверяет
+ * три вещи — все обязательные роли на месте, один человек один раз, нет пустых этапов — и прежние правила: автор
+ * не согласует свой документ, пока есть кто-то ещё; каждый — активный носитель роли, под которой стоит. Прежний
+ * формат запроса (выбор кандидатов и добавленные к шаблону) переводится в тот же маршрут и проходит те же проверки.
+ * Последний шаг может быть утверждением (D4): один утверждающий, отдельным этапом после всех.
+ *
+ * Шаги создаются сразу для всех этапов версии; активируется первый этап, где есть кому решать. Если решать некому
+ * вообще (все шаги автосогласованы), документ становится «Согласован» тут же.
  */
 @Service
 public class SubmissionService {
@@ -76,19 +84,22 @@ public class SubmissionService {
             throw ApprovalErrors.blockingIssues(reason.message());
         });
 
-        RouteResolver.ResolvedRoute route = planner.plan(document.orgId(), document.documentTypeId(), document.authorId());
-        route.problems().stream()
+        RouteResolver.ResolvedRoute template = planner.plan(document.orgId(), document.documentTypeId(), document.authorId());
+        template.problems().stream()
                 .filter(problem -> problem.code().equals("ROUTE_ROLE_EMPTY"))
                 .findFirst()
                 .ifPresent(problem -> {
                     throw ApprovalErrors.routeRoleEmpty(problem.role().name());
                 });
 
-        Map<StageRole, Long> chosen = validateSelections(route, request.selectionsOrEmpty());
-        List<Assignment> extras = validateExtras(document, route, chosen, request.extraApproversOrEmpty());
+        if (request.hasExplicitRoute() && (!request.selectionsOrEmpty().isEmpty() || !request.extraApproversOrEmpty().isEmpty())) {
+            throw ApprovalErrors.validation("Маршрут передан в двух форматах сразу");
+        }
+        Draft draft = request.hasExplicitRoute() ? explicitDraft(request) : legacyDraft(document, template, request);
+        Validated route = validate(document, template, draft);
 
         Instant now = clock.instant();
-        List<ApprovalStep> planned = buildSteps(document, route, chosen, extras, now);
+        List<ApprovalStep> planned = buildSteps(document, template, route, now);
         carryOverApprovals(document, planned, now);
         OptionalInt firstStage = planned.stream()
                 .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING)
@@ -106,21 +117,85 @@ public class SubmissionService {
                             && step.getStageOrder() == firstStage.getAsInt())
                     .map(ApprovalStep::getApproverId)
                     .collect(Collectors.toSet());
+            boolean endorsement = planned.stream().anyMatch(step -> step.getStageOrder() == firstStage.getAsInt()
+                    && step.getKind() == ApprovalStep.Kind.ENDORSEMENT);
             events.publishEvent(new ApprovalRequestedEvent(documentId, document.currentVersionNo(),
-                    firstStage.getAsInt(), approvers, document.authorId(), document.title()));
+                    firstStage.getAsInt(), approvers, document.authorId(), document.title(), endorsement));
         } else {
-            // Решать некому: обязательные роли только у автора, необязательные пропущены. Согласуется сразу.
+            // Решать некому: обязательные роли только у автора, остальных нет. Согласуется сразу.
             documents.moveToApproval(documentId, null);
             documents.approve(documentId);
             events.publishEvent(new DocumentDecidedEvent(documentId, document.currentVersionNo(), document.authorId(),
-                    DocumentDecidedEvent.Outcome.APPROVED, null, document.title()));
+                    DocumentDecidedEvent.Outcome.APPROVED, null, document.title(), ApprovalStep.endorsedIn(planned)));
         }
     }
 
+    // ---------- Маршрут из запроса ----------
+
+    private static Draft explicitDraft(SubmitRequest request) {
+        List<List<Entry>> stages = request.stagesOrEmpty().stream()
+                .map(stage -> stage.participants().stream()
+                        .map(participant -> new Entry(participant.userId(), participant.roleId()))
+                        .toList())
+                .toList();
+        Entry endorser = request.endorser() == null
+                ? null
+                : new Entry(request.endorser().userId(), request.endorser().roleId());
+        return new Draft(stages, endorser);
+    }
+
     /**
-     * Выбор автора допустим только там, где кандидатов несколько, и только из кандидатов. Любая ссылка мимо шаблона
-     * — «не найдено» (контракт, «Идентификаторы от клиента»). Там, где выбирать надо, а выбора нет, — 409.
+     * Прежний формат: этапы шаблона с выбранными кандидатами и добавленные к ним — вместе с этапом или отдельным
+     * этапом перед этапом шаблона (или последним). Правила выбора прежние: выбор только там, где кандидатов
+     * несколько, и только из кандидатов; любая ссылка мимо шаблона — «не найдено».
      */
+    private Draft legacyDraft(DocumentSnapshot document, RouteResolver.ResolvedRoute template, SubmitRequest request) {
+        Map<StageRole, Long> chosen = validateSelections(template, request.selectionsOrEmpty());
+        Set<Integer> stageOrders = template.stages().stream().map(RouteResolver.Stage::stageOrder).collect(Collectors.toSet());
+        int afterLast = afterLastStage(template);
+        for (SubmitRequest.Choice extra : request.extraApproversOrEmpty()) {
+            boolean placeExists = stageOrders.contains(extra.stageOrder())
+                    || (extra.isNewStage() && extra.stageOrder() == afterLast);
+            if (!placeExists) {
+                throw new NotFoundException();
+            }
+        }
+
+        List<List<Entry>> stages = new ArrayList<>();
+        for (RouteResolver.Stage stage : template.stages()) {
+            addNewStage(stages, request.extraApproversOrEmpty(), stage.stageOrder());
+            List<Entry> entries = new ArrayList<>();
+            for (RouteResolver.Participant participant : stage.participants()) {
+                Long userId = switch (participant.resolution()) {
+                    case AUTO -> participant.selectedUserId();
+                    case SELECT -> chosen.get(new StageRole(stage.stageOrder(), participant.role().id()));
+                    case SKIPPED, AUTHOR_HOLDS_ROLE -> null;
+                };
+                if (userId != null) {
+                    entries.add(new Entry(userId, participant.role().id()));
+                }
+            }
+            request.extraApproversOrEmpty().stream()
+                    .filter(extra -> !extra.isNewStage() && extra.stageOrder() == stage.stageOrder())
+                    .forEach(extra -> entries.add(new Entry(extra.userId(), extra.roleId())));
+            if (!entries.isEmpty()) {
+                stages.add(entries);
+            }
+        }
+        addNewStage(stages, request.extraApproversOrEmpty(), afterLast);
+        return new Draft(stages, null);
+    }
+
+    private static void addNewStage(List<List<Entry>> stages, List<SubmitRequest.Choice> extras, int before) {
+        List<Entry> added = extras.stream()
+                .filter(extra -> extra.isNewStage() && extra.stageOrder() == before)
+                .map(extra -> new Entry(extra.userId(), extra.roleId()))
+                .toList();
+        if (!added.isEmpty()) {
+            stages.add(added);
+        }
+    }
+
     private Map<StageRole, Long> validateSelections(RouteResolver.ResolvedRoute route, List<SubmitRequest.Choice> selections) {
         Map<StageRole, RouteResolver.Participant> participants = new HashMap<>();
         route.stages().forEach(stage -> stage.participants().forEach(
@@ -155,121 +230,144 @@ public class SubmissionService {
         return chosen;
     }
 
-    /**
-     * Добавленный согласующий (SHOULD) согласует в роли: он активный носитель этой роли и не автор. Этап должен
-     * существовать в шаблоне: маршрут только расширяется внутри своих этапов и никогда не урезается. Тот, кто уже
-     * стоит в маршруте той же ролью на том же этапе (подставлен автоматически или выбран автором), «добавленным»
-     * быть не может: маршрут от этого не вырос бы, а этап ждал бы одного человека дважды.
-     */
-    private List<Assignment> validateExtras(
-            DocumentSnapshot document,
-            RouteResolver.ResolvedRoute route,
-            Map<StageRole, Long> chosen,
-            List<SubmitRequest.Choice> extras
-    ) {
-        Set<Integer> stageOrders = route.stages().stream().map(RouteResolver.Stage::stageOrder).collect(Collectors.toSet());
-        int afterLast = afterLastStage(route);
-        Set<Long> roleIds = extras.stream().map(SubmitRequest.Choice::roleId).collect(Collectors.toSet());
-        Map<Long, RoleRef> knownRoles = roles.rolesById(document.orgId(), roleIds);
-        Set<Assignment> taken = templateAssignments(route, chosen);
-        List<Assignment> result = new ArrayList<>();
-        for (SubmitRequest.Choice extra : extras) {
-            // Новый этап ставится перед этапом шаблона или после последнего; «вместе с» — только с этапом шаблона.
-            boolean placeExists = stageOrders.contains(extra.stageOrder())
-                    || (extra.isNewStage() && extra.stageOrder() == afterLast);
-            if (!placeExists || !knownRoles.containsKey(extra.roleId())) {
-                throw new NotFoundException();
-            }
-            if (extra.userId() == document.authorId()) {
-                throw ApprovalErrors.validation("Автор не может быть добавленным согласующим");
-            }
-            List<UserRef> carriers = roles.carriersOf(document.orgId(), extra.roleId());
-            if (carriers.stream().noneMatch(user -> user.id() == extra.userId())) {
-                throw new NotFoundException();
-            }
-            Assignment assignment = new Assignment(extra.stageOrder(), extra.roleId(), extra.userId(), extra.isNewStage());
-            if (!taken.add(assignment)) {
-                throw ApprovalErrors.validation("Этот согласующий уже есть в маршруте на этом этапе");
-            }
-            result.add(assignment);
-        }
-        return result;
-    }
+    // ---------- Проверка ----------
 
-    /** Кто из шаблона уже назначен: подставленные автоматически и выбранные автором. */
-    private static Set<Assignment> templateAssignments(RouteResolver.ResolvedRoute route, Map<StageRole, Long> chosen) {
-        Set<Assignment> assigned = new HashSet<>();
-        for (RouteResolver.Stage stage : route.stages()) {
+    /**
+     * Три правила D3 и прежние правила участника. Порядок проверок — от понятных человеку ошибок к «не найдено»:
+     * пустой этап и повтор человека сообщаются текстом, ссылка на чужую роль — 404, на человека без этой роли — 409 «обновите экран» (контракт,
+     * «Идентификаторы от клиента»).
+     */
+    private Validated validate(DocumentSnapshot document, RouteResolver.ResolvedRoute template, Draft draft) {
+        for (int index = 0; index < draft.stages().size(); index++) {
+            if (draft.stages().get(index).isEmpty()) {
+                throw ApprovalErrors.validation("Этап " + (index + 1) + " пустой — добавьте согласующего или уберите этап");
+            }
+        }
+        List<Entry> all = new ArrayList<>();
+        draft.stages().forEach(all::addAll);
+        if (draft.endorser() != null) {
+            all.add(draft.endorser());
+        }
+
+        Map<Long, RoleRef> knownRoles = roles.rolesById(document.orgId(),
+                all.stream().map(Entry::roleId).collect(Collectors.toSet()));
+        Map<Long, Set<Long>> carriersByRole = new HashMap<>();
+        Map<Long, String> names = new HashMap<>();
+        Set<Long> seen = new HashSet<>();
+        for (Entry entry : all) {
+            if (entry.userId() == document.authorId()) {
+                throw ApprovalErrors.validation("Автор не согласует свой документ — уберите себя из маршрута");
+            }
+            if (!knownRoles.containsKey(entry.roleId())) {
+                throw new NotFoundException();
+            }
+            Set<Long> carriers = carriersByRole.computeIfAbsent(entry.roleId(), roleId -> {
+                List<UserRef> users = roles.carriersOf(document.orgId(), roleId);
+                users.forEach(user -> names.put(user.id(), user.fullName()));
+                return users.stream().map(UserRef::id).collect(Collectors.toSet());
+            });
+            if (!carriers.contains(entry.userId())) {
+                // Роль своей компании, а человека с ней уже нет: сняли роль или исключили, пока был открыт конструктор.
+                // Это не «не найдено», а устаревший экран (ревью #111): говорим, что сделать.
+                throw ApprovalErrors.invalidState("Состав сотрудников изменился — обновите экран маршрута и проверьте согласующих");
+            }
+            if (!seen.add(entry.userId())) {
+                throw ApprovalErrors.validation("«" + names.getOrDefault(entry.userId(), "Сотрудник")
+                        + "» уже есть в маршруте — один человек согласует документ один раз");
+            }
+        }
+
+        // Обязательная роль закрыта, если в маршруте где угодно есть её носитель (D6): человек — один элемент маршрута.
+        for (RouteResolver.Stage stage : template.stages()) {
             for (RouteResolver.Participant participant : stage.participants()) {
-                long roleId = participant.role().id();
-                Long userId = switch (participant.resolution()) {
-                    case AUTO -> participant.selectedUserId();
-                    case SELECT -> chosen.get(new StageRole(stage.stageOrder(), roleId));
-                    case SKIPPED, AUTHOR_HOLDS_ROLE -> null;
-                };
-                if (userId != null) {
-                    assigned.add(new Assignment(stage.stageOrder(), roleId, userId, false));
+                boolean needsPerson = participant.mandatory()
+                        && (participant.resolution() == RouteResolver.Resolution.AUTO
+                        || participant.resolution() == RouteResolver.Resolution.SELECT);
+                if (needsPerson && participant.candidates().stream().noneMatch(candidate -> seen.contains(candidate.id()))) {
+                    throw ApprovalErrors.mandatoryRoleMissing(participant.role().name());
                 }
             }
         }
-        return assigned;
+
+        boolean authorApproves = template.stages().stream()
+                .flatMap(stage -> stage.participants().stream())
+                .anyMatch(participant -> participant.resolution() == RouteResolver.Resolution.AUTHOR_HOLDS_ROLE);
+        if (all.isEmpty() && !authorApproves && roles.anyCarrierExcept(document.orgId(), document.authorId())) {
+            throw ApprovalErrors.validation("Добавьте хотя бы одного согласующего");
+        }
+        return new Validated(draft.stages(), draft.endorser());
     }
+
+    // ---------- Шаги ----------
 
     private List<ApprovalStep> buildSteps(
             DocumentSnapshot document,
-            RouteResolver.ResolvedRoute route,
-            Map<StageRole, Long> chosen,
-            List<Assignment> extras,
+            RouteResolver.ResolvedRoute template,
+            Validated route,
             Instant now
     ) {
-        StageNumbers numbers = StageNumbers.of(route, extras);
+        TemplateClaims claims = new TemplateClaims(template);
         List<ApprovalStep> planned = new ArrayList<>();
-        for (RouteResolver.Stage template : route.stages()) {
-            addNewStage(planned, document, extras, template.stageOrder(), numbers, now);
-            RouteResolver.Stage stage = new RouteResolver.Stage(
-                    numbers.template(template.stageOrder()), template.participants());
-            for (RouteResolver.Participant participant : stage.participants()) {
-                long roleId = participant.role().id();
-                switch (participant.resolution()) {
-                    case SKIPPED -> {
-                        // необязательный участник без кандидатов: шага нет, в предпросмотре он показан как «пропускается»
-                    }
-                    case AUTHOR_HOLDS_ROLE -> {
-                        ApprovalStep step = step(document, stage.stageOrder(), roleId, document.authorId(),
-                                ApprovalStep.Origin.TEMPLATE, now);
-                        step.setDecision(ApprovalStep.Decision.APPROVED);
-                        step.setAutoReason(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
-                        step.setActivatedAt(now);
-                        step.setDecidedAt(now);
-                        planned.add(step);
-                    }
-                    case AUTO -> planned.add(step(document, stage.stageOrder(), roleId, participant.selectedUserId(),
-                            ApprovalStep.Origin.TEMPLATE, now));
-                    case SELECT -> planned.add(step(document, stage.stageOrder(), roleId,
-                            chosen.get(new StageRole(template.stageOrder(), roleId)), ApprovalStep.Origin.TEMPLATE, now));
-                }
-            }
-            for (Assignment extra : extras) {
-                if (!extra.newStage() && extra.stageOrder() == template.stageOrder()) {
-                    planned.add(step(document, stage.stageOrder(), extra.roleId(), extra.userId(),
-                            ApprovalStep.Origin.ADDED_BY_AUTHOR, now));
-                }
+        for (int index = 0; index < route.stages().size(); index++) {
+            for (Entry entry : route.stages().get(index)) {
+                planned.add(step(document, index + 1, entry.roleId(), entry.userId(), claims.origin(entry),
+                        ApprovalStep.Kind.APPROVAL, now));
             }
         }
-        addNewStage(planned, document, extras, afterLastStage(route), numbers, now);
+        // Обязательная роль, которая есть только у автора: шаг сразу согласован, с отметкой в истории (CLAUDE.md, №10).
+        // Отдельным этапом после согласующих и перед утверждением — там, где такая роль стоит в шаблоне; в этапе 1 он
+        // выглядел бы так, будто автор появился в маршруте сам (ревью #111, п. 3). Активация согласованный этап пропускает.
+        int authorStage = route.stages().size() + 1;
+        // Один шаг, даже если у автора несколько обязательных ролей, которых больше ни у кого нет: человек — один раз
+        // в маршруте (D6, ревью Ильи на #110). Шаг хранит одну роль — первую по шаблону; остальные закрыты тем же
+        // фактом — они есть у автора (validate их и не требует).
+        Optional<RouteResolver.Participant> authorRole = template.stages().stream()
+                .flatMap(stage -> stage.participants().stream())
+                .filter(participant -> participant.resolution() == RouteResolver.Resolution.AUTHOR_HOLDS_ROLE)
+                .findFirst();
+        boolean authorStep = authorRole.isPresent();
+        authorRole.ifPresent(participant -> {
+            ApprovalStep step = step(document, authorStage, participant.role().id(), document.authorId(),
+                    ApprovalStep.Origin.TEMPLATE, ApprovalStep.Kind.APPROVAL, now);
+            step.setDecision(ApprovalStep.Decision.APPROVED);
+            step.setAutoReason(ApprovalStep.AutoReason.AUTHOR_HOLDS_ROLE);
+            step.setActivatedAt(now);
+            step.setDecidedAt(now);
+            planned.add(step);
+        });
+        if (route.endorser() != null) {
+            planned.add(step(document, authorStep ? authorStage + 1 : authorStage, route.endorser().roleId(), route.endorser().userId(),
+                    claims.origin(route.endorser()), ApprovalStep.Kind.ENDORSEMENT, now));
+        }
         return planned;
     }
 
-    /** Добавленные автором отдельным этапом перед этапом шаблона {@code before} (или последним). */
-    private void addNewStage(
-            List<ApprovalStep> planned, DocumentSnapshot document, List<Assignment> extras,
-            int before, StageNumbers numbers, Instant now
-    ) {
-        for (Assignment extra : extras) {
-            if (extra.newStage() && extra.stageOrder() == before) {
-                planned.add(step(document, numbers.newStage(before), extra.roleId(), extra.userId(),
-                        ApprovalStep.Origin.ADDED_BY_AUTHOR, now));
+    /**
+     * Кто в маршруте «из шаблона», а кто добавлен автором. Каждая роль шаблона даёт ровно одного человека: того, кого
+     * подставил шаблон, или — если выбирать нужно было из нескольких — первого из её кандидатов в маршруте. Второй
+     * кандидат той же роли — уже добавленный автором: шаблон просил одного юриста, а не двух.
+     */
+    private static final class TemplateClaims {
+
+        private final List<RouteResolver.Participant> open = new ArrayList<>();
+
+        TemplateClaims(RouteResolver.ResolvedRoute template) {
+            template.stages().forEach(stage -> stage.participants().stream()
+                    .filter(participant -> participant.resolution() == RouteResolver.Resolution.AUTO
+                            || participant.resolution() == RouteResolver.Resolution.SELECT)
+                    .forEach(open::add));
+        }
+
+        ApprovalStep.Origin origin(Entry entry) {
+            for (RouteResolver.Participant participant : open) {
+                boolean matches = participant.role().id() == entry.roleId()
+                        && participant.candidates().stream().anyMatch(candidate -> candidate.id() == entry.userId());
+                if (matches) {
+                    open.remove(participant);
+                    return ApprovalStep.Origin.TEMPLATE;
+                }
             }
+            return ApprovalStep.Origin.ADDED_BY_AUTHOR;
         }
     }
 
@@ -281,7 +379,7 @@ public class SubmissionService {
     private void carryOverApprovals(DocumentSnapshot document, List<ApprovalStep> planned, Instant now) {
         carriedApprovals.of(document.id(), document.currentVersionNo()).ifPresent(carried -> planned.stream()
                 .filter(step -> step.getDecision() == ApprovalStep.Decision.PENDING)
-                .filter(step -> carried.covers(step.getRoleId(), step.getApproverId()))
+                .filter(step -> carried.covers(step.getRoleId(), step.getApproverId(), step.getKind()))
                 .forEach(step -> {
                     step.setDecision(ApprovalStep.Decision.APPROVED);
                     step.setAutoReason(ApprovalStep.AutoReason.CARRIED_OVER);
@@ -294,46 +392,9 @@ public class SubmissionService {
         return route.stages().stream().mapToInt(RouteResolver.Stage::stageOrder).max().orElse(0) + 1;
     }
 
-    /**
-     * Номера этапов после вставки новых: этапы шаблона идут в своём порядке, новые — на выбранных местах,
-     * всё нумеруется подряд с единицы. Без новых этапов номера совпадают с шаблоном (1, 2, …).
-     */
-    private record StageNumbers(Map<Integer, Integer> templateNumbers, Map<Integer, Integer> newStageNumbers) {
-
-        static StageNumbers of(RouteResolver.ResolvedRoute route, List<Assignment> extras) {
-            Set<Integer> newBefore = extras.stream()
-                    .filter(Assignment::newStage)
-                    .map(Assignment::stageOrder)
-                    .collect(Collectors.toSet());
-            Map<Integer, Integer> templateNumbers = new HashMap<>();
-            Map<Integer, Integer> newStageNumbers = new HashMap<>();
-            int number = 0;
-            List<Integer> orders = route.stages().stream().map(RouteResolver.Stage::stageOrder).sorted().toList();
-            for (int order : orders) {
-                if (newBefore.contains(order)) {
-                    newStageNumbers.put(order, ++number);
-                }
-                templateNumbers.put(order, ++number);
-            }
-            int afterLast = afterLastStage(route);
-            if (newBefore.contains(afterLast)) {
-                newStageNumbers.put(afterLast, ++number);
-            }
-            return new StageNumbers(templateNumbers, newStageNumbers);
-        }
-
-        int template(int templateOrder) {
-            return templateNumbers.get(templateOrder);
-        }
-
-        int newStage(int before) {
-            return newStageNumbers.get(before);
-        }
-    }
-
     private ApprovalStep step(
             DocumentSnapshot document, int stageOrder, long roleId, long approverId,
-            ApprovalStep.Origin origin, Instant now
+            ApprovalStep.Origin origin, ApprovalStep.Kind kind, Instant now
     ) {
         ApprovalStep step = new ApprovalStep();
         step.setDocumentId(document.id());
@@ -342,6 +403,7 @@ public class SubmissionService {
         step.setRoleId(roleId);
         step.setStageOrder(stageOrder);
         step.setOrigin(origin);
+        step.setKind(kind);
         step.setDecision(ApprovalStep.Decision.PENDING);
         step.setCreatedAt(now);
         return step;
@@ -350,7 +412,13 @@ public class SubmissionService {
     private record StageRole(int stageOrder, long roleId) {
     }
 
-    /** Кто согласует на этапе в какой роли; {@code newStage} — отдельным этапом перед {@code stageOrder}. */
-    private record Assignment(int stageOrder, long roleId, long userId, boolean newStage) {
+    /** Человек в маршруте и роль, под которой он согласует. */
+    private record Entry(long userId, long roleId) {
+    }
+
+    private record Draft(List<List<Entry>> stages, Entry endorser) {
+    }
+
+    private record Validated(List<List<Entry>> stages, Entry endorser) {
     }
 }

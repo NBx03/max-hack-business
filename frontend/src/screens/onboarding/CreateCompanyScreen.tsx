@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Button, Input, Typography } from '@maxhub/max-ui';
+import { Button } from '../../ui';
+import { Input, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { createCompany } from '../../api/onboarding';
 import { errorMessage } from '../../api/errors';
@@ -45,10 +46,10 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
       subtitle="Вы станете администратором и получите роль «Директор». Стандартные роли и маршруты согласования появятся сразу."
       footer={
         <>
-          <Button size="large" stretched disabled={!canSubmit} loading={busy} onClick={() => void submit()}>
+          <Button variant="primary" stretched disabled={!canSubmit} loading={busy} onClick={() => void submit()}>
             Создать
           </Button>
-          <Button size="large" variant="ghost" stretched disabled={busy} onClick={onBack}>
+          <Button variant="ghost" stretched disabled={busy} onClick={onBack}>
             Назад
           </Button>
         </>

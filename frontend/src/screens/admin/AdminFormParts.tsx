@@ -1,11 +1,10 @@
 import { useNavigate } from 'react-router-dom';
 import { ApiError, errorMessage } from '../../api/errors';
-import { Tabs } from '../../components/base/Tabs';
-import { AccessErrorState, ErrorState } from '../../components/base/StateCard';
+import { AccessErrorState, ErrorState } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 
-// Общее для экранов 3/6/7 (docs/SCREENS.md, "Подключение компании"): вкладки между ними,
-// ссылка назад в раздел «Компания» нижнего меню, где собрано администрирование.
+// Общее для экранов 3/6/7 (docs/SCREENS.md, "Подключение компании"): ссылка назад в раздел «Компания»,
+// где собрано администрирование. Вкладок между экранами нет — путь один: «Компания» → нужный экран.
 
 export const ADMIN_BACK = { to: ROUTE_PATTERNS.company, label: 'Компания' };
 
@@ -20,35 +19,12 @@ export function AdminLoadError({ error, onRetry }: { error: unknown; onRetry: ()
     return (
       <AccessErrorState
         text="Раздел доступен администраторам компании"
-        actionLabel="К документам"
-        onAction={() => navigate(ROUTE_PATTERNS.documents)}
+        actionLabel="На главную"
+        onAction={() => navigate(ROUTE_PATTERNS.home)}
       />
     );
   }
   return <ErrorState message={errorMessage(error)} onRetry={onRetry} />;
-}
-
-type AdminTabKey = 'invite' | 'requests' | 'members';
-
-const TAB_PATH: Record<AdminTabKey, string> = {
-  invite: ROUTE_PATTERNS.adminInvite,
-  requests: ROUTE_PATTERNS.adminRequests,
-  members: ROUTE_PATTERNS.adminMembers,
-};
-
-export function AdminTabs({ active, requestsCount }: { active: AdminTabKey; requestsCount?: number }) {
-  const navigate = useNavigate();
-  return (
-    <Tabs
-      tabs={[
-        { key: 'invite', label: 'Приглашение' },
-        { key: 'requests', label: 'Заявки', count: requestsCount },
-        { key: 'members', label: 'Участники' },
-      ]}
-      activeKey={active}
-      onChange={(key) => navigate(TAB_PATH[key])}
-    />
-  );
 }
 
 /** «когда подана» / срок действия ссылки - коротко и по-русски, без библиотеки дат. */
