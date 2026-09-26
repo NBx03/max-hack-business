@@ -18,7 +18,7 @@ import { downloadFile } from '../../max/webApp';
 import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath } from '../../routes/paths';
 import { recognizedKindOf } from './documentKind';
 import { RecognizedKind } from './RecognizedKind';
-import { VersionHistory } from './VersionHistory';
+import { FormFields, VersionHistory } from './VersionHistory';
 import { personMeta } from './versionOutcome';
 import {
   AccessErrorState,
@@ -526,8 +526,7 @@ export function DocumentCardScreen() {
 
       <VersionHistory
         doc={doc}
-        labelOf={(name) =>
-          (types.status === 'ready' ? types.data.find((type) => type.id === doc.type.id)?.fields.find((field) => field.name === name)?.label : undefined) ?? name}
+        fields={types.status === 'ready' ? types.data.find((type) => type.id === doc.type.id)?.fields ?? [] : []}
         onDownload={(file) => void download(file)}
         onOpenCheck={() => navigate(documentCheckPath(doc.id))}
       />
@@ -663,28 +662,9 @@ function ChangesSummary({ changes, isForm }: { changes: VersionChanges; isForm: 
  * типа; пока подписи не загрузились — в порядке сохранения, с техническими именами.
  */
 function FormContent({ content, definitions }: { content: Record<string, string>; definitions: DocumentTypeField[] }) {
-  const rows = definitions.length > 0
-    ? definitions.map((field) => ({ name: field.name, label: field.label, value: content[field.name] ?? '' }))
-    : Object.entries(content).map(([name, value]) => ({ name, label: name, value }));
   return (
     <Section title="Содержание" hint="Заполнено в приложении, без файла">
-      <div className="ds-card" style={{ gap: 0, padding: '4px 16px' }}>
-        {rows.map((row, index) => (
-          <div key={row.name} style={{ padding: '10px 0', borderTop: index > 0 ? '1px solid var(--divider-secondary)' : undefined }}>
-            <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--ds-text-xs)' }}>{row.label}</div>
-            <div
-              style={{
-                marginTop: 2,
-                whiteSpace: 'pre-wrap',
-                overflowWrap: 'anywhere',
-                color: row.value.trim() ? 'var(--text-primary)' : 'var(--text-tertiary)',
-              }}
-            >
-              {row.value.trim() || 'Не заполнено'}
-            </div>
-          </div>
-        ))}
-      </div>
+      <FormFields content={content} fields={definitions} />
     </Section>
   );
 }

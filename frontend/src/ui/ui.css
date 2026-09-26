@@ -787,21 +787,6 @@ button.ds-row:active {
   color: var(--ds-ai);
 }
 
-.ds-ai-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ds-tap);
-  height: var(--ds-tap);
-  margin: -12px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--ds-ai);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
 /* Приглушённая пометка-кнопка («вне шаблонов», DOC-7): мелкая, но зона нажатия — не меньше 44 px по высоте. */
 .ds-tag {
   position: relative;
@@ -1069,7 +1054,8 @@ button.ds-row:active {
 /* Кнопка-ссылка акцентным цветом со стрелкой: серый текст не читался как нажимаемый (замечание Матвея, #56). */
 .ds-tl__toggle {
   display: flex;
-  align-items: flex-start;
+  /* По центру высоты, как у обычной кнопки: сдвиг -12px рассчитан на это — иначе текст уезжал к строке выше (#56). */
+  align-items: center;
   gap: 4px;
   flex: 1;
   min-height: var(--ds-tap);
@@ -1104,7 +1090,6 @@ button.ds-row:active {
 
 .ds-tl__toggle svg {
   flex: none;
-  margin-top: 1px;
 }
 
 .ds-tl__toggle-count {
@@ -1344,7 +1329,8 @@ button.ds-row:active {
   color: var(--text-secondary);
 }
 
+/* Мельче текстом, но зона нажатия та же 44 px: отрицательные поля съедают лишнюю высоту в карточке. */
 .ds-link-toggle--small {
-  min-height: 32px;
+  margin: -6px 0;
   font-size: var(--ds-text-xs);
 }

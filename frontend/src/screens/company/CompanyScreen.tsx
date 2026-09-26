@@ -197,7 +197,9 @@ function ColleaguesSection({
                 key={person.key}
                 before={<Initials name={person.name} />}
                 title={person.title}
-                subtitle={shortRoleLine(person.roles, person.isAdmin)}
+                subtitle={person.key === 'me' && person.roles.length === 0 && !person.isAdmin
+                  ? 'Роли не назначены — их назначает администратор'
+                  : shortRoleLine(person.roles, person.isAdmin)}
               />
             ))}
           </List>

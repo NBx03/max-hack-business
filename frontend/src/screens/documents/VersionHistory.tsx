@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DocumentCard, DocumentVersion, FileRef } from '../../api/types';
+import type { DocumentCard, DocumentTypeField, DocumentVersion, FileRef } from '../../api/types';
 import { BottomSheet, Button, Icon, List, Muted, Notice, Row, Section, StatusBadge, formatFileSize } from '../../ui';
 import { IssueList } from './IssueList';
 import { personMeta, versionOutcome, versionSteps } from './versionOutcome';
@@ -18,12 +18,13 @@ function formatDateTime(iso: string): string {
  */
 export function VersionHistory({
   doc,
-  labelOf,
+  fields,
   onDownload,
   onOpenCheck,
 }: {
   doc: DocumentCard;
-  labelOf: (fieldName: string) => string;
+  /** Поля вида документа — подписи замечаний и порядок содержимого записки-формы; пока не загрузились — пусто. */
+  fields: DocumentTypeField[];
   onDownload: (file: FileRef) => void;
   onOpenCheck: () => void;
 }) {
@@ -74,7 +75,7 @@ export function VersionHistory({
           <VersionDetails
             doc={doc}
             version={opened}
-            labelOf={labelOf}
+            fields={fields}
             onDownload={onDownload}
             onOpenCheck={() => {
               setOpenNo(null);
@@ -90,17 +91,18 @@ export function VersionHistory({
 function VersionDetails({
   doc,
   version,
-  labelOf,
+  fields,
   onDownload,
   onOpenCheck,
 }: {
   doc: DocumentCard;
   version: DocumentVersion;
-  labelOf: (fieldName: string) => string;
+  fields: DocumentTypeField[];
   onDownload: (file: FileRef) => void;
   onOpenCheck: () => void;
 }) {
   const outcome = versionOutcome(doc, version);
+  const labelOf = (name: string) => fields.find((field) => field.name === name)?.label ?? name;
   const steps = versionSteps(doc, version.versionNo);
   const current = version.versionNo === doc.currentVersionNo;
   const stopTone = outcome.meta.tone === 'danger' ? 'danger' : outcome.meta.tone === 'warning' ? 'warning' : undefined;
@@ -128,7 +130,8 @@ function VersionDetails({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h3 className="ds-section__title">{version.content ? 'Содержание' : 'Файлы'}</h3>
         {version.content ? (
-          <Muted>Записка заполнена в приложении, без файла.</Muted>
+          // Записка-форма (#59): содержимое этой версии и есть «файл» — без него версию открывать незачем.
+          <FormFields content={version.content} fields={fields} />
         ) : version.files.length === 0 ? (
           <Muted>Файлов нет.</Muted>
         ) : (
@@ -187,6 +190,25 @@ function VersionDetails({
           Открыть проверку текущей версии
         </Button>
       )}
+    </div>
+  );
+}
+
+/** Содержимое записки-формы в порядке полей вида; пока подписи не загрузились — в порядке сохранения. */
+export function FormFields({ content, fields }: { content: Record<string, string>; fields: DocumentTypeField[] }) {
+  const rows = fields.length > 0
+    ? fields.map((field) => ({ name: field.name, label: field.label, value: content[field.name] ?? '' }))
+    : Object.entries(content).map(([name, value]) => ({ name, label: name, value }));
+  return (
+    <div className="ds-card" style={{ gap: 0, padding: '4px 16px' }}>
+      {rows.map((row, index) => (
+        <div key={row.name} style={{ padding: '10px 0', borderTop: index > 0 ? '1px solid var(--divider-secondary)' : undefined }}>
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 'var(--ds-text-xs)' }}>{row.label}</div>
+          <div style={{ marginTop: 2, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: row.value.trim() ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
+            {row.value.trim() || 'Не заполнено'}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
