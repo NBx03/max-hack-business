@@ -246,10 +246,10 @@ public class DocumentPersistenceService {
      * версий и файлов удаляются, сами файлы в хранилище остаются: они неизменяемы и в MVP не удаляются (CLAUDE.md).
      */
     @Transactional
-    public void deleteDraft(long documentId, long orgId, long authorId, boolean everSubmitted) {
+    public void deleteDraft(long documentId, long orgId, long authorId, java.util.function.BooleanSupplier everSubmitted) {
         Document document = documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
         requireAuthor(document, orgId, authorId);
-        if (document.getStatus() != Document.Status.DRAFT || everSubmitted) {
+        if (document.getStatus() != Document.Status.DRAFT || everSubmitted.getAsBoolean()) {
             throw DocumentApiException.invalidState("Удалить можно только черновик, который ещё не отправлялся");
         }
         List<DocumentVersion> versions = versionRepository.findByDocumentIdOrderByVersionNoAsc(documentId);

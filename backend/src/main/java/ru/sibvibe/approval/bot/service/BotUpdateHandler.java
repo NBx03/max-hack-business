@@ -179,7 +179,8 @@ public class BotUpdateHandler {
             // запуска (base64url: MAX пропускает только A-Z a-z 0-9 _ -); слишком длинный — просто приложение.
             String search = "s_" + java.util.Base64.getUrlEncoder().withoutPadding()
                     .encodeToString(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            boolean fits = search.length() <= 500;
+            // Запрос длиннее 100 символов приложение не ищет (400) — такую кнопку не даём (ревью Матвея на #113, п. 2).
+            boolean fits = search.length() <= 500 && text.length() <= 100;
             notifier.send(maxUserId, "Нашёл несколько документов:\n" + listing
                             + (fits ? "\nВсе — по кнопке ниже." : "\nУточните название."),
                     fits ? "Показать все" : OPEN_BUTTON, fits ? links.startLink(search) : links.appLink());

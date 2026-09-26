@@ -100,7 +100,7 @@ public class NotificationListener {
     public void on(ApprovalRequestedEvent event) {
         // Те же слова, что в приложении (NAV-2): раздел «На моём согласовании»; у утверждающего — «утверждения» (D4).
         String text = "«" + event.documentTitle() + "» ждёт вашего " + (event.endorsement() ? "утверждения" : "решения")
-                + ". Он в разделе «На моём согласовании».";
+                + ". Документ — в разделе «На моём согласовании».";
         String url = links.documentLink(event.documentId());
         Map<Long, Recipient> approvers = directory.find(event.approverUserIds());
         approvers.values().forEach(approver -> notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, url));
@@ -172,7 +172,7 @@ public class NotificationListener {
         directory.find(event.approverUserId()).ifPresent(approver -> {
             // Те же слова, что в приложении (NAV-2, D4): раздел «На моём согласовании», «утверждения» у утверждающего.
             String text = "«" + event.documentTitle() + "» " + waitingPhrase(event.waitingHours(), event.endorsement())
-                    + " Он в разделе «На моём согласовании».";
+                    + " Документ — в разделе «На моём согласовании».";
             notifier.send(approver.maxUserId(), text, OPEN_DOCUMENT, links.documentLink(event.documentId()));
         });
     }

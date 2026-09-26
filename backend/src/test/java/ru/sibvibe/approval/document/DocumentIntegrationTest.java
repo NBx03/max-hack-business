@@ -539,6 +539,20 @@ class DocumentIntegrationTest {
                         .header("Authorization", AUTHOR_AUTH))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
+        // по автору и по регистрационному номеру из полей (ревью Матвея на #113, п. 9)
+        String authorName = jdbc.queryForObject("select full_name from app_user where id = ?", String.class, authorId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", authorName.toLowerCase())
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(documentId));
+        jdbc.update("""
+                update document_version set extracted_fields = '{"fields": [{"name": "reg_number", "value": "СЗ-117", "source": "MODEL"}]}'::jsonb
+                where document_id = ?
+                """, documentId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "сз-117")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
 
         JsonNode versioned = json(mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
                         .file(jsonPart("meta", Map.of(

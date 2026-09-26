@@ -195,7 +195,7 @@ class ApprovalIntegrationTest {
         assertThat(preview.path("problems")).hasSize(1);
         assertThat(preview.path("problems").get(0).path("code").asText()).isEqualTo("ROUTE_ROLE_EMPTY");
         assertThat(preview.path("problems").get(0).path("message").asText())
-                .isEqualTo("В компании нет сотрудника с ролью «Директор»");
+                .startsWith("В компании нет сотрудника с ролью «Директор» — попросите администратора");
 
         Resp submit = call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null);
         assertThat(submit.status()).isEqualTo(409);
@@ -520,7 +520,19 @@ class ApprovalIntegrationTest {
         // #109: только администратор
         assertThat(call(company.frank, "PATCH", toggle, Map.of("mandatory", true)).status()).isEqualTo(403);
         JsonNode routes = ok(call(company.alice, "PATCH", toggle, Map.of("mandatory", true)));
-        assertThat(routes.toString()).contains("\"mandatory\":true");
+        // именно у руководителя отдела: у директора mandatory=true было и раньше (ревью Матвея на #113, п. 9)
+        boolean headMandatory = false;
+        for (JsonNode route : routes) {
+            if (route.path("documentTypeId").asLong() != memoType) continue;
+            for (JsonNode stage : route.path("stages")) {
+                for (JsonNode participant : stage.path("participants")) {
+                    if (participant.path("role").path("id").asLong() == head) {
+                        headMandatory = participant.path("mandatory").asBoolean();
+                    }
+                }
+            }
+        }
+        assertThat(headMandatory).isTrue();
         assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + company.roles.get("LAWYER"),
                 Map.of("mandatory", true)).status()).as("роли нет в шаблоне вида").isEqualTo(404);
         long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);

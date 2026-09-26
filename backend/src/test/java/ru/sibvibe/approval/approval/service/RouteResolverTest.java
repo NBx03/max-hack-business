@@ -78,7 +78,7 @@ class RouteResolverTest {
 
         assertThat(route.problems()).singleElement().satisfies(problem -> {
             assertThat(problem.code()).isEqualTo("ROUTE_ROLE_EMPTY");
-            assertThat(problem.message()).isEqualTo("В компании нет сотрудника с ролью «Бухгалтер»");
+            assertThat(problem.message()).startsWith("В компании нет сотрудника с ролью «Бухгалтер» — попросите администратора");
             assertThat(problem.role()).isEqualTo(ACCOUNTANT);
         });
         assertThat(only(route).candidates()).isEmpty();
