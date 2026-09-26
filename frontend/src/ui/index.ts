@@ -4,7 +4,7 @@ import './ui.css';
 
 export { Icon, AiGlyph, type IconName } from './icons';
 export { Button, ButtonRow, IconButton, type ButtonVariant } from './Button';
-export { Page, PageHeader, BackLink, Section, Card, List, Row, Tiles, Tile, Count, Muted, scrollScreenToTop } from './Page';
+export { Page, PageHeader, BackLink, Section, Card, List, Row, Tiles, Tile, Count, Muted, Initials, scrollScreenToTop } from './Page';
 export { BottomSheet, ConfirmSheet, SelectSheet, SelectField, type SelectOption } from './Sheet';
 export { EmptyState, ErrorState, AccessErrorState, Loading, InlineError, Notice, Toast } from './State';
 export { SearchField, SEARCH_MAX_LENGTH, Chips, Chip } from './Controls';

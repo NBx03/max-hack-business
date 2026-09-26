@@ -9,7 +9,7 @@ import { useOpenDemo } from '../../app/useOpenDemo';
 import { demoEntryUser } from '../../app/demo';
 import { useAsync } from '../../hooks/useAsync';
 import { ROUTE_PATTERNS } from '../../routes/paths';
-import { Button, Count, InlineError, List, Muted, Page, PageHeader, Row, Section } from '../../ui';
+import { Button, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section } from '../../ui';
 import { MetricsCard } from './MetricsCard';
 import { RoutesCard } from './RoutesCard';
 
@@ -73,6 +73,7 @@ export function CompanyScreen() {
       {actor && (
         <List label="Вы">
           <Row
+            before={<Initials name={actor.user.fullName} />}
             title={inDemo ? `Вы действуете как ${actor.user.fullName}` : `${actor.user.fullName} (вы)`}
             subtitle={roleLine(actor.roles, actor.isAdmin)}
           />
@@ -161,6 +162,13 @@ export function CompanyScreen() {
   );
 }
 
+/** Сколько сотрудников видно сразу: дальше — «Показать всех», чтобы раздел не превращался в простыню. */
+const COLLEAGUES_PREVIEW = 5;
+
+/**
+ * Сотрудники: инициалы, имя, роли одной короткой строкой (замечание Ильи, #56: было слишком много текста).
+ * Себя в списке нет — «Вы» показаны блоком выше.
+ */
 function ColleaguesSection({
   status,
   colleagues,
@@ -170,22 +178,45 @@ function ColleaguesSection({
   colleagues: MemberView[];
   currentUserId: number | undefined;
 }) {
+  const [showAll, setShowAll] = useState(false);
   if (status === 'error') return null;
+  const others = colleagues.filter((colleague) => colleague.user.id !== currentUserId);
+  const visible = showAll ? others : others.slice(0, COLLEAGUES_PREVIEW);
   return (
     <Section title={`Сотрудники${status === 'ready' ? ` · ${colleagues.length}` : ''}`}>
       {status === 'loading' ? (
         <Muted>Загружаем список сотрудников…</Muted>
+      ) : others.length === 0 ? (
+        <Muted>Пока в компании только вы. Пригласить сотрудников может администратор.</Muted>
       ) : (
-        <List label="Сотрудники">
-          {colleagues.map((colleague) => (
-            <Row
-              key={colleague.memberId}
-              title={colleague.user.id === currentUserId ? `${colleague.user.fullName} (вы)` : colleague.user.fullName}
-              subtitle={roleLine(colleague.roles, colleague.isAdmin)}
-            />
-          ))}
-        </List>
+        <>
+          <List label="Сотрудники">
+            {visible.map((colleague) => (
+              <Row
+                key={colleague.memberId}
+                before={<Initials name={colleague.user.fullName} />}
+                title={colleague.user.fullName}
+                subtitle={shortRoleLine(colleague.roles, colleague.isAdmin)}
+              />
+            ))}
+          </List>
+          {others.length > COLLEAGUES_PREVIEW && (
+            <button type="button" className="ds-link-toggle" aria-expanded={showAll} onClick={() => setShowAll((open) => !open)}>
+              {showAll ? 'Свернуть' : `Показать всех (${others.length})`}
+              <span style={{ display: 'inline-flex', transform: showAll ? 'rotate(180deg)' : undefined }}>
+                <Icon name="chevronDown" size={16} />
+              </span>
+            </button>
+          )}
+        </>
       )}
     </Section>
   );
+}
+
+/** Роли через точку; без ролей — коротко, без объяснений на каждой строке. */
+function shortRoleLine(roles: { name: string }[], isAdmin: boolean): string {
+  const names = roles.map((role) => role.name);
+  if (isAdmin) names.push('администратор');
+  return names.length > 0 ? names.join(' · ') : 'Роли не назначены';
 }

@@ -66,3 +66,20 @@ export function resolveEntryRoute(me: MeResponse, withStartParam = true): string
 
   return ROUTE_PATTERNS.welcome;
 }
+
+/**
+ * Куда ведёт ссылка этого запуска, или null — ссылки нет, она уже отработала или ничего не меняет (приглашение
+ * участнику компании). Вычисляется один раз при входе и держится, пока экран ссылки не откроется (AppRoutes).
+ */
+export function launchTargetFor(me: MeResponse, launchHandled: boolean): string | null {
+  if (launchHandled || !me.startParam) {
+    return null;
+  }
+  const target = resolveEntryRoute(me, true);
+  return target === resolveEntryRoute(me, false) ? null : target;
+}
+
+/** Экран ссылки открыт: путь совпал (параметры адреса вроде ?code= не сравниваем — их читает сам экран). */
+export function launchTargetReached(target: string, pathname: string): boolean {
+  return pathname === target.split('?')[0];
+}

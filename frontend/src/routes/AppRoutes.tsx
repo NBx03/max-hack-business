@@ -18,7 +18,7 @@ import { HomeScreen } from '../screens/home/HomeScreen';
 import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
 import { guardTarget, type GuardKind } from './guards';
-import { resolveEntryRoute } from './resolveEntryRoute';
+import { launchTargetFor, launchTargetReached, resolveEntryRoute } from './resolveEntryRoute';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { MemoFormScreen } from '../screens/documents/MemoFormScreen';
@@ -48,25 +48,33 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   // этой отметки любой переход на "/" (выход из демо, отмена заявки) снова открывал бы документ
   // или приглашение из ссылки. Запуск узнаём по его данным, а не по пути: при повторном открытии
   // из бота MAX может перезагрузить страницу на прежнем экране, а не на "/".
-  const [startParamPending, setStartParamPending] = useState(() => !isLaunchHandled() && Boolean(me.startParam));
-  const entryRoute = resolveEntryRoute(me, startParamPending);
+  //
+  // Экран ссылки держится, пока он не открылся. Раньше ссылка снималась в том же такте, что и переход на неё, а
+  // React Router 7 выполняет переход в startTransition: следующий рендер ещё видел "/", <Navigate> вёл на
+  // приветствие — и этот переход побеждал. Приглашения по ссылке открывали приветствие (#56).
+  const [launchTarget, setLaunchTarget] = useState(() => launchTargetFor(me, isLaunchHandled()));
+  const entryRoute = launchTarget ?? resolveEntryRoute(me, false);
 
   useEffect(() => {
     logLaunch(me.startParam);
-    if (!startParamPending) {
-      return;
+    if (me.startParam) {
+      markLaunchHandled();
     }
-    markLaunchHandled();
     // На "/" переход сделает <Navigate> ниже. На любом другом пути (страница перезагружена
     // повторным открытием из бота) ведём по ссылке сами.
-    if (location.pathname !== '/' && location.pathname !== entryRoute) {
-      navigate(entryRoute, { replace: true });
+    if (launchTarget !== null && location.pathname !== '/' && location.pathname + location.search !== launchTarget) {
+      navigate(launchTarget, { replace: true });
     }
-    // Дальше entryRoute - уже без ссылки: охранники и «назад» ведут в обычные места.
-    setStartParamPending(false);
     // Только при первом монтировании: дальше startParam уже отработал.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Экран ссылки открылся — дальше entryRoute уже без неё: охранники и «назад» ведут в обычные места.
+  useEffect(() => {
+    if (launchTarget !== null && launchTargetReached(launchTarget, location.pathname)) {
+      setLaunchTarget(null);
+    }
+  }, [launchTarget, location.pathname]);
 
   // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
   // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.

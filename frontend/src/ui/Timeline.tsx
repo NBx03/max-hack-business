@@ -72,8 +72,11 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
               <span className="ds-tl__rail">
                 <span className="ds-tl__line ds-tl__line--done" />
               </span>
-              <button type="button" className="ds-tl__toggle" onClick={() => setExpanded(false)}>
+              <button type="button" className="ds-tl__toggle" aria-expanded onClick={() => setExpanded(false)}>
                 Свернуть пройденные этапы
+                <span style={{ display: 'inline-flex', transform: 'rotate(180deg)' }}>
+                  <Icon name="chevronDown" size={16} />
+                </span>
               </button>
             </li>
           );
@@ -87,9 +90,12 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
                 </span>
                 {next && <span className="ds-tl__line ds-tl__line--done" />}
               </span>
-              <button type="button" className="ds-tl__toggle" onClick={() => setExpanded(true)}>
-                {collapseLabel ? collapseLabel(collapsible.length) : `Пройдено этапов: ${collapsible.length}`}
-                <span style={{ color: 'var(--text-themed)' }}> · Показать</span>
+              <button type="button" className="ds-tl__toggle" aria-expanded={false} onClick={() => setExpanded(true)}>
+                <span className="ds-tl__toggle-count">
+                  {collapseLabel ? collapseLabel(collapsible.length) : `Пройдено этапов: ${collapsible.length}`} ·
+                </span>
+                Показать
+                <Icon name="chevronDown" size={16} />
               </button>
             </li>
           );
