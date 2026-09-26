@@ -37,10 +37,45 @@ export function AiMark() {
   );
 }
 
+/** Что значит ✦ — одна и та же нижняя панель для легенды и для витрины дизайн-системы. */
+function AiSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <BottomSheet open={open} onClose={onClose} title="✦ — значение от ИИ">
+      <p className="ds-text-secondary">
+        Так отмечено то, что ИИ нашёл в тексте документа: вид документа, поля, краткое содержание.
+      </p>
+      <p className="ds-text-secondary">
+        ИИ может ошибиться — сверьте с документом. Решения по документу ИИ не принимает: замечания проверяет
+        обычный код по правилам компании, а согласуют люди.
+      </p>
+      <p className="ds-text-secondary">Неверное значение исправьте в поле — проверка пройдёт заново.</p>
+    </BottomSheet>
+  );
+}
+
 /**
- * ✦, который объясняет себя: нажатие (зона 44×44) открывает нижнюю панель «что это значит» (DECISIONS.md,
- * противоречие 11). Ставится в заголовке блока значений от ИИ; рядом — строка «✦ — заполнено ИИ, проверьте».
+ * Легенда под заголовком блока значений от ИИ — сама кнопка: «✦ — заполнено ИИ, проверьте · Что это?» акцентным
+ * цветом открывает пояснение. Раньше пояснение открывал маленький ✦ рядом с заголовком, и никто не догадывался, что
+ * это кнопка (замечание Булата, #56; DECISIONS.md, противоречие 11).
  */
+export function AiLegend() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className="ds-ai-legend" onClick={() => setOpen(true)}>
+        <AiMark />
+        <span className="ds-ai-legend__text">— заполнено ИИ, проверьте</span>
+        <span className="ds-ai-legend__more">
+          <Icon name="info" size={16} />
+          Что это?
+        </span>
+      </button>
+      <AiSheet open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** Отдельный ✦-кнопка — для мест без строки-легенды (витрина дизайн-системы). */
 export function AiExplainer() {
   const [open, setOpen] = useState(false);
   return (
@@ -48,25 +83,7 @@ export function AiExplainer() {
       <button type="button" className="ds-ai-button" aria-label="Что значит ✦" onClick={() => setOpen(true)}>
         <AiGlyph size={16} />
       </button>
-      <BottomSheet open={open} onClose={() => setOpen(false)} title="✦ — значение от ИИ">
-        <p className="ds-text-secondary">
-          Так отмечено то, что ИИ нашёл в тексте документа: вид документа, поля, краткое содержание.
-        </p>
-        <p className="ds-text-secondary">
-          ИИ может ошибиться — сверьте с документом. Решения по документу ИИ не принимает: замечания проверяет
-          обычный код по правилам компании, а согласуют люди.
-        </p>
-        <p className="ds-text-secondary">Неверное значение исправьте в поле — проверка пройдёт заново.</p>
-      </BottomSheet>
+      <AiSheet open={open} onClose={() => setOpen(false)} />
     </>
-  );
-}
-
-/** Строка-легенда под заголовком блока значений от ИИ. */
-export function AiLegend() {
-  return (
-    <p className="ds-section__hint" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <AiMark /> — заполнено ИИ, проверьте
-    </p>
   );
 }

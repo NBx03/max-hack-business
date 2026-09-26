@@ -1,10 +1,10 @@
 import { Switch } from '@maxhub/max-ui';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { errorMessage } from '../../api/errors';
 import { getColleagues, setRouteRoleMandatory } from '../../api/organization';
 import { useAsync } from '../../hooks/useAsync';
 import type { DocumentType, RouteOverview } from '../../api/types';
-import { BottomSheet, ConfirmSheet, Icon, InlineError, List, Muted, Row, Section } from '../../ui';
+import { BottomSheet, ConfirmSheet, Icon, InlineError, List, Muted, Row } from '../../ui';
 import { isOutsideTemplates } from '../documents/documentKind';
 
 /** Как на экране загрузки: по алфавиту, «Другой документ» последним. */
@@ -17,43 +17,73 @@ function byName(types: DocumentType[]): DocumentType[] {
  * Кто и в каком порядке согласует каждый вид документа — стартовый маршрут (D3). Автор перед отправкой меняет
  * его как угодно, но обязательных не убирает: они отмечены замком. Администратор отмечает обязательные роли (#109);
  * у «Другого документа» обязательных нет — маршрут составляет автор.
+ *
+ * Свёрнуто в одну строку (#56: «блок длинный и виден всегда»): маршруты нужны, когда человек хочет понять, кто
+ * согласует его документ, а не при каждом открытии раздела. before — строки, которые стоят в том же списке выше
+ * («Правила проверки»): оба пункта отвечают на вопрос «как у нас проверяют и согласуют документы».
  */
-export function RoutesCard({ routes: initialRoutes, types, isAdmin }: { routes: RouteOverview[]; types: DocumentType[]; isAdmin: boolean }) {
+export function RoutesCard({
+  routes: initialRoutes,
+  types,
+  isAdmin,
+  before,
+}: {
+  routes: RouteOverview[];
+  types: DocumentType[];
+  isAdmin: boolean;
+  before?: ReactNode;
+}) {
   const [routes, setRoutes] = useState(initialRoutes);
+  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<DocumentType | null>(null);
   const byType = new Map(routes.map((route) => [route.documentTypeId, route]));
   const rows = byName(types).filter((type) => byType.has(type.id));
-  if (rows.length === 0) return null;
   return (
-    // Никита не понял, что это и зачем (замечание 26.09): заголовок — вопрос, на который блок отвечает, пояснение —
-    // что с этим делать, этапы — по строкам с номерами, а не стрелками в одну строку.
-    <Section
-      title="Кто согласует документы"
-      hint={
-        isAdmin
-          ? 'Так маршрут заполняется сам, когда сотрудник отправляет документ. Перед отправкой автор может поменять людей и порядок, но не уберёт обязательных. Нажмите на вид, чтобы выбрать, кто обязателен.'
-          : 'Так маршрут заполняется сам, когда вы отправляете документ. Перед отправкой людей и порядок можно поменять, кроме обязательных.'
-      }
-    >
-      <p className="ds-section__hint" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
-        <Icon name="lock" size={14} /> — обязательный, убрать из маршрута нельзя
-      </p>
-      <List label="Маршруты согласования">
-        {rows.map((type) => (
+    <>
+      <List label="Проверка и согласование">
+        {before}
+        {rows.length > 0 && (
           <Row
-            key={type.id}
-            title={type.name}
-            subtitle={<RouteLine route={byType.get(type.id)!} />}
-            onClick={isAdmin && !isOutsideTemplates(type.code) ? () => setEditing(type) : undefined}
+            title="Кто согласует документы"
+            subtitle={open ? 'Маршрут по умолчанию для каждого вида' : `Маршруты для видов документов: ${rows.length}`}
+            chevron={false}
+            after={
+              <span style={{ display: 'inline-flex', color: 'var(--text-secondary)', transform: open ? 'rotate(180deg)' : undefined }}>
+                <Icon name="chevronDown" size={20} />
+              </span>
+            }
+            onClick={() => setOpen((value) => !value)}
           />
-        ))}
+        )}
       </List>
+      {open && rows.length > 0 && (
+        <>
+          <p className="ds-section__hint" style={{ margin: 0 }}>
+            {isAdmin
+              ? 'Так маршрут заполняется сам при отправке. Автор может поменять людей и порядок, но не уберёт обязательных. Нажмите на вид, чтобы выбрать обязательных.'
+              : 'Так маршрут заполняется сам при отправке. Людей и порядок можно поменять, кроме обязательных.'}
+          </p>
+          <p className="ds-section__hint" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="lock" size={14} /> — обязательный, убрать из маршрута нельзя
+          </p>
+          <List label="Маршруты согласования">
+            {rows.map((type) => (
+              <Row
+                key={type.id}
+                title={type.name}
+                subtitle={<RouteLine route={byType.get(type.id)!} />}
+                onClick={isAdmin && !isOutsideTemplates(type.code) ? () => setEditing(type) : undefined}
+              />
+            ))}
+          </List>
+        </>
+      )}
       <BottomSheet open={editing !== null} onClose={() => setEditing(null)} title={editing ? `Обязательные — ${editing.name}` : ''}>
         {editing && byType.get(editing.id) && (
           <MandatoryEditor type={editing} route={byType.get(editing.id)!} onSaved={setRoutes} />
         )}
       </BottomSheet>
-    </Section>
+    </>
   );
 }
 

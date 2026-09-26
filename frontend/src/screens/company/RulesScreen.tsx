@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
 import { getCompanyRules, resetCompanyRule, updateCompanyRule } from '../../api/organization';
 import type { CompanyRule, CompanyRules, RuleSettingInput, Severity } from '../../api/types';
-import { BottomSheet, Button, ErrorState, Toast, SelectField } from '../../ui';
+import { BottomSheet, Button, ErrorState, Icon, List, Row, Section, Toast, SelectField } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 import { DocumentScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
 import { KIND_LABELS, SEVERITY_HINTS, SEVERITY_LABELS, ruleBasis, ruleTitle } from './ruleText';
@@ -69,7 +69,7 @@ export function RulesScreen() {
       ? null
       : data.types.find((type) => type.rules.some((rule) => rule.id === linkedRuleId));
     setTypeId((current) => linkedType?.documentTypeId ?? current ?? data.types[0]?.documentTypeId ?? null);
-    if (linkedType && data.canEdit) {
+    if (linkedType) {
       setEditing(linkedType.rules.find((rule) => rule.id === linkedRuleId) ?? null);
     }
     // Только при загрузке и по ссылке: дальше вид выбирает человек.
@@ -95,7 +95,8 @@ export function RulesScreen() {
     );
   }
 
-  const changedCount = data.types.reduce((sum, type) => sum + type.rules.filter((rule) => rule.customized).length, 0);
+  // По выбранному виду: общее число по всем видам не совпадало с тем, что видно на экране (#56).
+  const changedCount = selected?.rules.filter((rule) => rule.customized).length ?? 0;
 
   return (
     <DocumentScreen title="Правила проверки" back={BACK}>
@@ -105,7 +106,7 @@ export function RulesScreen() {
           : 'По этим правилам проверяются документы компании. Менять их может администратор.'}
       </Typography.Text>
       {changedCount > 0 && (
-        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Изменено компанией: {changedCount}</span>
+        <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Изменено компанией в этом виде: {changedCount}</span>
       )}
 
       <SelectField
@@ -116,23 +117,15 @@ export function RulesScreen() {
         onChange={setTypeId}
       />
 
-      <div style={{ ...stackStyle, gap: 10 }}>
-        {selected?.rules.map((rule) => (
-          <RuleCard
-            key={rule.id}
-            rule={rule}
-            highlighted={rule.id === linkedRuleId}
-            onOpen={data.canEdit ? () => setEditing(rule) : undefined}
-          />
-        ))}
-      </div>
+      {selected && <RuleGroups rules={selected.rules} onOpen={setEditing} />}
 
       <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
         Новые правила и поля добавляются в шаблон сервиса, а не здесь.
       </span>
 
+      {!data.canEdit && <RuleDetails rule={editing} onClose={closeEditor} />}
       <RuleEditor
-        rule={editing}
+        rule={data.canEdit ? editing : null}
         onClose={closeEditor}
         onSaved={(next, message) => {
           setData(next);
@@ -145,50 +138,65 @@ export function RulesScreen() {
   );
 }
 
-function RuleCard({ rule, highlighted, onOpen }: { rule: CompanyRule; highlighted: boolean; onOpen?: () => void }) {
-  const content = (
+/** Группы по важности — в порядке, в каком они мешают автору; выключенные — отдельно, в конце. */
+const GROUPS: { key: Severity | 'OFF'; title: string; hint: string }[] = [
+  { key: 'BLOCKER', title: 'Критичные', hint: SEVERITY_HINTS.BLOCKER },
+  { key: 'WARNING', title: 'Предупреждения', hint: SEVERITY_HINTS.WARNING },
+  { key: 'INFO', title: 'Советы', hint: SEVERITY_HINTS.INFO },
+  { key: 'OFF', title: 'Не проверяются', hint: 'Выключены в компании' },
+];
+
+/**
+ * Правила — короткими строками по группам важности (#56: карточки с полным текстом и основанием растягивали экран,
+ * и до нижних правил приходилось долго листать). Важность видна по группе, текст и основание — по нажатию.
+ */
+function RuleGroups({ rules, onOpen }: { rules: CompanyRule[]; onOpen: (rule: CompanyRule) => void }) {
+  return (
     <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-        <strong style={{ fontSize: 15, textDecoration: rule.enabled ? undefined : 'line-through' }}>{ruleTitle(rule)}</strong>
-        <span style={rule.enabled ? severityChip(rule.severity) : chip('var(--status-neutral-bg)', 'var(--status-neutral-fg)')}>
-          {rule.enabled ? SEVERITY_LABELS[rule.severity] : 'Не проверяется'}
-        </span>
-      </div>
-      <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{rule.description}</span>
-      <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{ruleBasis(rule, true)}</span>
-      {(rule.customized || rule.locked) && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {rule.locked && <span style={chip('var(--status-neutral-bg)', 'var(--status-neutral-fg)')}>🔒 Закон — не меняется</span>}
-          {rule.customized && <span style={chip('var(--status-progress-bg)', 'var(--status-progress-fg)')}>Изменено компанией</span>}
-        </div>
-      )}
+      {GROUPS.map((group) => {
+        const inGroup = rules.filter((rule) => (group.key === 'OFF' ? !rule.enabled : rule.enabled && rule.severity === group.key));
+        if (inGroup.length === 0) return null;
+        return (
+          <Section key={group.key} title={`${group.title} · ${inGroup.length}`} hint={group.hint}>
+            <List label={group.title}>
+              {inGroup.map((rule) => (
+                <Row
+                  key={rule.id}
+                  title={ruleTitle(rule)}
+                  subtitle={ruleMarks(rule)}
+                  after={rule.locked ? <Icon name="lock" size={16} label="закон" /> : undefined}
+                  onClick={() => onOpen(rule)}
+                />
+              ))}
+            </List>
+          </Section>
+        );
+      })}
     </>
   );
-  const style = {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    gap: 6,
-    width: '100%',
-    // Без border-box ширина 100% плюс отступы вылезала за экран на 28 px — появлялась прокрутка вбок, и карточки
-    // казались шире поля выбора вида (замечание Никиты, скриншот 3).
-    boxSizing: 'border-box' as const,
-    minWidth: 0,
-    overflowWrap: 'anywhere' as const,
-    textAlign: 'left' as const,
-    padding: '12px 14px',
-    borderRadius: 12,
-    border: highlighted ? '1px solid var(--status-progress-fg)' : '1px solid var(--divider-primary)',
-    background: 'var(--background-secondary)',
-    color: 'var(--text-primary)',
-    opacity: rule.enabled ? 1 : 0.7,
-    font: 'inherit',
-  };
-  return onOpen ? (
-    <button type="button" onClick={onOpen} style={{ ...style, cursor: 'pointer' }}>
-      {content}
-    </button>
-  ) : (
-    <div style={style}>{content}</div>
+}
+
+/** Вид правила и отметка «изменено» — одной короткой строкой под названием. */
+function ruleMarks(rule: CompanyRule): string {
+  return [KIND_LABELS[rule.kind], rule.customized ? 'изменено компанией' : null].filter(Boolean).join(' · ');
+}
+
+/** Для сотрудника без прав администратора: что проверяется и на каком основании — без формы. */
+function RuleDetails({ rule, onClose }: { rule: CompanyRule | null; onClose: () => void }) {
+  return (
+    <BottomSheet open={rule !== null} onClose={onClose} title={rule ? ruleTitle(rule) : ''}>
+      {rule && (
+        <div style={{ ...stackStyle, gap: 10 }}>
+          <span style={{ ...severityChip(rule.enabled ? rule.severity : 'INFO'), alignSelf: 'flex-start', whiteSpace: 'normal' }}>
+            {rule.enabled ? `${SEVERITY_LABELS[rule.severity]} — ${SEVERITY_HINTS[rule.severity].toLowerCase()}` : 'Не проверяется'}
+          </span>
+          <span style={{ fontSize: 15 }}>{rule.description}</span>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{ruleBasis(rule)}</span>
+          {rule.locked && <Notice>🔒 Требование закона одинаково для всех компаний.</Notice>}
+          <Button stretched variant="secondary" onClick={onClose}>Понятно</Button>
+        </div>
+      )}
+    </BottomSheet>
   );
 }
 

@@ -583,6 +583,12 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.status").value("CHECKED"))
                 .andExpect(jsonPath("$.issues[0].ruleId").isNumber())
                 .andExpect(jsonPath("$.issues[0].severity").value("BLOCKER"));
+        // Замечания — у каждой версии своим снимком: у прошлой их видно и после новой (#56, история версий).
+        JsonNode withIssues = json(mvc.perform(get("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versions[1].issues[0].severity").value("BLOCKER"))
+                .andReturn().getResponse().getContentAsString());
+        assertThat(withIssues.path("versions").get(1).path("issues")).isEqualTo(withIssues.path("check").path("issues"));
 
         long roleId = jdbc.queryForObject("""
                 insert into role(org_id, code, name) values (?, 'REVIEWER', 'Проверяющий') returning id

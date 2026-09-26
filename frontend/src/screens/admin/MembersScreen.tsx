@@ -4,7 +4,7 @@ import { useSession } from '../../app/SessionContext';
 import { disableMember, getMembers, getRoles, setMemberAdmin, setMemberRoles } from '../../api/admin';
 import { errorMessage } from '../../api/errors';
 import type { MemberView, RoleRef } from '../../api/types';
-import { BottomSheet, Button, ConfirmSheet, List, Muted, Row, Section, StatusBadge, Toast } from '../../ui';
+import { BottomSheet, Button, ConfirmSheet, Initials, List, Muted, Row, Section, Toast } from '../../ui';
 import { RolePicker } from '../../components/base/RolePicker';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
 import { ADMIN_BACK, AdminLoadError, roleNames } from './AdminFormParts';
@@ -168,9 +168,10 @@ export function MembersScreen() {
           return (
             <Row
               key={member.memberId}
+              before={<Initials name={member.user.fullName} />}
               title={isSelf ? `${member.user.fullName} (вы)` : member.user.fullName}
-              subtitle={roleNames(member.roles)}
-              after={member.isAdmin ? <StatusBadge meta={{ text: 'Администратор', tone: 'neutral', icon: 'company' }} /> : undefined}
+              // Права администратора — в строке ролей, как в «Компании»: метка справа сжимала имя в две строки (#56).
+              subtitle={member.isAdmin ? [roleNames(member.roles), 'администратор'].filter(Boolean).join(' · ') : roleNames(member.roles)}
               // Свои роли и права администратор не меняет (CLAUDE.md) — у своей строки нет стрелки и нажатия.
               onClick={isSelf ? undefined : () => openEdit(member)}
             />
@@ -183,7 +184,7 @@ export function MembersScreen() {
           {showExcluded ? (
             <List label="Исключённые">
               {excludedMembers.map((member) => (
-                <Row key={member.memberId} title={member.user.fullName} subtitle={roleNames(member.roles)} />
+                <Row key={member.memberId} before={<Initials name={member.user.fullName} />} title={member.user.fullName} subtitle={roleNames(member.roles)} />
               ))}
             </List>
           ) : (

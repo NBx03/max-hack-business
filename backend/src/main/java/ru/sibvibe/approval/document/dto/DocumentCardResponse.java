@@ -38,6 +38,8 @@ public record DocumentCardResponse(
     /**
      * withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась.
      * content — содержимое документа-формы, заполненного в приложении (#59); {@code null} у версии с файлом.
+     * issues — замечания проверки этой версии, снимок на момент проверки; {@code null} — версия не проверялась.
+     * Нужны, чтобы у прошлой версии было видно, с чем её отправляли (#56).
      */
     public record VersionView(
             int versionNo,
@@ -46,7 +48,8 @@ public record DocumentCardResponse(
             UserRef createdBy,
             List<FileRef> files,
             Instant withdrawnAt,
-            Map<String, String> content
+            Map<String, String> content,
+            List<ValidationIssueView> issues
     ) {}
 
     public record FileRef(

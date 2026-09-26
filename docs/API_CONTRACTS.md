@@ -304,8 +304,10 @@ type DocumentCard = {
   author: UserRef; currentVersionNo: number;
   versions: { versionNo: number; containsSensitive: boolean; createdAt: string; createdBy: UserRef; files: FileRef[];
               withdrawnAt: string | null;       // автор отозвал эту версию с согласования
-              content: Record<string,string> | null }[];   // документ-форма (#59): содержимое вместо файлов;
-                                                           // null — версия с файлом
+              content: Record<string,string> | null;   // документ-форма (#59): содержимое вместо файлов;
+                                                       // null — версия с файлом
+              issues: ValidationIssue[] | null }[];    // замечания этой версии на момент проверки;
+                                                       // null — не проверялась (#56: история версий)
   check: CheckResult | null;     // для текущей версии; null только у типа без схемы (is_generic)
   route: RouteView | null;       // null у черновика, который ещё не отправлялся
   permissions: {                 // вычисляет бэкенд — фронтенд правила не дублирует

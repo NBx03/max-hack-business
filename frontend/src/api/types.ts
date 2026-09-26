@@ -239,6 +239,8 @@ export interface DocumentVersion {
   withdrawnAt?: string | null;
   /** Содержимое документа-формы, заполненного в приложении (#59); null — версия с файлом. */
   content?: Record<string, string> | null;
+  /** Замечания этой версии на момент проверки; null — не проверялась (#56: история версий). */
+  issues?: ValidationIssue[] | null;
 }
 
 export type StepOrigin = 'TEMPLATE' | 'ADDED_BY_AUTHOR';

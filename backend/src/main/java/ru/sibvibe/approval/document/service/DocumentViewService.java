@@ -176,7 +176,10 @@ public class DocumentViewService {
                         version.getWithdrawnAt(),
                         DocumentPersistenceService.isForm(version)
                                 ? objectMapper.convertValue(version.getContent(), CONTENT)
-                                : null))
+                                : null,
+                        version.getValidationIssues() == null
+                                ? null
+                                : objectMapper.convertValue(version.getValidationIssues(), ISSUE_LIST)))
                 .toList();
         DocumentVersion current = versions.stream()
                 .filter(version -> version.getVersionNo().equals(document.getCurrentVersionNo()))
