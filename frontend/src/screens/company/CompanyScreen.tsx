@@ -13,12 +13,6 @@ import { Button, Count, Icon, InlineError, Initials, List, Muted, Page, PageHead
 import { MetricsCard } from './MetricsCard';
 import { RoutesCard } from './RoutesCard';
 
-function roleLine(roles: { name: string }[], isAdmin: boolean): string {
-  const names = roles.map((role) => role.name);
-  if (isAdmin) names.push('администратор');
-  return names.length > 0 ? names.join(', ') : 'без ролей — роли назначает администратор';
-}
-
 /**
  * «Компания» (плитка главной): кто в компании и с какими ролями, администрирование, правила, маршруты и показатели.
  * Демонстрационный режим — внизу и без акцента: он для знакомства с продуктом, а не для работы (приёмка 24.09).
@@ -70,15 +64,12 @@ export function CompanyScreen() {
         />
       }
     >
-      {actor && (
-        <List label="Вы">
-          <Row
-            before={<Initials name={actor.user.fullName} />}
-            title={inDemo ? `Вы действуете как ${actor.user.fullName}` : `${actor.user.fullName} (вы)`}
-            subtitle={roleLine(actor.roles, actor.isAdmin)}
-          />
-        </List>
-      )}
+      {/* Сначала люди — вы в том же списке, первым: раньше «Вы» стояли отдельно, а «Сотрудники · 4» показывали троих (#56). */}
+      <ColleaguesSection
+        status={colleaguesQuery.status}
+        colleagues={colleaguesQuery.status === 'ready' ? colleaguesQuery.data : []}
+        me={actor}
+      />
 
       {isAdmin && (
         <Section title="Администрирование">
@@ -95,25 +86,24 @@ export function CompanyScreen() {
         </Section>
       )}
 
-      <Section>
-        <List label="Правила проверки">
-          {/* Правила — всем: автор хочет понять, откуда замечание; администратор — подстроить под компанию (#91). */}
-          <Row
-            title="Правила проверки"
-            subtitle={isAdmin ? 'Что проверяется в документах — и настройка под компанию' : 'Что проверяется в документах и почему'}
-            onClick={() => navigate(ROUTE_PATTERNS.companyRules)}
-          />
-        </List>
+      {/* Правила и маршруты — рядом: оба отвечают на вопрос «как у нас проверяют и согласуют документы» (#56). */}
+      <Section title="Проверка и согласование">
+        <RoutesCard
+          // Маршруты хранятся в состоянии карточки (их меняет администратор) — пересоздаём, когда загрузились.
+          key={routesQuery.status}
+          routes={routesQuery.status === 'ready' ? routesQuery.data[0] : []}
+          types={routesQuery.status === 'ready' ? routesQuery.data[1] : []}
+          isAdmin={isAdmin}
+          before={
+            // Правила — всем: автор хочет понять, откуда замечание; администратор — подстроить под компанию (#91).
+            <Row
+              title="Правила проверки"
+              subtitle={isAdmin ? 'Что проверяется — и настройка под компанию' : 'Что проверяется в документах и почему'}
+              onClick={() => navigate(ROUTE_PATTERNS.companyRules)}
+            />
+          }
+        />
       </Section>
-
-      <ColleaguesSection
-        status={colleaguesQuery.status}
-        colleagues={colleaguesQuery.status === 'ready' ? colleaguesQuery.data : []}
-        currentUserId={actor?.user.id}
-      />
-
-      {/* Второстепенные блоки: при ошибке просто не показываем, раздел не должен выглядеть сломанным. */}
-      {routesQuery.status === 'ready' && <RoutesCard routes={routesQuery.data[0]} types={routesQuery.data[1]} isAdmin={isAdmin} />}
 
       {metricsQuery.status === 'ready' && <MetricsCard metrics={metricsQuery.data} />}
 
@@ -151,7 +141,7 @@ export function CompanyScreen() {
             <>
               <Muted>Компания с вымышленными сотрудниками — пройти согласование за каждого.</Muted>
               <Button stretched loading={demo.busy} onClick={() => void demo.open()}>
-                {demo.hasSandbox ? 'Продолжить демонстрацию' : 'Открыть демонстрацию'}
+                Посмотреть демонстрацию
               </Button>
               {demo.error && <InlineError>{demo.error}</InlineError>}
             </>
@@ -162,47 +152,59 @@ export function CompanyScreen() {
   );
 }
 
-/** Сколько сотрудников видно сразу: дальше — «Показать всех», чтобы раздел не превращался в простыню. */
+/** Сколько человек видно сразу: дальше — «Показать всех», чтобы раздел не превращался в простыню. */
 const COLLEAGUES_PREVIEW = 5;
 
+type Me = { user: { id: number; fullName: string }; roles: { name: string }[]; isAdmin: boolean } | null;
+
 /**
- * Сотрудники: инициалы, имя, роли одной короткой строкой (замечание Ильи, #56: было слишком много текста).
- * Себя в списке нет — «Вы» показаны блоком выше.
+ * Сотрудники: вы — первым, в том же списке, остальные — по порядку (#56: «Сотрудники · 4» над тремя строками читалось
+ * как ошибка). У каждого — инициалы, имя и роли одной строкой.
  */
 function ColleaguesSection({
   status,
   colleagues,
-  currentUserId,
+  me,
 }: {
   status: 'loading' | 'ready' | 'error';
   colleagues: MemberView[];
-  currentUserId: number | undefined;
+  me: Me;
 }) {
   const [showAll, setShowAll] = useState(false);
   if (status === 'error') return null;
-  const others = colleagues.filter((colleague) => colleague.user.id !== currentUserId);
-  const visible = showAll ? others : others.slice(0, COLLEAGUES_PREVIEW);
+  // Себя берём из /me: в демо «вы» — участник песочницы, от имени которого идёт работа.
+  const others = colleagues.filter((colleague) => colleague.user.id !== me?.user.id);
+  const people = [
+    ...(me ? [{ key: 'me', name: me.user.fullName, title: `${me.user.fullName} (вы)`, roles: me.roles, isAdmin: me.isAdmin }] : []),
+    ...others.map((colleague) => ({
+      key: String(colleague.memberId),
+      name: colleague.user.fullName,
+      title: colleague.user.fullName,
+      roles: colleague.roles,
+      isAdmin: colleague.isAdmin,
+    })),
+  ];
+  const visible = showAll ? people : people.slice(0, COLLEAGUES_PREVIEW);
   return (
-    <Section title={`Сотрудники${status === 'ready' ? ` · ${colleagues.length}` : ''}`}>
+    <Section title={`Сотрудники${status === 'ready' ? ` · ${people.length}` : ''}`}>
       {status === 'loading' ? (
         <Muted>Загружаем список сотрудников…</Muted>
-      ) : others.length === 0 ? (
-        <Muted>Пока в компании только вы. Пригласить сотрудников может администратор.</Muted>
       ) : (
         <>
           <List label="Сотрудники">
-            {visible.map((colleague) => (
+            {visible.map((person) => (
               <Row
-                key={colleague.memberId}
-                before={<Initials name={colleague.user.fullName} />}
-                title={colleague.user.fullName}
-                subtitle={shortRoleLine(colleague.roles, colleague.isAdmin)}
+                key={person.key}
+                before={<Initials name={person.name} />}
+                title={person.title}
+                subtitle={shortRoleLine(person.roles, person.isAdmin)}
               />
             ))}
           </List>
-          {others.length > COLLEAGUES_PREVIEW && (
+          {others.length === 0 && <Muted>Пока в компании только вы.</Muted>}
+          {people.length > COLLEAGUES_PREVIEW && (
             <button type="button" className="ds-link-toggle" aria-expanded={showAll} onClick={() => setShowAll((open) => !open)}>
-              {showAll ? 'Свернуть' : `Показать всех (${others.length})`}
+              {showAll ? 'Свернуть' : `Показать всех (${people.length})`}
               <span style={{ display: 'inline-flex', transform: showAll ? 'rotate(180deg)' : undefined }}>
                 <Icon name="chevronDown" size={16} />
               </span>

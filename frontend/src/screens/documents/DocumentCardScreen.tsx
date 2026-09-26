@@ -18,6 +18,8 @@ import { downloadFile } from '../../max/webApp';
 import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath } from '../../routes/paths';
 import { recognizedKindOf } from './documentKind';
 import { RecognizedKind } from './RecognizedKind';
+import { VersionHistory } from './VersionHistory';
+import { personMeta } from './versionOutcome';
 import {
   AccessErrorState,
   BottomSheet,
@@ -42,8 +44,6 @@ import {
   Toast,
   documentStatusMeta,
   formatFileSize,
-  stepDecisionMeta,
-  type StatusMeta,
   type TimelineItem,
   type TimelineState,
 } from '../../ui';
@@ -79,19 +79,6 @@ function findStep(route: RouteView | null, stepId: number): StepView | null {
   return route.stages.flatMap((stage) => stage.steps).find((step) => step.id === stepId) ?? null;
 }
 
-/** Решение человека словом и значком; у утверждающего — «Утверждено» / «Ждёт утверждения» (D4). */
-function personMeta(step: StepView): StatusMeta {
-  if (step.kind === 'ENDORSEMENT' && step.decision === 'APPROVED' && step.autoReason === 'CARRIED_OVER') {
-    return { text: 'Утверждено ранее', tone: 'success', icon: 'endorse' };
-  }
-  if (step.kind === 'ENDORSEMENT' && step.decision === 'APPROVED' && !step.autoReason) {
-    return { text: 'Утверждено', tone: 'success', icon: 'endorse' };
-  }
-  if (step.kind === 'ENDORSEMENT' && step.decision === 'PENDING') {
-    return { text: 'Ждёт утверждения', tone: 'endorse', icon: 'clock' };
-  }
-  return stepDecisionMeta(step.decision, step.autoReason);
-}
 
 /**
  * Состояние этапа — по решениям людей, а не по признаку «ожидающих не осталось» (ревью #111): после отзыва, возврата или
@@ -198,12 +185,12 @@ export function DocumentCardScreen() {
   const location = useLocation();
 
   const query = useAsync(() => getDocument(documentId), [documentId]);
-  // Подписи полей нужны только документу-форме (#59): вместо файлов карточка показывает саму записку.
+  // Подписи полей — документу-форме (#59) и замечаниям в истории версий (#56).
   const formContent = query.status === 'ready'
     ? query.data.versions.find((version) => version.versionNo === query.data.currentVersionNo)?.content ?? null
     : null;
   const isForm = formContent !== null;
-  const types = useAsync(() => (isForm ? getDocumentTypes() : Promise.resolve([])), [isForm]);
+  const types = useAsync(() => getDocumentTypes(), []);
 
   const [toast, setToast] = useState<string | null>((location.state as { toast?: string } | null)?.toast ?? null);
   // Куда «назад»: в список, из которого открыли карточку, иначе (уведомление бота, ссылка) — на главную.
@@ -537,7 +524,13 @@ export function DocumentCardScreen() {
         />
       )}
 
-      <HistoryAndVersions doc={doc} />
+      <VersionHistory
+        doc={doc}
+        labelOf={(name) =>
+          (types.status === 'ready' ? types.data.find((type) => type.id === doc.type.id)?.fields.find((field) => field.name === name)?.label : undefined) ?? name}
+        onDownload={(file) => void download(file)}
+        onOpenCheck={() => navigate(documentCheckPath(doc.id))}
+      />
 
       {/* DOC-4: редкое и необратимое действие — в конце карточки, тихой кнопкой, не рядом с главным. */}
       {canDelete && (
@@ -724,48 +717,5 @@ function CheckSummary({
         onClick={onOpen}
       />
     </List>
-  );
-}
-
-function HistoryAndVersions({ doc }: { doc: DocumentCard }) {
-  // Решения прошлых версий (текущая — на таймлайне выше) и все версии документа.
-  const previous = doc.route
-    ? doc.route.history.filter((step) => step.decision !== 'PENDING' && step.versionNo !== doc.currentVersionNo)
-    : [];
-  const sorted = previous.slice().sort((a, b) => (b.decidedAt ?? '').localeCompare(a.decidedAt ?? ''));
-
-  return (
-    <>
-      {sorted.length > 0 && (
-        <Section title="Решения по прошлым версиям">
-          <List label="Решения по прошлым версиям">
-            {sorted.map((step) => (
-              <Row
-                key={step.id}
-                title={`${step.approver.fullName} · версия ${step.versionNo}`}
-                subtitle={[step.role.name, step.decidedAt ? formatDateTime(step.decidedAt) : null, step.comment ? `«${step.comment}»` : null]
-                  .filter(Boolean)
-                  .join(' · ')}
-                after={<StatusBadge meta={personMeta(step)} />}
-              />
-            ))}
-          </List>
-        </Section>
-      )}
-      <Section title="Версии">
-        <List label="Версии">
-          {doc.versions
-            .slice()
-            .reverse()
-            .map((version) => (
-              <Row
-                key={version.versionNo}
-                title={`Версия ${version.versionNo}${version.versionNo === doc.currentVersionNo ? ' · текущая' : ''}`}
-                subtitle={`${formatDateTime(version.createdAt)} · ${version.createdBy.fullName}`}
-              />
-            ))}
-        </List>
-      </Section>
-    </>
   );
 }

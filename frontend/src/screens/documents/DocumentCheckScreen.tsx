@@ -18,12 +18,8 @@ import type {
   DocumentCard,
   DocumentType,
   DocumentTypeField,
-  RuleKind,
-  Severity,
-  ValidationIssue,
 } from '../../api/types';
 import {
-  AiExplainer,
   AiLegend,
   AiMark,
   BottomSheet,
@@ -31,34 +27,22 @@ import {
   scrollScreenToTop,
   ErrorState,
   SelectField,
-  StatusBadge,
   Stepper,
-  type StatusMeta,
 } from '../../ui';
 import { companyRulesPath, documentCardPath, documentNewVersionPath, routePreviewPath } from '../../routes/paths';
 import { applyCorrection, changedFields, formContentOf, sameValue, saveAsNewVersion, type CorrectionApi } from './fieldCorrection';
 import { useSession } from '../../app/SessionContext';
+import { IssueList } from './IssueList';
 import { CREATE_STEPS } from './uploadFormats';
 import { isOutsideTemplates, recognizedKindOf } from './documentKind';
-import { KIND_LABELS, SEVERITY_LABELS as RULE_SEVERITY_LABELS } from '../company/ruleText';
 import {
   DocumentScreen,
   FieldInputs,
   LoadingState,
   Notice,
-  linkStyle,
   sectionStyle,
   stackStyle,
 } from './DocumentFormParts';
-
-// Те же слова, что в «Правилах проверки»: «Совет», а не «Подсказка» (#91).
-const SEVERITY_LABELS: Record<Severity, string> = RULE_SEVERITY_LABELS;
-
-/**
- * Подпись к источнику замечания — тот же словарь, что на экране «Правила проверки» (ревью #103, п. 6):
- * «Закон», «Правило компании» (ГОСТ, принятый в компании, или её свой документ), «Рекомендация сервиса».
- */
-const BASIS_LABELS: Record<RuleKind, string> = KIND_LABELS;
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const OLD_WORD = 'application/msword';
@@ -96,20 +80,6 @@ function fieldDefinitions(type: DocumentType | undefined, check: CheckResult | n
   return check?.fields.map((field) => ({ name: field.name, type: 'STRING', label: field.name, hint: '' })) ?? [];
 }
 
-/** Важность замечания — тон палитры, значок и слово (DOC-3): не только цвет. */
-function severityMeta(severity: Severity): StatusMeta {
-  if (severity === 'BLOCKER') return { text: SEVERITY_LABELS[severity], tone: 'danger', icon: 'alert' };
-  if (severity === 'WARNING') return { text: SEVERITY_LABELS[severity], tone: 'warning', icon: 'alert' };
-  return { text: SEVERITY_LABELS[severity], tone: 'neutral', icon: 'info' };
-}
-
-const SEVERITY_ORDER: Record<Severity, number> = { BLOCKER: 0, WARNING: 1, INFO: 2 };
-
-/** Сначала то, что мешает отправке, потом предупреждения и подсказки. */
-function sortIssues(issues: ValidationIssue[]): ValidationIssue[] {
-  return [...issues].sort((left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity]);
-}
-
 /** Откуда значение поля: из текста документа (с цитатой) или указано вручную, и что тогда в файле. */
 function fieldOrigin(field: CheckField, modelAvailable: boolean): string | null {
   if (field.source === 'MANUAL' && field.fileValue === '') {
@@ -127,7 +97,8 @@ function fieldOrigin(field: CheckField, modelAvailable: boolean): string | null 
   if (field.quote && field.quote !== field.value) {
     return `Из текста документа: «${field.quote}»${field.page ? `, стр. ${field.page}` : ''}`;
   }
-  return field.page ? `Из текста документа, стр. ${field.page}` : 'Из текста документа';
+  // «Из текста документа» под каждым полем повторяло ✦ рядом со значением (#56): подпись — только когда она что-то добавляет.
+  return field.page ? `Из текста документа, стр. ${field.page}` : null;
 }
 
 type CorrectionNotice = {
@@ -533,64 +504,17 @@ export function DocumentCheckScreen() {
         {!check || check.issues.length === 0 ? (
           <Notice tone="success">Замечаний нет</Notice>
         ) : (
-          <div style={{ ...stackStyle, gap: 12 }}>
-            {sortIssues(check.issues).map((issue) => (
-              // Без цветных полос слева (DOC-3, принцип 8): важность — меткой со значком и словом.
-              <article
-                key={`${issue.ruleId}:${issue.fieldName}`}
-                style={{
-                  ...stackStyle,
-                  gap: 8,
-                  padding: 12,
-                  borderRadius: 'var(--ds-radius-m)',
-                  background: 'var(--background-primary)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <StatusBadge meta={severityMeta(issue.severity)} />
-                  <strong>{labels.get(issue.fieldName) ?? issue.fieldName}</strong>
-                </div>
-                <Typography.Text>{issue.message}</Typography.Text>
-                {/* «Рекомендация сервиса» у всех рекомендаций одинакова — её не повторяем; основание показываем
-                    только у закона и правила компании. */}
-                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                  {issue.kind !== 'PRODUCT_RULE' && <span>{BASIS_LABELS[issue.kind]}: </span>}
-                  {issue.kind === 'PRODUCT_RULE' ? null : issue.sourceUrl ? (
-                    <a href={issue.sourceUrl} target="_blank" rel="noreferrer" style={linkStyle}>{issue.sourceTitle}</a>
-                  ) : (
-                    <span>{issue.sourceTitle}</span>
-                  )}
-                  {issue.kind !== 'PRODUCT_RULE' && issue.sourceRef && <span> · {issue.sourceRef}</span>}
-                  {isAdmin && (
-                    <>
-                      {issue.kind !== 'PRODUCT_RULE' && ' · '}
-                      <button
-                        type="button"
-                        onClick={() => navigate(companyRulesPath(issue.ruleId))}
-                        style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'var(--text-themed)', cursor: 'pointer' }}
-                      >
-                        Настроить правило
-                      </button>
-                    </>
-                  )}
-                </div>
-                {issue.quote && (
-                  <blockquote style={{ margin: 0, padding: '8px 12px', borderRadius: 'var(--ds-radius-s)', background: 'var(--ds-surface)', color: 'var(--text-secondary)' }}>
-                    «{issue.quote}»{issue.page !== null ? `, стр. ${issue.page}` : ''}
-                  </blockquote>
-                )}
-              </article>
-            ))}
-          </div>
+          <IssueList
+            issues={check.issues}
+            labelOf={(name) => labels.get(name) ?? name}
+            onConfigure={isAdmin ? (ruleId) => navigate(companyRulesPath(ruleId)) : undefined}
+          />
         )}
       </section>
 
       <section ref={fieldsRef} style={{ ...sectionStyle, scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <Typography.Headline variant="medium">Данные документа</Typography.Headline>
-            {hasAiFields && !editing && <AiExplainer />}
-          </span>
+          <Typography.Headline variant="medium">Данные документа</Typography.Headline>
           {canEdit && !editing && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
               <Button compact variant={mustFix || isReturned ? 'primary' : 'secondary'} onClick={startEditing}>Изменить</Button>

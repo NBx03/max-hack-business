@@ -1292,3 +1292,59 @@ button.ds-row:active {
   font-size: var(--ds-text-xs);
   font-weight: 600;
 }
+
+/* ---------- Легенда ✦ — кнопка «Что это?» (#56) ---------- */
+
+.ds-ai-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  width: 100%;
+  min-height: var(--ds-tap);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--ds-text-s);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-ai-legend__text {
+  color: var(--text-secondary);
+}
+
+.ds-ai-legend__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--text-themed);
+  font-weight: 600;
+}
+
+/* ---------- Замечание проверки (#56) ---------- */
+
+.ds-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--ds-radius-m);
+  background: var(--background-primary);
+  overflow-wrap: anywhere;
+}
+
+.ds-issue__quote {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-surface);
+  color: var(--text-secondary);
+}
+
+.ds-link-toggle--small {
+  min-height: 32px;
+  font-size: var(--ds-text-xs);
+}

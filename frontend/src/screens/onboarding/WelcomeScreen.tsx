@@ -42,7 +42,8 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
           </Button>
           {me?.demoMode && (
             <Button variant="ghost" stretched loading={demo.busy} onClick={() => void demo.open()}>
-              {demo.hasSandbox ? 'Продолжить демонстрацию' : 'Посмотреть демонстрацию'}
+              {/* Одно название всегда: «Продолжить» ставило в тупик того, кто открыл приложение впервые (#56). */}
+              Посмотреть демонстрацию
             </Button>
           )}
           {demo.error && <ErrorText>{demo.error}</ErrorText>}
@@ -80,6 +81,7 @@ export function WelcomeScreen({ onCreate, onJoin }: { onCreate: () => void; onJo
       {me?.demoMode && (
         <span style={{ fontSize: 14, lineHeight: '20px', color: 'var(--text-tertiary)', marginTop: 'auto' }}>
           Демонстрация — компания с вымышленными сотрудниками, чтобы попробовать сервис.
+          {demo.hasSandbox && ' Ваши действия в ней сохраняются.'}
         </span>
       )}
     </OnboardingLayout>
