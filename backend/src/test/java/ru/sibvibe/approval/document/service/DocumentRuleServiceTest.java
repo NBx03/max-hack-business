@@ -28,7 +28,7 @@ import static org.mockito.Mockito.when;
 class DocumentRuleServiceTest {
 
     @Test
-    void passesExplicitMoscowBusinessDateAndManualValuesToRuleEngine() {
+    void passesExplicitBusinessDateAndManualValuesToRuleEngine() {
         RuleEngine engine = mock(RuleEngine.class);
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class),
@@ -62,6 +62,28 @@ class DocumentRuleServiceTest {
             assertThat(value.value()).isEqualTo("2026-09-21");
             assertThat(value.source()).isEqualTo("MANUAL");
         });
+    }
+
+    /** 01:40 в Новосибирске, в Москве ещё вчера: сегодняшняя дата не должна считаться будущей (#56, аудит 27.09). */
+    @Test
+    void todayEastOfMoscowIsNotInTheFuture() {
+        RuleEngine engine = mock(RuleEngine.class);
+        var service = new DocumentRuleService(
+                mock(DocumentTypeRepository.class),
+                mock(DocumentTypeFieldRepository.class),
+                mock(RuleCatalogService.class),
+                engine,
+                Clock.fixed(Instant.parse("2026-09-26T18:40:00Z"), ZoneOffset.UTC));
+        DocumentType type = new DocumentType();
+        type.setCode("MEMO");
+        when(engine.validate(any(), any(), any())).thenReturn(List.of());
+
+        service.execute(new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of()));
+
+        ArgumentCaptor<RuleEngine.ValidationContext> context =
+                ArgumentCaptor.forClass(RuleEngine.ValidationContext.class);
+        verify(engine).validate(any(), any(), context.capture());
+        assertThat(context.getValue().referenceDate()).isEqualTo(LocalDate.of(2026, 9, 27));
     }
 
     /** Правка «без изменения файла», перенесённая в новую версию, сохраняет значение из файла. */

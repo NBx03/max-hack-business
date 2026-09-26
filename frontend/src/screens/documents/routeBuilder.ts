@@ -261,6 +261,15 @@ export function moveStage(state: BuilderState, index: number, delta: -1 | 1): Bu
  * а не отвечала ошибкой после нажатия (ревью #111, п. 4): пустой маршрут, когда согласовать есть кому, и обязательная
  * роль, которой в маршруте ни у кого нет (например, её носитель ушёл из компании, а маршрут взят с прошлой версии).
  */
+/**
+ * Без согласующего маршрут не отправить: никого нет (ни этапов, ни утверждающего), шага автора нет, а коллеги с ролями
+ * есть — то же условие, что на сервере. Тогда пустой маршрут — карточка «Этап 1» с «+ Согласующий»; иначе добавлять
+ * необязательно, и на её месте пунктирная зона, как у «Нового этапа» (#56, аудит 27.09).
+ */
+export function needsApprover(state: BuilderState, context: BuilderContext): boolean {
+  return allSlots(state).length === 0 && context.authorRoles.length === 0 && context.colleagues.length > 0;
+}
+
 export function problemsOf(state: BuilderState, context: BuilderContext): string[] {
   const problems: string[] = [];
   const slots = allSlots(state);
@@ -275,7 +284,7 @@ export function problemsOf(state: BuilderState, context: BuilderContext): string
   if (nobody.length > 0) {
     problems.push(`Нет сотрудника с ролью ${nobody.map((slot) => `«${slot.roleName}»`).join(', ')} — попросите администратора назначить её или сделать необязательной`);
   }
-  if (slots.length === 0 && context.authorRoles.length === 0 && context.colleagues.length > 0) {
+  if (needsApprover(state, context)) {
     problems.push('Добавьте хотя бы одного согласующего');
   }
   // Обязательная роль закрыта, если в маршруте есть кто угодно с ней (D6), в том числе стоящий под другой ролью.
