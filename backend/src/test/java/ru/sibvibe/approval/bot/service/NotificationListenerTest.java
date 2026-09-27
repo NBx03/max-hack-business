@@ -98,7 +98,9 @@ class NotificationListenerTest {
 
         listener.on(new MemberJoinedByLinkEvent(1L, 42L, 9L, 5L));
 
-        verify(notifier).send(eq(910000005L), contains("Новый Сотрудник"), anyString(), any());
+        // Точный текст: без глагола с родом («вступил(а)») — пол человека неизвестен (#56, ревью #123, п. 3).
+        verify(notifier).send(eq(910000005L),
+                eq("По вашей личной ссылке в компании новый сотрудник: Новый Сотрудник."), anyString(), any());
     }
 
     @Test

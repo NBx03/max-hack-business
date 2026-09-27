@@ -1,4 +1,3 @@
-import { Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTE_PATTERNS } from '../../routes/paths';
@@ -13,10 +12,10 @@ import {
 } from '../../api/admin';
 import { errorMessage } from '../../api/errors';
 import type { InviteCodeInfo, PersonalInviteView, RoleRef } from '../../api/types';
-import { BottomSheet, ConfirmSheet, Button, Icon, Toast } from '../../ui';
+import { BottomSheet, Button, ButtonRow, Card, ConfirmSheet, List, Row, Section, Toast } from '../../ui';
 import { RolePicker } from '../../components/base/RolePicker';
 import { copyToClipboard, shareOrCopy } from '../../lib/share';
-import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
+import { DocumentScreen as AdminScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
 import { ADMIN_BACK, AdminLoadError, formatTimeLeft, roleNames } from './AdminFormParts';
 import { onlyAdminLeft } from './memberChanges';
 
@@ -46,9 +45,13 @@ export function InviteScreen() {
   // «Поделиться», а не закрывается сразу (SCREENS.md: «→ ссылка и «Поделиться»»; PR #72, №7).
   const [createdInvite, setCreatedInvite] = useState<PersonalInviteView | null>(null);
 
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Ошибка — там, где её причина (ревью #123, п. 2): у кода на экране, у перевыпуска — в его подтверждении, у действий
+  // с личной ссылкой — в её листе. Каждое действие и открытие листа сбрасывает прежнюю ошибку.
+  const [screenError, setScreenError] = useState<string | null>(null);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [sheetError, setSheetError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [invitesOpen, setInvitesOpen] = useState(false);
+  const [openedInvite, setOpenedInvite] = useState<PersonalInviteView | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,18 +79,27 @@ export function InviteScreen() {
     void load();
   }, [load]);
 
-  async function share(url: string, label: string) {
+  /** inSheet — делятся личной ссылкой из её листа: ошибку показать там же, а не под листом. */
+  async function share(url: string, label: string, inSheet: boolean) {
+    const setError = inSheet ? setSheetError : setScreenError;
+    setError(null);
     const result = await shareOrCopy(url, label);
     if (result === 'copied') setToast('Ссылка скопирована');
-    if (result === 'failed') setActionError('Не удалось поделиться ссылкой');
+    if (result === 'failed') setError('Не удалось поделиться ссылкой');
+  }
+
+  function openInvite(invite: PersonalInviteView) {
+    setSheetError(null);
+    setOpenedInvite(invite);
   }
 
   async function copyCode() {
     if (!code) return;
+    setScreenError(null);
     if (await copyToClipboard(code.code)) {
       setToast('Код скопирован');
     } else {
-      setActionError('Не удалось скопировать код');
+      setScreenError('Не удалось скопировать код');
     }
   }
 
@@ -95,13 +107,13 @@ export function InviteScreen() {
     // ConfirmSheet не блокирует свою кнопку по loading - защита от повторного тапа здесь.
     if (regenerating) return;
     setRegenerating(true);
-    setActionError(null);
+    setRegenerateError(null);
     try {
       setCode(await regenerateInviteCode());
       setConfirmRegenerate(false);
       setToast('Код перевыпущен');
     } catch (error) {
-      setActionError(errorMessage(error));
+      setRegenerateError(errorMessage(error));
     } finally {
       setRegenerating(false);
     }
@@ -111,6 +123,7 @@ export function InviteScreen() {
     if (newRoleIds.length === 0) return;
     setCreating(true);
     setCreateError(null);
+    setSheetError(null);
     try {
       const created = await createPersonalInvite(newRoleIds);
       setPersonalInvites((current) => [created, ...(current ?? [])]);
@@ -127,16 +140,18 @@ export function InviteScreen() {
     setCreateOpen(false);
     setCreatedInvite(null);
     setCreateError(null);
+    setSheetError(null);
   }
 
   async function revoke(invite: PersonalInviteView) {
-    setActionError(null);
+    setSheetError(null);
     try {
       await revokePersonalInvite(invite.id);
       setPersonalInvites((current) => (current ?? []).filter((item) => item.id !== invite.id));
+      setOpenedInvite(null);
       setToast('Ссылка отозвана');
     } catch (error) {
-      setActionError(errorMessage(error));
+      setSheetError(errorMessage(error));
     }
   }
 
@@ -161,118 +176,73 @@ export function InviteScreen() {
         </Button>
       ) : undefined}
     >
-      <div style={{ ...stackStyle, marginTop: 4 }}>
-        {soloAdmin && (
-          <Notice>
-            Перешлите сотрудникам код или ссылку. Пока их нет, за директора согласуете вы — автоматически.
-          </Notice>
-        )}
+      {soloAdmin && (
+        <Notice>
+          Перешлите сотрудникам код или ссылку. Пока их нет, за директора согласуете вы — автоматически.
+        </Notice>
+      )}
 
-        <section style={sectionStyle}>
-          <Typography.Headline variant="medium">Код компании</Typography.Headline>
-          <Typography.Display style={{ letterSpacing: 2 }}>{code.code}</Typography.Display>
-          <Typography.Text style={{ color: 'var(--text-tertiary)', overflowWrap: 'anywhere' }}>
-            {code.link}
-          </Typography.Text>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <Button variant="primary" stretched onClick={() => void share(code.link, 'Приглашение в компанию')}>Поделиться</Button>
-            </div>
-            <div style={{ flex: 1 }}>
-              <Button stretched variant="secondary" onClick={() => void copyCode()}>Скопировать код</Button>
-            </div>
-          </div>
-          <Button variant="secondary" onClick={() => setConfirmRegenerate(true)}>Перевыпустить код</Button>
-        </section>
+      {/* Типографика и группы — как в «Компании» и «Участниках»: заголовок раздела над плашкой, а не крупный
+          заголовок внутри неё (#56, аудит 27.09). */}
+      <Section title="Код компании" hint="Для рабочего чата: по коду подают заявку, вы её принимаете">
+        <Card>
+          <span className="ds-invite-code">{code.code}</span>
+          <span className="ds-invite-link">{code.link}</span>
+          <ButtonRow>
+            <Button variant="primary" onClick={() => void share(code.link, 'Приглашение в компанию', false)}>Поделиться</Button>
+            <Button variant="secondary" onClick={() => void copyCode()}>Скопировать код</Button>
+          </ButtonRow>
+        </Card>
+        <Button variant="ghost" compact onClick={() => setConfirmRegenerate(true)}>Перевыпустить код</Button>
+      </Section>
 
-        {actionError && <Notice tone="danger">{actionError}</Notice>}
+      {screenError && <Notice tone="danger">{screenError}</Notice>}
 
-        {personalInvites !== null && (
-          <section style={sectionStyle}>
-            {/* Заголовок и кнопка в одну строку на телефоне не помещались: кнопка обрезалась
-                до «Создать сс…» (тест 23.09). Столбиком, с пояснением, что это за ссылка. */}
-            <div style={{ ...stackStyle, gap: 6 }}>
-              <Typography.Headline variant="medium">Личные приглашения</Typography.Headline>
-              <Typography.Text style={{ color: 'var(--text-secondary)' }}>
-                Одноразовая ссылка на 72 часа с заранее выбранными ролями — человек вступит без заявки.
-              </Typography.Text>
-            </div>
-            <Button variant="secondary" onClick={() => setCreateOpen(true)} disabled={roles.length === 0}>
-              Создать личную ссылку
-            </Button>
-            {personalInvites.length === 0 ? (
-              <Typography.Text style={{ color: 'var(--text-tertiary)' }}>
-                Активных личных ссылок нет.
-              </Typography.Text>
-            ) : (
-              // Список свёрнут: пять одинаковых карточек с длинными адресами выглядели как спам (замечание Ильи, #56).
-              // Адрес не показываем — «Поделиться» отправляет или копирует его сам.
-              <div style={stackStyle}>
-                <button
-                  type="button"
-                  className="ds-link-toggle"
-                  aria-expanded={invitesOpen}
-                  onClick={() => setInvitesOpen((open) => !open)}
-                >
-                  {invitesOpen ? 'Скрыть' : 'Показать'} неиспользованные ссылки ({personalInvites.length})
-                  <span style={{ display: 'inline-flex', transform: invitesOpen ? 'rotate(180deg)' : undefined }}>
-                    <Icon name="chevronDown" size={16} />
-                  </span>
-                </button>
-                {invitesOpen && personalInvites.map((invite) => (
-                  <div
-                    key={invite.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                      padding: '8px 0',
-                      borderTop: '1px solid var(--divider-primary)',
-                    }}
-                  >
-                    <div style={{ flex: '1 1 140px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <strong>{roleNames(invite.roles)}</strong>
-                      <span style={{ fontSize: 'var(--ds-text-xs)', color: 'var(--text-tertiary)' }}>
-                        {upperFirst(formatTimeLeft(invite.expiresAt))}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <Button compact variant="secondary" onClick={() => void share(invite.link, 'Личное приглашение в компанию')}>
-                        Поделиться
-                      </Button>
-                      <Button compact variant="ghost" onClick={() => void revoke(invite)}>Отозвать</Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-      </div>
+      {personalInvites !== null && (
+        <Section title="Личные ссылки" hint="Одноразовые, на 72 часа, роли выбраны заранее — вступают без заявки">
+          <Button variant="secondary" icon="plus" onClick={() => setCreateOpen(true)} disabled={roles.length === 0}>
+            Создать личную ссылку
+          </Button>
+          {personalInvites.length > 0 && (
+            // Строка — роли и срок; «Поделиться» и «Отозвать» — в листе по нажатию, как у сотрудника в «Участниках»:
+            // две кнопки в каждой строке на 360 px сжимали роли в столбик (замечание Ильи про «спам» ссылок, #56).
+            <List label="Неиспользованные личные ссылки">
+              {personalInvites.map((invite) => (
+                <Row
+                  key={invite.id}
+                  title={roleNames(invite.roles)}
+                  subtitle={upperFirst(formatTimeLeft(invite.expiresAt))}
+                  onClick={() => openInvite(invite)}
+                />
+              ))}
+            </List>
+          )}
+        </Section>
+      )}
 
       <ConfirmSheet
         open={confirmRegenerate}
-        onClose={() => setConfirmRegenerate(false)}
+        onClose={() => {
+          setConfirmRegenerate(false);
+          setRegenerateError(null);
+        }}
         title="Перевыпустить код?"
         description="Старый код перестанет работать. Уже поданные заявки останутся."
         confirmLabel="Перевыпустить"
         busy={regenerating}
+        error={regenerateError}
         onConfirm={() => void regenerate()}
       />
 
       <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка" dismissible={!creating}>
         {createdInvite ? (
-          <div style={stackStyle}>
-            <Notice tone="success">Ссылка создана: {roleNames(createdInvite.roles)}</Notice>
-            <Typography.Text style={{ overflowWrap: 'anywhere', color: 'var(--text-tertiary)' }}>
-              {createdInvite.link}
-            </Typography.Text>
-            <Button variant="primary" stretched onClick={() => void share(createdInvite.link, 'Личное приглашение в компанию')}>
-              Поделиться
-            </Button>
-            <Button stretched variant="secondary" onClick={closeCreateSheet}>Готово</Button>
-          </div>
+          <InviteActions
+            invite={createdInvite}
+            created
+            onShare={() => void share(createdInvite.link, 'Личное приглашение в компанию', true)}
+            onDone={closeCreateSheet}
+            error={sheetError}
+          />
         ) : (
           <div style={stackStyle}>
             <RolePicker roles={roles} selectedRoleIds={newRoleIds} onChange={setNewRoleIds} disabled={creating} />
@@ -291,7 +261,49 @@ export function InviteScreen() {
         )}
       </BottomSheet>
 
+      <BottomSheet open={openedInvite !== null} onClose={() => { setOpenedInvite(null); setSheetError(null); }} title="Личная ссылка">
+        {openedInvite && (
+          <InviteActions
+            invite={openedInvite}
+            onShare={() => void share(openedInvite.link, 'Личное приглашение в компанию', true)}
+            onRevoke={() => void revoke(openedInvite)}
+            error={sheetError}
+          />
+        )}
+      </BottomSheet>
+
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </AdminScreen>
+  );
+}
+
+/** Лист одной личной ссылки: кому она (роли) и сколько живёт, «Поделиться»; только что созданной — «Готово». */
+function InviteActions({
+  invite,
+  created,
+  onShare,
+  onRevoke,
+  onDone,
+  error,
+}: {
+  invite: PersonalInviteView;
+  error?: string | null;
+  created?: boolean;
+  onShare: () => void;
+  onRevoke?: () => void;
+  onDone?: () => void;
+}) {
+  return (
+    <div style={stackStyle}>
+      {created && <Notice tone="success">Ссылка создана</Notice>}
+      <List>
+        <Row title={roleNames(invite.roles)} subtitle={upperFirst(formatTimeLeft(invite.expiresAt))} />
+      </List>
+      <span className="ds-invite-link">{invite.link}</span>
+      {error && <Notice tone="danger">{error}</Notice>}
+      <Button variant="primary" stretched onClick={onShare}>Поделиться</Button>
+      {onRevoke && <Button variant="danger" stretched onClick={onRevoke}>Отозвать ссылку</Button>}
+      {onDone && <Button variant="secondary" stretched onClick={onDone}>Готово</Button>}
+    </div>
   );
 }

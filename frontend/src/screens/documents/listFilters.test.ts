@@ -9,10 +9,25 @@ describe('фильтры списков (NAV-3, ревью #110)', () => {
     ]);
   });
 
-  it('«ждёт» — с сегодня или N дней', () => {
+  it('«пришёл сегодня», «пришёл вчера», «ждёт N дней» — по календарным дням', () => {
     const now = new Date('2026-09-26T12:00:00Z').getTime();
-    expect(waitingText('2026-09-26T08:00:00Z', now)).toBe('ждёт с сегодня');
-    expect(waitingText('2026-09-23T08:00:00Z', now)).toBe('ждёт 3 дня');
+    expect(waitingText('2026-09-26T08:00:00Z', 'Europe/Moscow', now)).toBe('пришёл сегодня');
+    expect(waitingText('2026-09-25T08:00:00Z', 'Europe/Moscow', now)).toBe('пришёл вчера');
+    expect(waitingText('2026-09-23T08:00:00Z', 'Europe/Moscow', now)).toBe('ждёт 3 дня');
+  });
+
+  it('через полночь — уже вчера, хотя прошло 20 минут (ревью #123, п. 1)', () => {
+    // 23:50 и 00:10 по Москве
+    expect(waitingText('2026-09-25T20:50:00Z', 'Europe/Moscow', new Date('2026-09-25T21:10:00Z').getTime()))
+      .toBe('пришёл вчера');
+  });
+
+  it('полночь — по поясу компании: один и тот же момент в Москве ещё сегодня, в Новосибирске уже вчера', () => {
+    // шаг пришёл в 16:50 UTC (Москва 19:50, Новосибирск 23:50), смотрим в 17:10 UTC (Москва 20:10, Новосибирск 00:10)
+    const arrived = '2026-09-25T16:50:00Z';
+    const now = new Date('2026-09-25T17:10:00Z').getTime();
+    expect(waitingText(arrived, 'Europe/Moscow', now)).toBe('пришёл сегодня');
+    expect(waitingText(arrived, 'Asia/Novosibirsk', now)).toBe('пришёл вчера');
   });
 
   it('период — дата начала включительно, в формате сервера', () => {

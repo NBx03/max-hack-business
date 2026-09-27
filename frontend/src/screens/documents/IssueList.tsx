@@ -40,7 +40,8 @@ export function IssueList({
   const sorted = sortIssues(issues);
   const blockers = sorted.filter((issue) => issue.severity === 'BLOCKER').length;
   const collapsedCount = Math.max(PREVIEW, blockers);
-  const canCollapse = sorted.length > collapsedCount;
+  // Прятать одно замечание за «Показать ещё 1» бессмысленно — кнопка занимает столько же места (#56, аудит 27.09).
+  const canCollapse = sorted.length > collapsedCount + 1;
   const visibleCount = showAll || !canCollapse ? sorted.length : collapsedCount;
   return (
     <div style={{ ...stackStyle, gap: 12 }}>

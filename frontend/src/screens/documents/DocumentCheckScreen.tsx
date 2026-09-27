@@ -694,8 +694,11 @@ function HowChecked({
       ? 'Чувствительные данные: текст не распознавался автоматически, поля заполнены вручную.'
       : `Распознавание сейчас недоступно. ${fill} — правила проверят так же.`;
   return (
-    <details style={{ ...sectionStyle, gap: 8, padding: '12px 16px' }} open={!modelAvailable && !isForm}>
-      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Как проверялся документ</summary>
+    <details className="ds-disclosure" style={{ ...sectionStyle, gap: 8, padding: '12px 16px' }} open={!modelAvailable && !isForm}>
+      <summary>
+        Как проверялся документ
+        <span className="ds-disclosure__chevron"><Icon name="chevronDown" size={20} /></span>
+      </summary>
       <Typography.Text style={{ color: 'var(--text-secondary)' }}>{text}</Typography.Text>
     </details>
   );

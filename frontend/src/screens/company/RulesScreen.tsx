@@ -1,14 +1,14 @@
-import { Input, Radio, Switch, Textarea, Typography } from '@maxhub/max-ui';
+import { Input, Switch, Textarea, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
 import { getCompanyRules, resetCompanyRule, updateCompanyRule } from '../../api/organization';
 import type { CompanyRule, CompanyRules, RuleSettingInput, Severity } from '../../api/types';
-import { BottomSheet, Button, ErrorState, Icon, List, Row, Section, Toast, SelectField } from '../../ui';
+import { BottomSheet, Button, Chip, Chips, ErrorState, Icon, List, Row, Section, Toast, SelectField } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 import { useSession } from '../../app/SessionContext';
 import { mskLabel } from '../../app/companyTime';
-import { DocumentScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
+import { DocumentScreen, LoadingState, Notice, fieldStyle, labelStyle, stackStyle } from '../documents/DocumentFormParts';
 import { KIND_LABELS, SEVERITY_HINTS, SEVERITY_LABELS, ruleBasis, ruleTitle } from './ruleText';
 
 const SEVERITIES: Severity[] = ['BLOCKER', 'WARNING', 'INFO'];
@@ -310,64 +310,63 @@ function RuleEditor({
     }
   }
 
-  const labelStyle = { fontSize: 14, color: 'var(--text-secondary)' } as const;
-
+  // Подписи и сноски — как в форме полей документа (labelStyle, fieldStyle, ds-section__hint), без своих размеров
+  // числами; важность — чипами с одной подсказкой к выбранной, а не тремя радиокнопками с тире (#56, аудит 27.09).
   return (
     <BottomSheet open onClose={onClose} title={ruleTitle(rule)} dismissible={busy === null}>
       {rule.locked ? (
-        <div style={{ ...stackStyle, gap: 10 }}>
-          <Notice>🔒 Требование закона одинаково для всех компаний — выключить или ослабить его нельзя.</Notice>
-          <span style={{ fontSize: 14 }}>{rule.description}</span>
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{ruleBasis(rule)}</span>
+        <div style={stackStyle}>
+          <Notice icon="lock">Требование закона одинаково для всех компаний — выключить или ослабить его нельзя.</Notice>
+          <Typography.Text>{rule.description}</Typography.Text>
+          <p className="ds-section__hint" style={{ margin: 0 }}>{ruleBasis(rule)}</p>
           <Button stretched variant="secondary" onClick={onClose}>Понятно</Button>
         </div>
       ) : (
-        <div style={{ ...stackStyle, gap: 14 }}>
+        <div style={stackStyle}>
           <TodayZone rule={rule} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch checked={draft.enabled} disabled={busy !== null} onChange={(event) => update({ enabled: event.target.checked })} />
-            <span>Проверять это правило</span>
+            <Typography.Text>Проверять это правило</Typography.Text>
           </label>
 
           {draft.enabled && (
             <>
-              <div role="radiogroup" aria-label="Важность" style={{ ...stackStyle, gap: 8 }}>
+              <div style={fieldStyle}>
                 <span style={labelStyle}>Важность</span>
-                {SEVERITIES.map((severity) => (
-                  <label key={severity} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Radio name="severity" checked={draft.severity === severity} onChange={() => update({ severity })} />
-                    <span>
+                <Chips label="Важность" wrap>
+                  {SEVERITIES.map((severity) => (
+                    <Chip key={severity} selected={draft.severity === severity} onClick={() => update({ severity })}>
                       {SEVERITY_LABELS[severity]}
-                      <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}> — {SEVERITY_HINTS[severity]}</span>
-                    </span>
-                  </label>
-                ))}
+                    </Chip>
+                  ))}
+                </Chips>
+                <p className="ds-section__hint" style={{ margin: 0 }}>{SEVERITY_HINTS[draft.severity]}</p>
               </div>
 
               {rule.check === 'MIN_LENGTH' && (
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={fieldStyle}>
                   <span style={labelStyle}>Не короче, символов</span>
                   <Input size="large" inputMode="numeric" value={draft.minLength} onChange={(event) => update({ minLength: event.target.value })} />
                 </label>
               )}
               {rule.check === 'ONE_OF' && (
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={fieldStyle}>
                   <span style={labelStyle}>Допустимые значения — по одному в строке</span>
                   <Textarea value={draft.allowedValues} onChange={(event) => update({ allowedValues: event.target.value })} />
                 </label>
               )}
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={labelStyle}>Текст замечания — его увидит автор документа</span>
+              <label style={fieldStyle}>
+                <span style={labelStyle}>Текст замечания для автора</span>
                 <Textarea value={draft.description} onChange={(event) => update({ description: event.target.value })} />
               </label>
 
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={fieldStyle}>
                 <span style={labelStyle}>Основание — документ компании</span>
                 <Input
                   size="large"
                   value={draft.sourceTitle}
-                  placeholder="Например, Инструкция по делопроизводству ООО «Ромашка»"
+                  placeholder="Например, Инструкция по делопроизводству"
                   onChange={(event) => update({ sourceTitle: event.target.value })}
                 />
                 <Input
@@ -377,17 +376,17 @@ function RuleEditor({
                   onChange={(event) => update({ sourceRef: event.target.value })}
                 />
                 {rule.kind === 'PRODUCT_RULE' && (
-                  <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                  <p className="ds-section__hint" style={{ margin: 0 }}>
                     Сейчас это рекомендация сервиса. Укажете свой документ — станет правилом компании.
-                  </span>
+                  </p>
                 )}
               </label>
             </>
           )}
 
-          <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+          <p className="ds-section__hint" style={{ margin: 0 }}>
             Действует для новых проверок. Черновики — после «Проверить заново», документы на согласовании не меняются.
-          </span>
+          </p>
           {error && <Notice tone="danger">{error}</Notice>}
           <Button stretched variant="primary" loading={busy === 'save'} disabled={busy !== null} onClick={() => void save()}>
             Сохранить
@@ -398,9 +397,9 @@ function RuleEditor({
             </Button>
           )}
           {rule.customized && (
-            <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+            <p className="ds-section__hint" style={{ margin: 0 }}>
               В шаблоне: {SEVERITY_LABELS[rule.template.severity]} · {KIND_LABELS[rule.template.kind]}
-            </span>
+            </p>
           )}
         </div>
       )}
