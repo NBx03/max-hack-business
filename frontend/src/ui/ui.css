@@ -1334,3 +1334,21 @@ button.ds-row:active {
   margin: -6px 0;
   font-size: var(--ds-text-xs);
 }
+
+/* ---------- Приложения к документу (#69) ---------- */
+
+.ds-attachment__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--ds-accent);
+}
+
+.ds-filedrop__pick:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ds-attachment--removed {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}

@@ -23,6 +23,14 @@ public class DocumentFileValidator {
     private static final String PDF = "application/pdf";
     private static final String DOCX =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    private static final String XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final String PNG = "image/png";
+    private static final String JPEG = "image/jpeg";
+    private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    static final String ATTACHMENT_TYPES = "PDF, DOCX, XLSX, PNG или JPG";
+    private static final String CONTENT_TYPES = "[Content_Types].xml";
+    private static final String DOCX_MAIN_PART = "word/document.xml";
+    private static final String XLSX_MAIN_PART = "xl/workbook.xml";
     private static final byte[] OLE2 = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
 
     public ValidatedFile validateMain(MultipartFile file) {
@@ -46,6 +54,53 @@ public class DocumentFileValidator {
         return new ValidatedFile(content, fileName, mimeType);
     }
 
+    /**
+     * Приложение (#69): хранится и скачивается, но не анализируется — поэтому тип проверяется только по содержимому,
+     * без разбора PDF. В ошибке — имя файла: приложений до десяти, человек должен понять, какое не подошло.
+     */
+    public ValidatedFile validateAttachment(MultipartFile file) {
+        String fileName = safeFileName(file.getOriginalFilename());
+        if (file.isEmpty()) {
+            throw DocumentApiException.validation("Приложение «" + fileName + "» пустое");
+        }
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw DocumentApiException.fileTooLarge("Приложение «" + fileName + "» больше 10 МБ");
+        }
+        byte[] content;
+        try {
+            content = file.getBytes();
+        } catch (IOException exception) {
+            throw DocumentApiException.validation("Не удалось прочитать приложение «" + fileName + "»");
+        }
+        if (content.length == 0) {
+            throw DocumentApiException.validation("Приложение «" + fileName + "» пустое");
+        }
+        return new ValidatedFile(content, fileName, detectAttachmentType(content, fileName));
+    }
+
+    private String detectAttachmentType(byte[] content, String fileName) {
+        if (isPdf(content)) {
+            return PDF;
+        }
+        if (startsWith(content, PNG_SIGNATURE)) {
+            return PNG;
+        }
+        if (content.length >= 3 && content[0] == (byte) 0xFF && content[1] == (byte) 0xD8 && content[2] == (byte) 0xFF) {
+            return JPEG;
+        }
+        // Office — по оглавлению архива, без распаковки: приложение не читается, а таблица сжимается сильнее
+        // документа, и честный XLSX на несколько мегабайт упёрся бы в лимит распаковки DOCX.
+        Set<String> entries = zipEntryNames(content);
+        if (entries.contains(CONTENT_TYPES) && entries.contains(DOCX_MAIN_PART)) {
+            return DOCX;
+        }
+        if (entries.contains(CONTENT_TYPES) && entries.contains(XLSX_MAIN_PART)) {
+            return XLSX;
+        }
+        throw DocumentApiException.fileTypeNotAllowed(
+                "Приложение «" + fileName + "» не подходит: нужен " + ATTACHMENT_TYPES);
+    }
+
     private String detectMainType(byte[] content, String fileName) {
         if (isPdf(content)) {
             validatePdf(content);
@@ -67,11 +122,15 @@ public class DocumentFileValidator {
 
     /** DOC — контейнер OLE2 с расширением .doc: распознаём только ради понятной ошибки с советом. */
     private boolean isDoc(byte[] content, String fileName) {
-        if (content.length < OLE2.length || !fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".doc")) {
+        return fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".doc") && startsWith(content, OLE2);
+    }
+
+    private static boolean startsWith(byte[] content, byte[] prefix) {
+        if (content.length < prefix.length) {
             return false;
         }
-        for (int index = 0; index < OLE2.length; index++) {
-            if (content[index] != OLE2[index]) {
+        for (int index = 0; index < prefix.length; index++) {
+            if (content[index] != prefix[index]) {
                 return false;
             }
         }
@@ -100,11 +159,15 @@ public class DocumentFileValidator {
         }
     }
 
+    /**
+     * Основной DOCX: его текст потом читается, поэтому архив распаковывается целиком — с ограничением числа записей
+     * и распакованного размера (защита от zip-бомбы).
+     */
     private boolean isDocx(byte[] content) {
         if (content.length < 4 || content[0] != 'P' || content[1] != 'K') {
             return false;
         }
-        Set<String> required = new HashSet<>(Set.of("[Content_Types].xml", "word/document.xml"));
+        Set<String> required = new HashSet<>(Set.of(CONTENT_TYPES, DOCX_MAIN_PART));
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(content))) {
             ZipEntry entry;
             int entries = 0;
@@ -127,6 +190,56 @@ public class DocumentFileValidator {
         } catch (IOException exception) {
             return false;
         }
+    }
+
+    /**
+     * Имена записей zip-архива из центрального каталога — без распаковки содержимого. Не zip или каталог не сходится
+     * с размером файла — пустое множество. ZIP64 не разбираем: у файла до 10 МБ его не бывает.
+     */
+    static Set<String> zipEntryNames(byte[] content) {
+        int end = findEndOfCentralDirectory(content);
+        if (end < 0) {
+            return Set.of();
+        }
+        int count = readShort(content, end + 10);
+        long directoryOffset = readInt(content, end + 16);
+        Set<String> names = new HashSet<>();
+        long position = directoryOffset;
+        for (int index = 0; index < count; index++) {
+            if (position < 0 || position + 46 > end || readInt(content, (int) position) != 0x02014b50L) {
+                return Set.of();
+            }
+            int at = (int) position;
+            int nameLength = readShort(content, at + 28);
+            int extraLength = readShort(content, at + 30);
+            int commentLength = readShort(content, at + 32);
+            if (at + 46L + nameLength > end) {
+                return Set.of();
+            }
+            // Нужные нам имена — латиница: ISO-8859-1 читает их одинаково при любой кодировке имён архива.
+            names.add(new String(content, at + 46, nameLength, java.nio.charset.StandardCharsets.ISO_8859_1));
+            position = at + 46L + nameLength + extraLength + commentLength;
+        }
+        return names;
+    }
+
+    /** Конец центрального каталога: 22 байта в конце архива плюс комментарий до 64 КБ. */
+    private static int findEndOfCentralDirectory(byte[] content) {
+        int lowest = Math.max(0, content.length - 22 - 0xFFFF);
+        for (int at = content.length - 22; at >= lowest; at--) {
+            if (readInt(content, at) == 0x06054b50L && at + 22 + readShort(content, at + 20) == content.length) {
+                return at;
+            }
+        }
+        return -1;
+    }
+
+    private static int readShort(byte[] content, int at) {
+        return (content[at] & 0xFF) | (content[at + 1] & 0xFF) << 8;
+    }
+
+    private static long readInt(byte[] content, int at) {
+        return readShort(content, at) | (long) readShort(content, at + 2) << 16;
     }
 
     private String safeFileName(String original) {

@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -55,14 +56,98 @@ class DocumentCommandServiceTest {
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
         when(rules.prepare(anyLong(), eq(5L), eq(Map.of()))).thenReturn(prepared);
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
-        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
+        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
                 .thenThrow(new IllegalStateException("db unavailable"));
 
-        assertThatThrownBy(() -> service.create(user(), request(), multipart))
+        assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of()))
                 .isInstanceOf(IllegalStateException.class);
 
         verify(storage).delete("new-key");
         verify(views, never()).card(anyLong(), any());
+    }
+
+    /** #69: не подошло приложение — в хранилище не попадает ни один файл запроса. */
+    @Test
+    void invalidAttachmentStopsUploadBeforeAnyFileIsStored() {
+        MockMultipartFile multipart = new MockMultipartFile("main", "memo.pdf", "application/pdf", new byte[]{1});
+        MockMultipartFile attachment = new MockMultipartFile("attachments", "notes.txt", "text/plain", new byte[]{1});
+        when(fileValidator.validateMain(multipart))
+                .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{1}, "memo.pdf", "application/pdf"));
+        when(fileValidator.validateAttachment(attachment))
+                .thenThrow(DocumentApiException.fileTypeNotAllowed("Приложение «notes.txt» не подходит"));
+
+        assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of(attachment)))
+                .hasMessage("Приложение «notes.txt» не подходит");
+
+        verify(storage, never()).put(any(), any(), any(), anyLong());
+    }
+
+    /** #69: хранилище отказало на втором приложении — основной файл и первое приложение удаляются. */
+    @Test
+    void failedAttachmentUploadRemovesFilesAlreadyStored() {
+        MockMultipartFile multipart = new MockMultipartFile("main", "memo.pdf", "application/pdf", new byte[]{1});
+        MockMultipartFile first = new MockMultipartFile("attachments", "a.xlsx", "", new byte[]{1});
+        MockMultipartFile second = new MockMultipartFile("attachments", "b.xlsx", "", new byte[]{2});
+        when(fileValidator.validateMain(multipart))
+                .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{1}, "memo.pdf", "application/pdf"));
+        when(fileValidator.validateAttachment(first))
+                .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{1}, "a.xlsx", "application/xlsx"));
+        when(fileValidator.validateAttachment(second))
+                .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{2}, "b.xlsx", "application/xlsx"));
+        when(rules.prepare(anyLong(), eq(5L), eq(Map.of()))).thenReturn(prepared());
+        when(storage.put(any(), eq("memo.pdf"), any(), anyLong())).thenReturn("main-key");
+        when(storage.put(any(), eq("a.xlsx"), any(), anyLong())).thenReturn("a-key");
+        when(storage.put(any(), eq("b.xlsx"), any(), anyLong())).thenThrow(new FileStorageException("storage unavailable"));
+
+        assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of(first, second)))
+                .isInstanceOf(FileStorageException.class);
+
+        verify(storage).delete("main-key");
+        verify(storage).delete("a-key");
+        verify(persistence, never()).create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any());
+    }
+
+    /**
+     * #69: новая версия с приложением — не сохранилась в базе, значит новые файлы удаляются из хранилища. Часть без
+     * имени и содержимого («файл не выбран») пропускается, пустой файл с именем уходит в валидатор.
+     */
+    @Test
+    void newVersionAttachmentsAreRemovedWhenSavingFails() {
+        Document document = document(7L);
+        document.setDocumentTypeId(5L);
+        document.setCurrentVersionNo(1);
+        when(documents.findById(1L)).thenReturn(Optional.of(document));
+        when(rules.prepare(anyLong(), eq(5L), any())).thenReturn(prepared());
+        MockMultipartFile attachment = new MockMultipartFile("attachments", "b.xlsx", "", new byte[]{2});
+        MockMultipartFile notSelected = new MockMultipartFile("attachments", "", "", new byte[0]);
+        when(fileValidator.validateAttachment(attachment))
+                .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{2}, "b.xlsx", "application/xlsx"));
+        when(storage.put(any(), eq("b.xlsx"), any(), anyLong())).thenReturn("b-key");
+        when(persistence.createVersion(anyLong(), anyLong(), anyLong(), anyInt(), anyBoolean(), any(), any(), any(), any()))
+                .thenThrow(DocumentApiException.fileTooLarge("Размер файлов версии превышает 30 МБ"));
+
+        assertThatThrownBy(() -> service.createVersion(1L, user(), new CreateVersionRequest(Map.of(), false, List.of(3L)),
+                null, List.of(attachment, notSelected)))
+                .hasMessage("Размер файлов версии превышает 30 МБ");
+
+        verify(fileValidator, never()).validateAttachment(notSelected);
+        verify(persistence).createVersion(eq(1L), eq(10L), eq(7L), eq(1), eq(false), eq(List.of(3L)), any(), isNull(),
+                eq(List.of(new DocumentPersistenceService.NewFile("b-key", "b.xlsx", "application/xlsx", 1))));
+        verify(storage).delete("b-key");
+    }
+
+    @Test
+    void namedEmptyAttachmentIsValidatedNotDropped() {
+        MockMultipartFile multipart = new MockMultipartFile("main", "memo.pdf", "application/pdf", new byte[]{1});
+        MockMultipartFile empty = new MockMultipartFile("attachments", "Смета.xlsx", "", new byte[0]);
+        when(fileValidator.validateMain(multipart))
+                .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{1}, "memo.pdf", "application/pdf"));
+        when(fileValidator.validateAttachment(empty))
+                .thenThrow(DocumentApiException.validation("Приложение «Смета.xlsx» пустое"));
+
+        assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of(empty)))
+                .hasMessage("Приложение «Смета.xlsx» пустое");
+        verify(storage, never()).put(any(), any(), any(), anyLong());
     }
 
     @Test
@@ -76,10 +161,10 @@ class DocumentCommandServiceTest {
         when(storage.put(any(), any(), any(), anyLong()))
                 .thenThrow(new FileStorageException("storage unavailable"));
 
-        assertThatThrownBy(() -> service.create(user(), request(), multipart))
+        assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of()))
                 .isInstanceOf(FileStorageException.class);
 
-        verify(persistence, never()).create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any());
+        verify(persistence, never()).create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -93,11 +178,11 @@ class DocumentCommandServiceTest {
         when(rules.pending(prepared)).thenReturn(pending);
         when(analysis.analyze(2, false, prepared)).thenThrow(new IllegalArgumentException("broken rule"));
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
-        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
+        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
         when(views.card(1, user())).thenReturn(mock(DocumentCardResponse.class));
 
-        service.create(user(), request(), multipart);
+        service.create(user(), request(), multipart, List.of());
 
         verify(persistence).failCheck(
                 1, new DocumentPersistenceService.CheckAttempt(2, "attempt-1"), pending);
@@ -114,13 +199,13 @@ class DocumentCommandServiceTest {
                 .thenReturn(new DocumentTypeGuessService.Guess(prepared.type(), "О закупке ноутбуков"));
         when(rules.prepare(anyLong(), eq(5L), isNull())).thenReturn(prepared);
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
-        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
+        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
 
-        service.create(user(), new CreateDocumentRequest(null, " ", Document.Visibility.PRIVATE, false, null), multipart);
+        service.create(user(), new CreateDocumentRequest(null, " ", Document.Visibility.PRIVATE, false, null), multipart, List.of());
 
         verify(persistence).create(10L, 7L, "О закупке ноутбуков", Document.Visibility.PRIVATE, false, true,
-                prepared, new DocumentPersistenceService.NewFile("new-key", "scan_17.pdf", "application/pdf", 1));
+                prepared, new DocumentPersistenceService.NewFile("new-key", "scan_17.pdf", "application/pdf", 1), List.of());
     }
 
     @Test
@@ -130,7 +215,7 @@ class DocumentCommandServiceTest {
                 .thenReturn(new DocumentFileValidator.ValidatedFile(new byte[]{1}, "memo.pdf", "application/pdf"));
 
         assertThatThrownBy(() -> service.create(user(),
-                new CreateDocumentRequest(null, "Записка", Document.Visibility.PRIVATE, true, Map.of()), multipart))
+                new CreateDocumentRequest(null, "Записка", Document.Visibility.PRIVATE, true, Map.of()), multipart, List.of()))
                 .isInstanceOf(DocumentApiException.class)
                 .satisfies(exception -> assertThat(((DomainException) exception).code()).isEqualTo("VALIDATION_FAILED"));
         verify(typeGuess, never()).guess(any(), any());
@@ -152,7 +237,7 @@ class DocumentCommandServiceTest {
         when(documentReads.canRead(1L, 10L, 7L)).thenReturn(false);
 
         assertThatThrownBy(() -> service.createVersion(
-                1L, user(), new CreateVersionRequest(Map.of(), false, List.of()), null))
+                1L, user(), new CreateVersionRequest(Map.of(), false, List.of()), null, List.of()))
                 .isInstanceOf(NotFoundException.class)
                 .satisfies(exception -> assertThat(((DomainException) exception).code())
                         .isEqualTo("NOT_FOUND"));
@@ -165,7 +250,7 @@ class DocumentCommandServiceTest {
         when(documentReads.canRead(1L, 10L, 7L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.createVersion(
-                1L, user(), new CreateVersionRequest(Map.of(), false, List.of()), null))
+                1L, user(), new CreateVersionRequest(Map.of(), false, List.of()), null, List.of()))
                 .isInstanceOf(DocumentApiException.class)
                 .satisfies(exception -> assertThat(((DomainException) exception).code())
                         .isEqualTo("FORBIDDEN"));

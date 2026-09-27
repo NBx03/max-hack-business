@@ -74,9 +74,8 @@ public class DocumentController {
             @RequestPart("main") MultipartFile main,
             @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments
     ) {
-        rejectAttachments(attachments);
         CreateDocumentRequest meta = parseMeta(metaJson, CreateDocumentRequest.class);
-        return commandService.create(currentUser, meta, main);
+        return commandService.create(currentUser, meta, main, attachments);
     }
 
     /** Документ-форма (#59): тот же адрес JSON-телом с content вместо файлов. */
@@ -134,9 +133,8 @@ public class DocumentController {
             @RequestPart(value = "main", required = false) MultipartFile main,
             @RequestPart(value = "attachments", required = false) List<MultipartFile> attachments
     ) {
-        rejectAttachments(attachments);
         CreateVersionRequest meta = parseMeta(metaJson, CreateVersionRequest.class);
-        return commandService.createVersion(id, currentUser, meta, main);
+        return commandService.createVersion(id, currentUser, meta, main, attachments);
     }
 
     /** Новая версия документа-формы (#59): правка формы, файлов нет. */
@@ -192,12 +190,6 @@ public class DocumentController {
             @Valid @org.springframework.web.bind.annotation.RequestBody UpdateFieldsRequest request
     ) {
         return commandService.correctFile(id, versionNo, currentUser, request);
-    }
-
-    private void rejectAttachments(List<MultipartFile> attachments) {
-        if (attachments != null && attachments.stream().anyMatch(file -> !file.isEmpty())) {
-            throw DocumentApiException.validation("Приложения пока не поддерживаются");
-        }
     }
 
     private <T> T parseMeta(String json, Class<T> type) {

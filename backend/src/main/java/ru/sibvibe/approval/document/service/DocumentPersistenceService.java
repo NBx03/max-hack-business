@@ -58,9 +58,11 @@ public class DocumentPersistenceService {
             boolean containsSensitive,
             boolean typeAutoDetected,
             DocumentRuleService.PreparedCheck prepared,
-            NewFile main
+            NewFile main,
+            List<NewFile> attachments
     ) {
-        return insert(orgId, authorId, title, visibility, containsSensitive, typeAutoDetected, prepared, main);
+        validateNewDocumentFiles(main, attachments);
+        return insert(orgId, authorId, title, visibility, containsSensitive, typeAutoDetected, prepared, main, attachments);
     }
 
     /** Документ-форма (#59): версия хранит содержимое формы в content, файлов нет. */
@@ -73,7 +75,7 @@ public class DocumentPersistenceService {
             boolean containsSensitive,
             DocumentRuleService.PreparedCheck prepared
     ) {
-        return insert(orgId, authorId, title, visibility, containsSensitive, false, prepared, null);
+        return insert(orgId, authorId, title, visibility, containsSensitive, false, prepared, null, List.of());
     }
 
     /** main {@code null} — документ-форма: содержимое версии — поля, переданные автором. */
@@ -85,7 +87,8 @@ public class DocumentPersistenceService {
             boolean containsSensitive,
             boolean typeAutoDetected,
             DocumentRuleService.PreparedCheck prepared,
-            NewFile main
+            NewFile main,
+            List<NewFile> attachments
     ) {
         Instant now = clock.instant();
         Document document = new Document();
@@ -109,7 +112,12 @@ public class DocumentPersistenceService {
         }
         version = versionRepository.save(version);
         if (main != null) {
-            fileRepository.save(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, main, now));
+            List<DocumentFile> files = new ArrayList<>();
+            files.add(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, main, now));
+            for (int index = 0; index < attachments.size(); index++) {
+                files.add(newFile(version.getId(), DocumentFile.Kind.ATTACHMENT, index + 1, attachments.get(index), now));
+            }
+            fileRepository.saveAll(files);
         }
         return new CreatedVersion(document.getId(), version.getId(), 1, checkToken);
     }
@@ -154,7 +162,8 @@ public class DocumentPersistenceService {
             boolean containsSensitive,
             List<Long> keepFileIds,
             DocumentRuleService.PreparedCheck prepared,
-            NewFile newMain
+            NewFile newMain,
+            List<NewFile> newAttachments
     ) {
         Document document = lockForNewVersion(documentId, orgId, authorId, expectedCurrentVersion, prepared);
 
@@ -175,11 +184,11 @@ public class DocumentPersistenceService {
         long keptMain = kept.stream().filter(file -> file.getKind() == DocumentFile.Kind.MAIN).count();
         // У документов демо-песочницы файлов нет вовсе (DemoDocumentSeedService): новая версия без файла —
         // та же, что и у них, иначе возвращённый демо-документ нельзя было бы ни исправить, ни отправить заново.
-        boolean fileless = currentFiles.isEmpty() && newMain == null;
+        boolean fileless = currentFiles.isEmpty() && newMain == null && newAttachments.isEmpty();
         if (!fileless && ((newMain == null && keptMain != 1) || (newMain != null && keptMain != 0))) {
             throw DocumentApiException.validation("Для версии должен быть указан один основной файл");
         }
-        validateVersionFiles(kept, newMain);
+        validateVersionFiles(kept, newMain, newAttachments);
 
         int versionNo = document.getCurrentVersionNo() + 1;
         Instant now = clock.instant();
@@ -199,6 +208,11 @@ public class DocumentPersistenceService {
         }
         if (newMain != null) {
             copies.add(newFile(version.getId(), DocumentFile.Kind.MAIN, 0, newMain, now));
+        }
+        // Новые приложения — после оставленных: позиции оставленных сохраняются, порядок в карточке не прыгает.
+        int nextPosition = kept.stream().mapToInt(DocumentFile::getPosition).max().orElse(0) + 1;
+        for (NewFile attachment : newAttachments) {
+            copies.add(newFile(version.getId(), DocumentFile.Kind.ATTACHMENT, nextPosition++, attachment, now));
         }
         fileRepository.saveAll(copies);
 
@@ -581,9 +595,22 @@ public class DocumentPersistenceService {
         }
     }
 
-    private void validateVersionFiles(List<DocumentFile> kept, NewFile newMain) {
-        long total = newMain == null ? 0 : newMain.size();
-        int attachments = 0;
+    static final String TOO_MANY_ATTACHMENTS = "В версии может быть не более 10 приложений";
+    static final String VERSION_TOO_LARGE = "Размер файлов версии превышает 30 МБ";
+
+    private void validateNewDocumentFiles(NewFile main, List<NewFile> attachments) {
+        if (attachments.size() > MAX_ATTACHMENTS) {
+            throw DocumentApiException.validation(TOO_MANY_ATTACHMENTS);
+        }
+        long total = main.size() + attachments.stream().mapToLong(NewFile::size).sum();
+        if (total > MAX_VERSION_SIZE) {
+            throw DocumentApiException.fileTooLarge(VERSION_TOO_LARGE);
+        }
+    }
+
+    private void validateVersionFiles(List<DocumentFile> kept, NewFile newMain, List<NewFile> newAttachments) {
+        long total = (newMain == null ? 0 : newMain.size()) + newAttachments.stream().mapToLong(NewFile::size).sum();
+        int attachments = newAttachments.size();
         for (DocumentFile file : kept) {
             if (file.getFileSize() <= 0 || file.getFileSize() > MAX_FILE_SIZE) {
                 throw DocumentApiException.validation("Некорректный сохраняемый файл");
@@ -594,10 +621,10 @@ public class DocumentPersistenceService {
             }
         }
         if (attachments > MAX_ATTACHMENTS) {
-            throw DocumentApiException.validation("В версии может быть не более 10 приложений");
+            throw DocumentApiException.validation(TOO_MANY_ATTACHMENTS);
         }
         if (total > MAX_VERSION_SIZE) {
-            throw DocumentApiException.fileTooLarge("Размер файлов версии превышает 30 МБ");
+            throw DocumentApiException.fileTooLarge(VERSION_TOO_LARGE);
         }
     }
 

@@ -1,5 +1,5 @@
 import { List, Muted, Row } from '../../ui';
-import { MAX_FILE_MB } from './uploadFormats';
+import { MAX_ATTACHMENTS, MAX_FILE_MB, MAX_VERSION_MB } from './uploadFormats';
 
 /**
  * «Какие файлы подходят» (UPL-6) — только то, что реально работает в коде: текст PDF читает PDFBox, DOCX — средствами
@@ -31,6 +31,10 @@ export function FormatsHelp() {
       <Muted>
         Размер — до {MAX_FILE_MB} МБ. Файл в приложении не открывается: согласующие скачивают его с карточки документа.
         С отметкой «Содержит чувствительные данные» текст ИИ не отправляется — проверка идёт по полям, которые вы введёте.
+      </Muted>
+      <Muted>
+        Приложения — PDF, DOCX, XLSX, PNG или JPG, до {MAX_ATTACHMENTS} файлов, все файлы версии вместе — до {MAX_VERSION_MB} МБ.
+        Согласующие видят и скачивают их вместе с документом, а ИИ и правила проверяют только основной файл.
       </Muted>
     </>
   );

@@ -28,7 +28,9 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: ${MAX_UPLOAD_SIZE:10MB}
+      # С запасом над 10 МБ: файл больше лимита отклоняет DocumentFileValidator — с именем файла, а не общим «запрос
+      # слишком большой» (#69).
+      max-file-size: ${MAX_UPLOAD_SIZE:11MB}
       # Версия документа - основной файл и до 10 приложений, до 30 МБ суммарно.
       max-request-size: ${MAX_REQUEST_SIZE:32MB}
 

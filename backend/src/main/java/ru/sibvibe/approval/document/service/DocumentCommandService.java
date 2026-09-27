@@ -73,14 +73,17 @@ public class DocumentCommandService {
     public DocumentCardResponse create(
             CurrentUser currentUser,
             CreateDocumentRequest request,
-            MultipartFile main
+            MultipartFile main,
+            List<MultipartFile> attachments
     ) {
         Membership membership = requireMembership(currentUser);
         DocumentFileValidator.ValidatedFile validated = fileValidator.validateMain(main);
+        List<DocumentFileValidator.ValidatedFile> validatedAttachments = validateAttachments(attachments);
         TypeChoice choice = chooseType(request, validated);
         DocumentRuleService.PreparedCheck prepared =
                 ruleService.prepare(membership.orgId(), choice.typeId(), request.fields());
         DocumentPersistenceService.NewFile stored = upload(validated);
+        List<DocumentPersistenceService.NewFile> storedAttachments = uploadAttachments(validatedAttachments, stored);
         DocumentPersistenceService.CreatedVersion created;
         try {
             created = persistenceService.create(
@@ -91,9 +94,10 @@ public class DocumentCommandService {
                     request.containsSensitive(),
                     choice.autoDetected(),
                     prepared,
-                    stored);
+                    stored,
+                    storedAttachments);
         } catch (RuntimeException exception) {
-            compensate(stored.storageKey(), exception);
+            compensate(stored, storedAttachments, exception);
             throw exception;
         }
         runCheck(created.documentId(), created.checkAttempt(), request.containsSensitive(), prepared);
@@ -166,15 +170,19 @@ public class DocumentCommandService {
             long documentId,
             CurrentUser currentUser,
             CreateVersionRequest request,
-            MultipartFile main
+            MultipartFile main,
+            List<MultipartFile> attachments
     ) {
         Membership membership = requireMembership(currentUser);
         Document document = requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
         DocumentRuleService.PreparedCheck prepared =
                 ruleService.prepare(membership.orgId(), document.getDocumentTypeId(), request.fields());
-        DocumentPersistenceService.NewFile stored = main == null || main.isEmpty()
+        DocumentFileValidator.ValidatedFile validatedMain = main == null || main.isEmpty()
                 ? null
-                : upload(fileValidator.validateMain(main));
+                : fileValidator.validateMain(main);
+        List<DocumentFileValidator.ValidatedFile> validatedAttachments = validateAttachments(attachments);
+        DocumentPersistenceService.NewFile stored = validatedMain == null ? null : upload(validatedMain);
+        List<DocumentPersistenceService.NewFile> storedAttachments = uploadAttachments(validatedAttachments, stored);
         DocumentPersistenceService.CreatedVersion created;
         try {
             created = persistenceService.createVersion(
@@ -185,11 +193,10 @@ public class DocumentCommandService {
                     request.containsSensitive(),
                     request.keepFileIds(),
                     prepared,
-                    stored);
+                    stored,
+                    storedAttachments);
         } catch (RuntimeException exception) {
-            if (stored != null) {
-                compensate(stored.storageKey(), exception);
-            }
+            compensate(stored, storedAttachments, exception);
             throw exception;
         }
         if (created.previousFields() != null) {
@@ -340,7 +347,8 @@ public class DocumentCommandService {
                     source.containsSensitive(),
                     source.attachmentIds(),
                     prepared,
-                    stored);
+                    stored,
+                    List.of());
         } catch (RuntimeException exception) {
             compensate(stored.storageKey(), exception);
             throw exception;
@@ -412,6 +420,45 @@ public class DocumentCommandService {
                 key, file.fileName(), file.mimeType(), file.size());
     }
 
+    /**
+     * Приложения (#69) проверяются до загрузки в хранилище: не подошло одно — не загружается ни одно. Число — здесь же,
+     * чтобы не читать лишние файлы; число вместе с оставленными приложениями и 30 МБ на версию — при сохранении.
+     */
+    private List<DocumentFileValidator.ValidatedFile> validateAttachments(List<MultipartFile> attachments) {
+        if (attachments == null) {
+            return List.of();
+        }
+        // Часть без имени и без содержимого — «файл не выбран» в форме; пустой файл с именем — ошибка валидатора.
+        List<MultipartFile> present = attachments.stream()
+                .filter(file -> file != null && !(file.isEmpty() && isBlank(file.getOriginalFilename())))
+                .toList();
+        if (present.size() > DocumentFileValidator.MAX_ATTACHMENTS) {
+            throw DocumentApiException.validation(DocumentPersistenceService.TOO_MANY_ATTACHMENTS);
+        }
+        return present.stream().map(fileValidator::validateAttachment).toList();
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** Не загрузилось очередное приложение — уже загруженные файлы этого запроса удаляются. */
+    private List<DocumentPersistenceService.NewFile> uploadAttachments(
+            List<DocumentFileValidator.ValidatedFile> attachments,
+            DocumentPersistenceService.NewFile main
+    ) {
+        List<DocumentPersistenceService.NewFile> stored = new ArrayList<>();
+        try {
+            for (DocumentFileValidator.ValidatedFile attachment : attachments) {
+                stored.add(upload(attachment));
+            }
+        } catch (RuntimeException exception) {
+            compensate(main, stored, exception);
+            throw exception;
+        }
+        return stored;
+    }
+
     private void runCheck(
             long documentId,
             DocumentPersistenceService.CheckAttempt attempt,
@@ -477,6 +524,17 @@ public class DocumentCommandService {
             throw DocumentApiException.forbidden("Для работы с документами нужно состоять в компании");
         }
         return new Membership(user.orgId());
+    }
+
+    private void compensate(
+            DocumentPersistenceService.NewFile main,
+            List<DocumentPersistenceService.NewFile> attachments,
+            RuntimeException original
+    ) {
+        if (main != null) {
+            compensate(main.storageKey(), original);
+        }
+        attachments.forEach(file -> compensate(file.storageKey(), original));
     }
 
     private void compensate(String storageKey, RuntimeException original) {
