@@ -11,7 +11,8 @@ export { SearchField, SEARCH_MAX_LENGTH, Chips, Chip } from './Controls';
 export { Timeline, TimelinePerson, type TimelineItem, type TimelineState } from './Timeline';
 export { FileDrop, Stepper, formatFileSize } from './FileDrop';
 export { ThemeSync } from './ThemeSync';
-export { StatusBadge, DocumentStatusBadge, StepDecisionBadge, AiMark, AiLegend, AiSummaryCard } from './Badge';
+export { StatusBadge, DocumentStatusBadge, StepDecisionBadge, AiMark, AiLegend } from './Badge';
+export { AiSummaryCard } from './AiSummaryCard';
 export {
   documentStatusMeta,
   stepDecisionMeta,

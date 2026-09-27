@@ -33,8 +33,8 @@ class DocumentExtractionServiceTest {
 
         var result = service.extract(new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
 
-        assertThat(result.available()).isTrue();
-        assertThat(result.fields().get("inn"))
+        assertThat(result.fields().available()).isTrue();
+        assertThat(result.fields().fields().get("inn"))
                 .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", "ИНН заявителя 1234567890", 1));
         // Даты в сводке тоже обязаны быть в исходном тексте, поэтому вся сводка отклонена.
         assertThat(result.summary()).isNull();
@@ -73,20 +73,55 @@ class DocumentExtractionServiceTest {
         assertThat(result.summary()).isNull();
     }
 
+    /**
+     * Оба вызова идут параллельно (ревью Mat10t к #104, п.1): к моменту, когда поля не извлеклись, сводка могла
+     * уже прийти — но раз поля недоступны, результат сводки всё равно отбрасывается.
+     */
     @Test
-    void doesNotAskModelForSummaryWhenFieldsExtractionFailed() {
+    void ignoresSummaryOutcomeWhenFieldsExtractionFailed() {
         TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
                 List.of("ИНН заявителя 1234567890"), true));
         DocumentExtractor model = extractor(
                 request -> new DocumentExtractor.ExtractionResult(Map.of(), false, "gigachat"),
-                request -> {
-                    throw new AssertionError("сводка не нужна, если поля не извлеклись");
-                });
+                request -> new DocumentExtractor.SummaryResult("будет проигнорирована", true));
 
         var result = service(text, model).extract(
                 new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
 
-        assertThat(result.available()).isFalse();
+        assertThat(result.fields().available()).isFalse();
+        assertThat(result.summary()).isNull();
+    }
+
+    /**
+     * Ревью Mat10t к #104, п.1: сводка не должна задерживать или ломать поля. Здесь summarize() «висит»,
+     * а затем падает — поля при этом приходят вовремя, в пределах короткого тайм-аута теста.
+     */
+    @Test
+    void hangingOrFailingSummaryDoesNotDelayOrBreakFields() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
+                List.of("ИНН заявителя 1234567890"), true));
+        DocumentExtractor model = extractor(
+                request -> new DocumentExtractor.ExtractionResult(Map.of(
+                        "inn", new DocumentExtractor.ExtractedField("<INN_1>", "ИНН заявителя <INN_1>", 1)),
+                        true, "test"),
+                request -> {
+                    try {
+                        Thread.sleep(5_000);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    throw new RuntimeException("сводка недоступна");
+                });
+
+        long start = System.nanoTime();
+        var result = service(text, model, 1).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertThat(result.fields().available()).isTrue();
+        assertThat(result.fields().fields().get("inn").value()).isEqualTo("1234567890");
+        assertThat(result.summary()).isNull();
+        assertThat(elapsedMs).as("сводка не должна была задержать общий результат").isLessThan(4_000);
     }
 
     @Test
@@ -101,6 +136,25 @@ class DocumentExtractionServiceTest {
                 "Начало 1 ноября 2026 года. Лимит 1 000.", source)).isTrue();
     }
 
+    /**
+     * Ревью Mat10t к #104, п.6: дата без года в сводке — не то же самое, что дата с неверным годом. День и месяц
+     * совпадают с текстом, год сводка просто не указала — отбрасывать её незачем.
+     */
+    @Test
+    void dateWithoutYearMatchesSourceDateRegardlessOfYear() {
+        String source = "Начало с 1 ноября 2026 года на 14 дней.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Начало с 1 ноября на 14 дней.", source)).isTrue();
+    }
+
+    /** Ревью Mat10t к #104, п.6: месяц, которого нет в тексте, отбрасывает сводку, даже без числа дня рядом. */
+    @Test
+    void monthWordAbsentFromSourceIsRejectedEvenWithoutLeadingDay() {
+        String source = "Начало с 1 ноября 2026 года на 14 дней.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Согласование в декабре 2026 года.", source)).isFalse();
+    }
+
     @Test
     void discardsFabricatedQuoteButKeepsExtractedValue() {
         TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
@@ -112,7 +166,7 @@ class DocumentExtractionServiceTest {
         var result = service(text, model).extract(
                 new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
 
-        assertThat(result.fields().get("inn"))
+        assertThat(result.fields().fields().get("inn"))
                 .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", null, null));
     }
 
@@ -127,8 +181,8 @@ class DocumentExtractionServiceTest {
         var result = service(text, model).extract(
                 new ByteArrayInputStream(new byte[0]), "docx", "TYPE", List.of(FIELD));
 
-        assertThat(result.fields().get("inn").quote()).isEqualTo("ИНН заявителя 1234567890");
-        assertThat(result.fields().get("inn").page()).isNull();
+        assertThat(result.fields().fields().get("inn").quote()).isEqualTo("ИНН заявителя 1234567890");
+        assertThat(result.fields().fields().get("inn").page()).isNull();
     }
 
     /** Скан без текстового слоя: в модель ничего не уходит, иначе «не найдено» по каждому полю. */
@@ -146,9 +200,10 @@ class DocumentExtractionServiceTest {
         var result = service(text, model).extract(
                 new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
 
-        assertThat(result.available()).isFalse();
-        assertThat(result.textMissing()).isTrue();
-        assertThat(result.fields()).isEmpty();
+        assertThat(result.fields().available()).isFalse();
+        assertThat(result.fields().textMissing()).isTrue();
+        assertThat(result.fields().fields()).isEmpty();
+        assertThat(result.summary()).isNull();
     }
 
     @Test
@@ -162,14 +217,18 @@ class DocumentExtractionServiceTest {
         var result = service(text, model).extract(
                 new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
 
-        assertThat(result.fields().get("inn"))
+        assertThat(result.fields().fields().get("inn"))
                 .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", "ИНН заявителя\n  1234567890", 2));
     }
 
     private DocumentExtractionService service(TextExtractor text, DocumentExtractor model) {
+        return service(text, model, 3);
+    }
+
+    private DocumentExtractionService service(TextExtractor text, DocumentExtractor model, long timeoutSeconds) {
         return new DocumentExtractionService(text, model,
                 request -> new ru.sibvibe.approval.ai.DocumentClassifier.Classification(null, null, false),
-                new TextMinimizer(), new SensitiveDataMasker());
+                new TextMinimizer(), new SensitiveDataMasker(), timeoutSeconds);
     }
 
     /** Сводка (#92) — отдельный вызов; когда тест её не проверяет, она просто «недоступна». */

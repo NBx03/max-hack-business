@@ -10,7 +10,6 @@ import ru.sibvibe.approval.storage.FileStorage;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.List;
 
 @Service
 public class DocumentAnalysisService {
@@ -47,12 +46,12 @@ public class DocumentAnalysisService {
         FileStorage.StoredFile stored = fileStorage.get(main.getStorageKey());
         InputStream content = stored.content();
         try (content) {
-            DocumentExtractor.ExtractionResult extraction = extractionService.extract(
+            DocumentExtractionService.ExtractionOutcome outcome = extractionService.extract(
                     content,
                     stored.contentType(),
                     prepared.type().getCode(),
                     prepared.schema().stream().map(this::fieldSpec).toList());
-            return new AnalysisResult(ruleService.execute(prepared, extraction), extraction.summary());
+            return new AnalysisResult(ruleService.execute(prepared, outcome.fields()), outcome.summary());
         } catch (IOException exception) {
             throw new IllegalStateException("Не удалось закрыть поток файла", exception);
         }

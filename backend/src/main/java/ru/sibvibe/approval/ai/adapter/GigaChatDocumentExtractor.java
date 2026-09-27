@@ -33,6 +33,7 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
     private static final int MAX_QUOTE_LENGTH = 2_000;
     /** Попыток на один документ: повтор — только если ответ не разобран, и в пределах того же тайм-аута. */
     static final int MAX_ATTEMPTS = 2;
+    private static final Duration RETRY_BACKOFF = Duration.ofMillis(700);
     private static final int MAX_SUMMARY_LENGTH = 2_000;
     private static final String SYSTEM_PROMPT = """
             Ты извлекаешь структурированные поля из текста документа.
@@ -56,15 +57,16 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
             Ты пишешь краткую сводку документа для человека, который будет его согласовывать.
             Не проверяй правила, не оценивай документ, не давай рекомендаций и не выражай мнение —
             только перескажи суть в 2-3 предложениях: что просит документ, какие в нём суммы и сроки
-            и кого он касается. Используй исключительно факты, дословно присутствующие в тексте:
-            числа, даты, суммы и сроки бери только из текста, ничего не досчитывай и не предполагай.
-            Если каких-то деталей в тексте нет, просто не упоминай их — не заполняй пробелы
-            правдоподобными на вид значениями.
+            и кого он касается. Используй исключительно факты, дословно присутствующие в тексте.
+            Числа пиши цифрами так, как они записаны в тексте: не переводи слова в числа и не
+            округляй. Даты пиши с месяцем словом, как в тексте. Ничего не досчитывай и не
+            предполагай: если каких-то деталей в тексте нет, просто не упоминай их — не заполняй
+            пробелы правдоподобными на вид значениями.
             Метки <PERSON_1>, <INN_1>, <SNILS_1>, <PASSPORT_1>, <PHONE_1> и аналогичные — замаскированные
             значения; переноси их в сводку как есть, не расшифровывая и не убирая.
             Строка «Синтетический тестовый документ…» — служебная пометка, не пересказывай её.
-            Верни только JSON без markdown строго вида: {"summary":"текст сводки или null"}.
-            Если осмысленную сводку составить не из чего, верни {"summary":null}.
+            Ответь простым текстом: без кавычек вокруг всего ответа, без markdown, без JSON — только
+            сама сводка. Если осмысленную сводку составить не из чего, ответь одним словом: НЕТ.
             """;
 
     private final ObjectProvider<ChatClient.Builder> builderProvider;
@@ -133,7 +135,13 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
                 return unavailable();
             } catch (ExecutionException | RuntimeException exception) {
                 LOGGER.warn("GigaChat недоступен при извлечении полей: {}", exception.getClass().getSimpleName());
-                return unavailable();
+                // 429 «Too Many Requests» — сводка и поля теперь идут параллельно (#92, ревью Mat10t к #104,
+                // п.1) и вдвоём чаще упираются в лимит запросов, чем один вызов раньше; ошибка вызова —
+                // такой же повод повторить, как и раньше был некорректный JSON.
+                if (attempt >= MAX_ATTEMPTS || !sleepBeforeRetry(deadline)) {
+                    return unavailable();
+                }
+                LOGGER.info("Повторяем извлечение полей: ошибка вызова GigaChat");
             }
         }
     }
@@ -162,11 +170,11 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
                     .call()
                     .content());
             try {
-                SummaryResult parsed = parseSummary(call.get(left, TimeUnit.NANOSECONDS));
+                SummaryResult parsed = processSummary(call.get(left, TimeUnit.NANOSECONDS));
                 if (parsed.available() || attempt >= MAX_ATTEMPTS) {
                     return parsed;
                 }
-                LOGGER.info("Повторяем сводку: ответ GigaChat не разобран");
+                LOGGER.info("Повторяем сводку: ответ GigaChat не уложился в формат");
             } catch (TimeoutException exception) {
                 call.cancel(true);
                 LOGGER.warn("Истёк тайм-аут сводки GigaChat");
@@ -177,33 +185,54 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
                 return unavailableSummary();
             } catch (ExecutionException | RuntimeException exception) {
                 LOGGER.warn("GigaChat недоступен при сводке: {}", exception.getClass().getSimpleName());
-                return unavailableSummary();
+                if (attempt >= MAX_ATTEMPTS || !sleepBeforeRetry(deadline)) {
+                    return unavailableSummary();
+                }
+                LOGGER.info("Повторяем сводку: ошибка вызова GigaChat");
             }
         }
     }
 
-    SummaryResult parseSummary(String response) {
+    /**
+     * Пауза перед повтором после ошибки вызова (в частности, 429 «Too Many Requests»): мгновенный повтор почти
+     * наверняка получит тот же ответ. Не длиннее, чем осталось до тайм-аута.
+     */
+    private boolean sleepBeforeRetry(long deadline) {
+        long left = deadline - System.nanoTime();
+        if (left <= 0) {
+            return false;
+        }
         try {
-            JsonNode root = objectMapper.reader()
-                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                    .readTree(stripMarkdownFence(response));
-            requireObject(root);
-            if (!root.has("summary")) {
-                throw new IllegalArgumentException();
-            }
-            JsonNode value = root.get("summary");
-            if (value.isNull()) {
-                return new SummaryResult(null, true);
-            }
-            // Не текст, пусто или длиннее лимита — модель ответила не в формате: как «не разобран», не как «нет сводки».
-            if (!value.isTextual() || value.textValue().isBlank() || value.textValue().length() > MAX_SUMMARY_LENGTH) {
-                throw new IllegalArgumentException();
-            }
-            return new SummaryResult(value.textValue(), true);
-        } catch (JsonProcessingException | IllegalArgumentException exception) {
-            LOGGER.warn("GigaChat вернул некорректный JSON сводки");
+            TimeUnit.NANOSECONDS.sleep(Math.min(left, RETRY_BACKOFF.toNanos()));
+            return true;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    /**
+     * Простой текст, не JSON (ревью Mat10t к #104): кавычки внутри сводки — например, в названии
+     * компании «ООО "Демо-компания"» — ломали разбор JSON целиком; текст ломать нечему.
+     */
+    SummaryResult processSummary(String response) {
+        if (response == null) {
             return unavailableSummary();
         }
+        String text = stripMarkdownFence(response);
+        // Модель иногда всё равно оборачивает ответ в кавычки, хотя мы просим простой текст без них.
+        if (text.length() >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
+            text = text.substring(1, text.length() - 1).strip();
+        }
+        if (text.isBlank() || text.equalsIgnoreCase("нет") || text.equalsIgnoreCase("нет.")) {
+            return new SummaryResult(null, true);
+        }
+        if (text.length() > MAX_SUMMARY_LENGTH) {
+            // Слишком длинный ответ — модель не уложилась в формат, а не «сводки нет»: как некорректный JSON полей,
+            // это повод повторить попытку, а не молча укоротить текст.
+            return unavailableSummary();
+        }
+        return new SummaryResult(text, true);
     }
 
     private SummaryResult unavailableSummary() {

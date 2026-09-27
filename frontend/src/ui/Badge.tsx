@@ -1,7 +1,5 @@
 import { useState } from 'react';
-import { IconButton } from './Button';
 import { AiGlyph, Icon } from './icons';
-import { Section } from './Page';
 import { BottomSheet } from './Sheet';
 import {
   documentStatusMeta,
@@ -74,31 +72,5 @@ export function AiLegend() {
       </button>
       <AiSheet open={open} onClose={() => setOpen(false)} />
     </>
-  );
-}
-
-/**
- * Блок «Кратко от ИИ» на карточке документа (#92) — над «Файлами». Отдельный вызов модели, не то же
- * извлечение, что поля: значок ✦ и пояснение по нажатию — те же, что у остальных значений от ИИ (то же
- * пояснение, что открывает AiLegend, — второго текста про ✦ не заводим).
- */
-export function AiSummaryCard({ summary }: { summary: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Section
-      title={
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <AiMark />
-          Кратко от ИИ
-        </span>
-      }
-      aside={<IconButton icon="info" label="Что значит ✦" onClick={() => setOpen(true)} size={18} />}
-    >
-      <p style={{ margin: 0 }}>{summary}</p>
-      <p className="ds-text-secondary" style={{ margin: 0, fontSize: 13 }}>
-        Составлено ИИ по тексту документа. Решение принимаете вы.
-      </p>
-      <AiSheet open={open} onClose={() => setOpen(false)} />
-    </Section>
   );
 }

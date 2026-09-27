@@ -149,25 +149,33 @@ class GigaChatDocumentExtractorTest {
         }
     }
 
-    /** Сводка (#92) — отдельный вызов и свой JSON-ответ, разбор проверяется отдельно от полей. */
+    /**
+     * Сводка (#92) — отдельный вызов, ответ простым текстом, не JSON (ревью Mat10t к #104, п.2): кавычки
+     * внутри сводки — например, в названии компании — не должны ничего ломать, потому что ломать нечего.
+     */
     @Test
-    void parsesSummaryAndRejectsArrayOrTooLongText() {
+    void processesPlainTextSummaryAndTreatsNoAndBlankAsNoSummary() {
         var enabled = new GigaChatDocumentExtractor(
                 builders, new ObjectMapper(), true, "gigachat", "secret", 1);
         try {
-            var valid = enabled.parseSummary("{\"summary\":\"Отпуск начинается 22.09.2026.\"}");
-            var none = enabled.parseSummary("{\"summary\":null}");
-            var array = enabled.parseSummary("{\"summary\":[\"а\",\"б\"]}");
-            var tooLong = enabled.parseSummary("{\"summary\":\"" + "x".repeat(2_001) + "\"}");
-            var missingKey = enabled.parseSummary("{}");
+            var valid = enabled.processSummary("Отпуск начинается 22.09.2026.");
+            var quoted = enabled.processSummary("\"ООО \"Демо-компания\" подала заявку.\"");
+            var no = enabled.processSummary("НЕТ");
+            var blank = enabled.processSummary("   ");
+            var fenced = enabled.processSummary("```\nОтпуск начинается 22.09.2026.\n```");
+            var tooLong = enabled.processSummary("x".repeat(2_001));
 
             assertThat(valid.available()).isTrue();
             assertThat(valid.summary()).isEqualTo("Отпуск начинается 22.09.2026.");
-            assertThat(none.available()).isTrue();
-            assertThat(none.summary()).isNull();
-            assertThat(array.available()).isFalse();
+            assertThat(quoted.available()).isTrue();
+            assertThat(quoted.summary()).isEqualTo("ООО \"Демо-компания\" подала заявку.");
+            assertThat(no.available()).isTrue();
+            assertThat(no.summary()).isNull();
+            assertThat(blank.available()).isTrue();
+            assertThat(blank.summary()).isNull();
+            assertThat(fenced.available()).isTrue();
+            assertThat(fenced.summary()).isEqualTo("Отпуск начинается 22.09.2026.");
             assertThat(tooLong.available()).isFalse();
-            assertThat(missingKey.available()).isFalse();
         } finally {
             enabled.closeExecutor();
         }

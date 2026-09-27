@@ -67,7 +67,7 @@ class GigaChatLiveIntegrationTest {
                     true, "gigachat", credentials, 120);
             try {
                 DocumentExtractionService service = new DocumentExtractionService(
-                        new PdfDocxTextExtractor(), model, classifier, new TextMinimizer(), new SensitiveDataMasker());
+                        new PdfDocxTextExtractor(), model, classifier, new TextMinimizer(), new SensitiveDataMasker(), 120);
                 verifyDocuments(service);
             } finally {
                 model.closeExecutor();
@@ -87,9 +87,14 @@ class GigaChatLiveIntegrationTest {
         }
         List<DocumentReport> reports = new ArrayList<>();
         boolean issueMismatch = false;
+        int summariesCount = 0;
         assertThat(expected.path("documents").isArray()).isTrue();
         assertThat(expected.path("documents").size()).isPositive();
         for (JsonNode document : expected.path("documents")) {
+            // Пауза между документами — только у теста: поля и сводка теперь идут двумя параллельными запросами
+            // (#92, ревью Mat10t к #104, п.1), и 16 документов подряд без пауз чаще упираются в 429 «Too Many
+            // Requests» аккаунта, чем один пользователь, загружающий один документ. Продакшен-код это не трогает.
+            pauseBetweenDocuments();
             String typeCode = document.path("type").asText();
             TypeData type = typeData(rules, typeCode);
             List<DocumentExtractor.FieldSpec> schema = type.schema();
@@ -97,15 +102,16 @@ class GigaChatLiveIntegrationTest {
             String mime = file.toString().endsWith(".pdf")
                     ? "application/pdf"
                     : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            DocumentExtractor.ExtractionResult result;
+            DocumentExtractionService.ExtractionOutcome outcome;
             DocumentClassifier.Classification classification;
             try (InputStream content = Files.newInputStream(file);
                  InputStream again = Files.newInputStream(file)) {
-                result = service.extract(content, mime, typeCode, schema);
+                outcome = service.extract(content, mime, typeCode, schema);
                 classification = service.classify(again, mime, typeOptions(rules));
             } catch (IOException exception) {
                 throw new IllegalStateException("Не удалось прочитать " + file, exception);
             }
+            DocumentExtractor.ExtractionResult result = outcome.fields();
             if (!result.available()) {
                 reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—", "—"));
                 issueMismatch = true;
@@ -141,16 +147,22 @@ class GigaChatLiveIntegrationTest {
             issueMismatch |= !matches;
             // Сводка — не обязательный результат: проверка фактов (#92) намеренно отбрасывает её целиком, если
             // модель что-то досочинила, и это не регрессия. В отчёте видна, но не проваливает извлечение полей.
-            boolean hasSummary = result.summary() != null && !result.summary().isBlank();
+            boolean hasSummary = outcome.summary() != null && !outcome.summary().isBlank();
+            if (hasSummary) {
+                summariesCount++;
+            }
             reports.add(new DocumentReport(
                     file.getFileName().toString(),
                     String.join(" ", expectedIssues) + " → " + String.join(" ", actualIssues),
                     (matches ? "совпали" : "расхождение") + "; " + typeReport
                             + "; название: " + display(classification.title()),
                     fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences),
-                    hasSummary ? result.summary() : "СВОДКИ НЕТ"));
+                    hasSummary ? outcome.summary() : "СВОДКИ НЕТ"));
         }
-        String report = report(reports);
+        // Готово, когда (#92): живой прогон комментарием, со сводкой по числу документов, у которых есть сводка —
+        // её отсутствие у части документов законно (проверка фактов отбросила или модель ничего не дала), поэтому
+        // это не входит в issueMismatch и не проваливает тест.
+        String report = report(reports) + "\nСводок: " + summariesCount + " из " + reports.size() + ".\n";
         if (issueMismatch) {
             throw new AssertionError(report);
         }
@@ -167,6 +179,14 @@ class GigaChatLiveIntegrationTest {
                 .append(" | ").append(table(row.fields()))
                 .append(" | ").append(table(row.summary())).append(" |\n"));
         return result.toString();
+    }
+
+    private static void pauseBetweenDocuments() {
+        try {
+            Thread.sleep(2_000);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String display(String value) {
