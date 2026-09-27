@@ -69,9 +69,14 @@ class DocumentFileValidatorTest {
 
     @Test
     void rejectsSpoofedCorruptEmptyAndOversizedFiles() {
+        // Имя обещает PDF, внутри не он — говорим именно это, с советом (#56, аудит 27.09)
         assertThatThrownBy(() -> validator.validateMain(file("fake.pdf", "application/pdf", "not pdf".getBytes())))
-                .isInstanceOfSatisfying(DocumentApiException.class,
-                        exception -> assertThat(exception.code()).isEqualTo("FILE_TYPE_NOT_ALLOWED"));
+                .isInstanceOfSatisfying(DocumentApiException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FILE_TYPE_NOT_ALLOWED");
+                    assertThat(exception.getMessage()).startsWith("Файл повреждён или это не PDF");
+                });
+        assertThat(DocumentFileValidator.mismatchMessage("отчёт.DOCX")).startsWith("Файл повреждён или это не DOCX");
+        assertThat(DocumentFileValidator.mismatchMessage("таблица.xlsx")).isEqualTo("Основной файл должен быть PDF или DOCX");
         assertThatThrownBy(() -> validator.validateMain(file("broken.pdf", "application/pdf", "%PDF-broken".getBytes())))
                 .isInstanceOf(DocumentApiException.class);
         assertThatThrownBy(() -> validator.validateMain(file("empty.pdf", "application/pdf", new byte[0])))

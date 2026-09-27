@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument } from '../../api/documents';
-import { errorMessage } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import { getColleagues } from '../../api/organization';
 import type { MemberView, RoutePreview, StepKind } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
@@ -92,6 +92,11 @@ export function RoutePreviewScreen() {
         <Loading />
       </Page>
     );
+  }
+  // Документ уже отправлен (старая ссылка, «назад» после отправки) — маршрут не нужен, ведём на карточку, а не в
+  // «Не получилось загрузить… Повторить», где повтор не поможет (#56, аудит 27.09).
+  if (query.status === 'error' && query.error instanceof ApiError && query.error.code === 'INVALID_STATE') {
+    return <Navigate to={documentCardPath(documentId)} replace />;
   }
   if (query.status === 'error') {
     return (

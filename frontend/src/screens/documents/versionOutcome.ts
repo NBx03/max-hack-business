@@ -83,3 +83,16 @@ export function pendingReturn(doc: Pick<DocumentCard, 'status' | 'route'>): Step
     .some((other) => other.versionNo > step.versionNo);
   return later ? null : step;
 }
+
+/**
+ * Показывать ли «Изменения с версии N» (#56, аудит 27.09). Разница нужна тем, кто прошлую версию видел: если её не
+ * отправляли (версия 1 до «Исправить в файле»), сравнивать не с чем. У завершённого документа пустое «не менялся» —
+ * шум; на согласовании оно полезно: согласующий знает, что перечитывать не нужно.
+ */
+export function showVersionChanges(doc: Pick<DocumentCard, 'status' | 'changes' | 'route' | 'currentVersionNo'>): boolean {
+  const changes = doc.changes;
+  if (!changes || doc.status === 'DRAFT') return false;
+  if (versionSteps(doc, changes.comparedToVersionNo).length === 0) return false;
+  const empty = changes.files.length === 0 && changes.fields.length === 0 && !changes.contentChanged;
+  return !(empty && (doc.status === 'APPROVED' || doc.status === 'REJECTED'));
+}

@@ -19,7 +19,7 @@ import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath }
 import { recognizedKindOf } from './documentKind';
 import { RecognizedKind } from './RecognizedKind';
 import { FormFields, VersionHistory } from './VersionHistory';
-import { findReturnReason, personMeta } from './versionOutcome';
+import { findReturnReason, personMeta, showVersionChanges } from './versionOutcome';
 import { demoNextActor } from './demoNext';
 import { useSession } from '../../app/SessionContext';
 import {
@@ -458,6 +458,15 @@ export function DocumentCardScreen() {
   if (footer === null && demoButton) {
     footer = demoButton;
   }
+  // Утверждён или согласован — дальше документ несут своим путём: главное действие — забрать итоговый файл (#56).
+  const mainFile = currentVersion?.files.find((file) => file.kind === 'MAIN') ?? null;
+  if (footer === null && doc.status === 'APPROVED' && mainFile) {
+    footer = (
+      <Button variant="primary" stretched icon="file" onClick={() => void download(mainFile)}>
+        Скачать итоговый файл
+      </Button>
+    );
+  }
 
   return (
     <Page
@@ -505,7 +514,7 @@ export function DocumentCardScreen() {
         <Timeline items={timelineItems(doc)} collapseLabel={(count) => `Этапы 1–${count} пройдены`} />
       </Section>
 
-      {doc.changes && doc.status !== 'DRAFT' && <ChangesSummary changes={doc.changes} isForm={isForm} />}
+      {doc.changes && showVersionChanges(doc) && <ChangesSummary changes={doc.changes} isForm={isForm} />}
 
       {formContent && (
         <FormContent

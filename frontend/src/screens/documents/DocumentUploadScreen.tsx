@@ -2,7 +2,7 @@ import { Input, Radio, Switch } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
-import { errorMessage } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
@@ -46,6 +46,9 @@ function sortTypes(types: DocumentType[]): DocumentType[] {
 }
 
 /** 9. Новый документ — шаг 1 «Файл» (UPL-1…UPL-3, UPL-6). */
+/** Ошибки сервера про сам файл — показываются у зоны выбора файла. */
+const FILE_ERRORS: ReadonlySet<string> = new Set(['FILE_TYPE_NOT_ALLOWED', 'FILE_TOO_LARGE']);
+
 export function DocumentUploadScreen() {
   const navigate = useNavigate();
   const [types, setTypes] = useState<DocumentType[] | null>(null);
@@ -108,7 +111,14 @@ export function DocumentUploadScreen() {
       });
       navigate(documentCheckPath(card.id), { state: { card } });
     } catch (error) {
-      setSubmitError(errorMessage(error));
+      // Файл не подошёл по содержимому (переименован, повреждён, слишком большой) — ошибка у зоны файла, где его и
+      // меняют, а не внизу у кнопки; сам файл убираем: он и есть причина (#56, аудит 27.09).
+      if (error instanceof ApiError && FILE_ERRORS.has(error.code)) {
+        setMainFile(null);
+        setFileError(errorMessage(error));
+      } else {
+        setSubmitError(errorMessage(error));
+      }
     } finally {
       setSubmitting(false);
     }

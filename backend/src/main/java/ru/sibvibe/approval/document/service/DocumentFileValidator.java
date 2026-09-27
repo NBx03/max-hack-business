@@ -59,7 +59,22 @@ public class DocumentFileValidator {
             // Говорим, как пересохранить: это десять секунд в Word.
             throw DocumentApiException.fileTypeNotAllowed(DOC_NOT_SUPPORTED);
         }
-        throw DocumentApiException.fileTypeNotAllowed("Основной файл должен быть PDF или DOCX");
+        throw DocumentApiException.fileTypeNotAllowed(mismatchMessage(fileName));
+    }
+
+    /**
+     * Имя обещает PDF или DOCX, а внутри не он — файл повреждён или переименован: так и говорим, с советом, а не общее
+     * «должен быть PDF или DOCX» при файле .pdf (#56, аудит 27.09).
+     */
+    static String mismatchMessage(String fileName) {
+        String name = fileName.toLowerCase(java.util.Locale.ROOT);
+        if (name.endsWith(".pdf")) {
+            return "Файл повреждён или это не PDF. Откройте его и сохраните заново как PDF";
+        }
+        if (name.endsWith(".docx")) {
+            return "Файл повреждён или это не DOCX. Откройте его в Word и сохраните заново";
+        }
+        return "Основной файл должен быть PDF или DOCX";
     }
 
     static final String DOC_NOT_SUPPORTED = "DOC — устаревший формат Word. Откройте файл в Word и сохраните как DOCX: "

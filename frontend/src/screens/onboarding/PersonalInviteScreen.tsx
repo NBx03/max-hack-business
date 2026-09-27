@@ -99,9 +99,15 @@ export function PersonalInviteScreen({
       <OnboardingLayout
         title="Ссылка недействительна"
         footer={
-          <Button variant="primary" stretched onClick={onJoinByCode}>
-            Присоединиться по коду
-          </Button>
+          <>
+            <Button variant="primary" stretched onClick={onJoinByCode}>
+              Присоединиться по коду
+            </Button>
+            {/* Без выхода экран был тупиком: ни приветствия, ни демонстрации (#56, аудит 27.09). */}
+            <Button variant="ghost" stretched onClick={onDecline}>
+              На главную
+            </Button>
+          </>
         }
       >
         <ErrorText>{state.message}</ErrorText>

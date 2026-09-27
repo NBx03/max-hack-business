@@ -1,5 +1,7 @@
 import { Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ROUTE_PATTERNS } from '../../routes/paths';
 import {
   createPersonalInvite,
   getInviteCode,
@@ -22,6 +24,7 @@ function upperFirst(text: string): string {
 }
 
 export function InviteScreen() {
+  const navigate = useNavigate();
   const [code, setCode] = useState<InviteCodeInfo | null>(null);
   const [roles, setRoles] = useState<RoleRef[]>([]);
   const [personalInvites, setPersonalInvites] = useState<PersonalInviteView[] | null>(null);
@@ -146,7 +149,17 @@ export function InviteScreen() {
   }
 
   return (
-    <AdminScreen title="Приглашение" back={ADMIN_BACK}>
+    <AdminScreen
+      title="Приглашение"
+      back={ADMIN_BACK}
+      // Сразу после создания компании (в ней пока только вы) — понятный выход к работе: раньше экран кончался, а
+      // «назад» вело в «Компанию», не к документам (#56, аудит 27.09).
+      footer={soloAdmin ? (
+        <Button variant="primary" stretched onClick={() => navigate(ROUTE_PATTERNS.home)}>
+          Готово
+        </Button>
+      ) : undefined}
+    >
       <div style={{ ...stackStyle, marginTop: 4 }}>
         {soloAdmin && (
           <Notice>
