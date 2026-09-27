@@ -94,8 +94,9 @@ export function AiSummaryCard({ summary }: { summary: string }) {
       }
       aside={<IconButton icon="info" label="Что значит ✦" onClick={() => setOpen(true)} size={18} />}
     >
-      <p className="ds-text-secondary" style={{ margin: 0 }}>
-        {summary}
+      <p style={{ margin: 0 }}>{summary}</p>
+      <p className="ds-text-secondary" style={{ margin: 0, fontSize: 13 }}>
+        Составлено ИИ по тексту документа. Решение принимаете вы.
       </p>
       <AiSheet open={open} onClose={() => setOpen(false)} />
     </Section>
