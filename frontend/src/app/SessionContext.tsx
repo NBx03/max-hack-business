@@ -12,6 +12,7 @@ import { getActingAsId, setActingAsId } from '../api/client';
 import { ApiError, GENERIC_ERROR_MESSAGE } from '../api/errors';
 import { createDemoSandbox, getDemoSandbox, getMe } from '../api/session';
 import { demoActorToResume } from './demo';
+import { deviceZone } from './companyTime';
 import type { DemoSandboxUser, MeResponse } from '../api/types';
 
 type SessionStatus = 'loading' | 'ready' | 'error';
@@ -188,7 +189,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const previous = getActingAsId();
       setActingAsId(null);
       try {
-        const sandbox = await createDemoSandbox();
+        // Демо-компания живёт по часам проверяющего (#56): иначе «сегодня» в ней было бы московским.
+        const sandbox = await createDemoSandbox(deviceZone());
         await refresh();
         return sandbox.users;
       } catch (err) {

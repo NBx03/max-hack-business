@@ -58,7 +58,7 @@ class DatabaseSchemaTest {
         Map<String, String> firstChecksums;
         try (ConfigurableApplicationContext context = start(properties)) {
             JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(15);
+            assertThat(jdbc.queryForObject("select count(*) from databasechangelog", Integer.class)).isEqualTo(16);
             assertThat(jdbc.queryForObject("select count(*) from pg_tables where schemaname = 'public'", Integer.class))
                     .isEqualTo(19);
             assertThat(context.getBeansOfType(JpaRepository.class)).hasSize(17);
@@ -244,6 +244,9 @@ class DatabaseSchemaTest {
         rejected(connection, "23505", "INSERT INTO invite(id,org_id,kind,code,created_by,created_at) VALUES (10,1,'ORG_CODE','TEST0010',1,CURRENT_TIMESTAMP)");
         accepted(connection, "INSERT INTO invite(id,org_id,kind,code,created_by,created_at,revoked_at) VALUES (10,1,'ORG_CODE','TEST0010',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
         rejected(connection, "23514", "UPDATE document SET status = 'UNKNOWN' WHERE id = 1");
+        // Часовой пояс компании — только пояса России (#56); существующим компаниям — Москва.
+        rejected(connection, "23514", "UPDATE organization SET time_zone = 'Europe/London' WHERE id = 1");
+        accepted(connection, "UPDATE organization SET time_zone = 'Asia/Novosibirsk', city = 'Новосибирск' WHERE id = 1");
         rejected(connection, "23505", "INSERT INTO document_version(id,document_id,version_no,contains_sensitive,created_by,created_at) VALUES (10,1,1,false,1,CURRENT_TIMESTAMP)");
         accepted(connection, "UPDATE document_version SET check_status='FAILED' WHERE id=1");
         accepted(connection, "UPDATE document_version SET check_status=NULL WHERE id=1");

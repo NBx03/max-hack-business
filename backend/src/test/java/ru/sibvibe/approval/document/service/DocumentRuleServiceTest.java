@@ -8,12 +8,14 @@ import ru.sibvibe.approval.document.entity.DocumentType;
 import ru.sibvibe.approval.document.entity.DocumentTypeField;
 import ru.sibvibe.approval.document.repository.DocumentTypeFieldRepository;
 import ru.sibvibe.approval.document.repository.DocumentTypeRepository;
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import ru.sibvibe.approval.rules.RuleEngine;
 import ru.sibvibe.approval.rules.service.RuleCatalogService;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,7 +37,7 @@ class DocumentRuleServiceTest {
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
                 mock(RuleCatalogService.class),
-                engine,
+                engine, zones("Europe/Moscow"),
                 Clock.fixed(Instant.parse("2026-09-20T21:30:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
         type.setId(1L);
@@ -64,26 +67,53 @@ class DocumentRuleServiceTest {
         });
     }
 
-    /** 01:40 в Новосибирске, в Москве ещё вчера: сегодняшняя дата не должна считаться будущей (#56, аудит 27.09). */
+    /**
+     * «Сегодня» — по часовому поясу компании (#56, аудит 27.09): в 18:40 UTC у новосибирской компании уже 27-е,
+     * а у московской ещё 26-е. Раньше считалось только по Москве, и сегодняшняя дата в Новосибирске была «будущей».
+     */
     @Test
-    void todayEastOfMoscowIsNotInTheFuture() {
+    void todayIsTakenInTheCompanyTimeZone() {
         RuleEngine engine = mock(RuleEngine.class);
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
                 mock(RuleCatalogService.class),
-                engine,
+                engine, zones("Europe/Moscow"),
                 Clock.fixed(Instant.parse("2026-09-26T18:40:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
         type.setCode("MEMO");
         when(engine.validate(any(), any(), any())).thenReturn(List.of());
 
-        service.execute(new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of()));
+        service.execute(new DocumentRuleService.PreparedCheck(
+                type, List.of(), Map.of(), List.of(), Map.of(), ZoneId.of("Asia/Novosibirsk")));
+        service.execute(new DocumentRuleService.PreparedCheck(
+                type, List.of(), Map.of(), List.of(), Map.of(), ZoneId.of("Europe/Moscow")));
 
         ArgumentCaptor<RuleEngine.ValidationContext> context =
                 ArgumentCaptor.forClass(RuleEngine.ValidationContext.class);
-        verify(engine).validate(any(), any(), context.capture());
-        assertThat(context.getValue().referenceDate()).isEqualTo(LocalDate.of(2026, 9, 27));
+        verify(engine, times(2)).validate(any(), any(), context.capture());
+        assertThat(context.getAllValues()).extracting(RuleEngine.ValidationContext::referenceDate)
+                .containsExactly(LocalDate.of(2026, 9, 27), LocalDate.of(2026, 9, 26));
+    }
+
+    /** Пояс проверке даёт компания документа: prepare берёт его по id компании. */
+    @Test
+    void prepareCarriesTheCompanyTimeZone() {
+        DocumentTypeRepository types = mock(DocumentTypeRepository.class);
+        DocumentTypeFieldRepository fields = mock(DocumentTypeFieldRepository.class);
+        RuleCatalogService catalog = mock(RuleCatalogService.class);
+        DocumentType type = new DocumentType();
+        type.setId(3L);
+        type.setCode("MEMO");
+        when(types.findById(3L)).thenReturn(java.util.Optional.of(type));
+        when(fields.findByDocumentTypeIdOrderByPositionAscIdAsc(3L)).thenReturn(List.of());
+        when(catalog.forType(5L, 3L)).thenReturn(List.of());
+        CompanyZoneService companyZones = mock(CompanyZoneService.class);
+        when(companyZones.zoneOf(5L)).thenReturn(ZoneId.of("Asia/Novosibirsk"));
+        var service = new DocumentRuleService(types, fields, catalog, mock(RuleEngine.class), companyZones,
+                Clock.fixed(Instant.parse("2026-09-26T18:40:00Z"), ZoneOffset.UTC));
+
+        assertThat(service.prepare(5L, 3L, Map.of()).zone()).isEqualTo(ZoneId.of("Asia/Novosibirsk"));
     }
 
     /** Правка «без изменения файла», перенесённая в новую версию, сохраняет значение из файла. */
@@ -94,7 +124,7 @@ class DocumentRuleServiceTest {
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
                 mock(RuleCatalogService.class),
-                engine,
+                engine, zones("Europe/Moscow"),
                 Clock.fixed(Instant.parse("2026-09-24T00:00:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
         type.setCode("MEMO");
@@ -121,7 +151,7 @@ class DocumentRuleServiceTest {
                 mock(DocumentTypeRepository.class),
                 mock(DocumentTypeFieldRepository.class),
                 mock(RuleCatalogService.class),
-                engine,
+                engine, zones("Europe/Moscow"),
                 Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
         type.setCode("MEMO");
@@ -158,7 +188,7 @@ class DocumentRuleServiceTest {
         RuleEngine engine = mock(RuleEngine.class);
         var service = new DocumentRuleService(
                 mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
-                mock(RuleCatalogService.class), engine,
+                mock(RuleCatalogService.class), engine, zones("Europe/Moscow"),
                 Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
         DocumentType type = new DocumentType();
         type.setCode("MEMO");
@@ -182,13 +212,19 @@ class DocumentRuleServiceTest {
                 new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null, "Из модели"));
     }
 
+    private static CompanyZoneService zones(String zone) {
+        CompanyZoneService companyZones = mock(CompanyZoneService.class);
+        when(companyZones.zoneOf(org.mockito.ArgumentMatchers.anyLong())).thenReturn(ZoneId.of(zone));
+        return companyZones;
+    }
+
     /** Сервис с двумя полями схемы — «адресат» и «дата» — и правилами, которые ничего не находят. */
     private static DocumentRuleService manualUpdateService() {
         RuleEngine engine = mock(RuleEngine.class);
         when(engine.validate(any(), any(), any())).thenReturn(List.of());
         return new DocumentRuleService(
                 mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
-                mock(RuleCatalogService.class), engine,
+                mock(RuleCatalogService.class), engine, zones("Europe/Moscow"),
                 Clock.fixed(Instant.parse("2026-09-22T00:00:00Z"), ZoneOffset.UTC));
     }
 

@@ -5,6 +5,7 @@ import { getColleagues } from '../../api/organization';
 import { errorMessage } from '../../api/errors';
 import type { DisplayStatus, DocumentListItem, DocumentType, UserRef } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
+import { companyZoneOf } from '../../app/companyTime';
 import { useAsync } from '../../hooks/useAsync';
 import {
   DOCUMENT_LISTS,
@@ -93,6 +94,8 @@ export function DocumentListRoute() {
 function DocumentListScreen({ list }: { list: DocumentListKey }) {
   const navigate = useNavigate();
   const { me } = useSession();
+  // Период «за 7 дней» — по поясу компании, как считает сервер (#56).
+  const zone = companyZoneOf(me);
   const meta = DOCUMENT_LISTS[list];
   const actor = me?.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me?.user.id ?? 0}`;
   const memoryKey = `${actor}:${list}`;
@@ -121,7 +124,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
   const [knownAuthors, setKnownAuthors] = useState<Map<number, UserRef>>(new Map());
   const colleaguesQuery = useAsync(() => (list === 'mine' ? Promise.resolve([]) : getColleagues()), [list]);
 
-  const query = useAsync(() => getDocuments(meta.tab, toQuery(filters, 0, PAGE_SIZE)), [meta.tab, filters]);
+  const query = useAsync(() => getDocuments(meta.tab, toQuery(filters, 0, PAGE_SIZE, new Date(), zone)), [meta.tab, filters]);
   const typesQuery = useAsync(() => getDocumentTypes(), []);
 
   // Следующие страницы — дописываются к первой; новые фильтры начинают список заново.
@@ -144,7 +147,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
     setMoreError(null);
     try {
       const requested = filters;
-      const next = await loadNextPage((page) => getDocuments(meta.tab, toQuery(filters, page, PAGE_SIZE)), firstPage, more);
+      const next = await loadNextPage((page) => getDocuments(meta.tab, toQuery(filters, page, PAGE_SIZE, new Date(), zone)), firstPage, more);
       // Фильтры сменились, пока грузилась страница, — её строки к новому списку не относятся (ревью Матвея на #113, п. 7).
       if (filtersRef.current !== requested) return;
       setMore(next);

@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.document.service;
 
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import org.junit.jupiter.api.Test;
 import ru.sibvibe.approval.common.api.DomainException;
 import ru.sibvibe.approval.common.security.CurrentUser;
@@ -19,7 +20,24 @@ import static org.mockito.Mockito.when;
 class DocumentMetricsServiceTest {
 
     private final DocumentReadRepository repository = mock(DocumentReadRepository.class);
-    private final DocumentMetricsService service = new DocumentMetricsService(repository);
+    private final CompanyZoneService companyZones = mock(CompanyZoneService.class);
+    private final DocumentMetricsService service = new DocumentMetricsService(repository, companyZones);
+
+    @org.junit.jupiter.api.BeforeEach
+    void moscowByDefault() {
+        when(companyZones.zoneOf(org.mockito.ArgumentMatchers.anyLong())).thenReturn(java.time.ZoneId.of("Europe/Moscow"));
+    }
+
+    /** Границы периода — по поясу компании (#56): у новосибирской день начинается на 4 часа раньше московского. */
+    @Test
+    void periodBoundsFollowTheCompanyTimeZone() {
+        when(companyZones.zoneOf(7L)).thenReturn(java.time.ZoneId.of("Asia/Novosibirsk"));
+        when(repository.metrics(7L, Instant.parse("2026-08-31T17:00:00Z"), Instant.parse("2026-09-01T17:00:00Z")))
+                .thenReturn(new DocumentReadRepository.MetricsRow(1.0, 0.0, 1));
+
+        assertThat(service.metrics(user(7L, 9L), java.time.LocalDate.of(2026, 9, 1), java.time.LocalDate.of(2026, 9, 1)).documentsCount())
+                .isEqualTo(1);
+    }
 
     @Test
     void usesInclusiveMoscowDatesAndReturnsRepositoryValues() {

@@ -333,6 +333,49 @@ class OnboardingIntegrationTest {
                 .containsExactly("LAWYER");
     }
 
+    // ---------- Город и часовой пояс компании (#56) ----------
+
+    @Test
+    void companyKeepsItsCityAndTimeZoneAndOnlyAnAdministratorChangesThem() {
+        long alice = newUser();
+        long bob = newUser();
+        long charlie = newUser();
+
+        // пояс не из России (и не из списка) не принимается: «сегодня» считалось бы непонятно как
+        Resp foreign = call(charlie, "POST", "/api/v1/orgs",
+                Map.of("name", "Чужой пояс", "city", "Лондон", "timeZone", "Europe/London"));
+        assertThat(foreign.status()).isEqualTo(400);
+
+        Resp created = call(alice, "POST", "/api/v1/orgs",
+                Map.of("name", "Ромашка", "city", "Новосибирск", "timeZone", "Asia/Novosibirsk"));
+        assertThat(created.status()).as(created.body()).isEqualTo(201);
+        JsonNode membership = ok(call(alice, "GET", "/api/v1/me", null)).path("membership");
+        assertThat(membership.path("city").asText()).isEqualTo("Новосибирск");
+        assertThat(membership.path("timeZone").asText()).isEqualTo("Asia/Novosibirsk");
+
+        // без города (старый клиент) — Москва
+        createCompany(charlie, "Без города");
+        assertThat(ok(call(charlie, "GET", "/api/v1/me", null)).path("membership").path("timeZone").asText())
+                .isEqualTo("Europe/Moscow");
+
+        // меняет только администратор
+        long bobRequest = submit(bob, inviteCode(alice));
+        ok(call(alice, "POST", "/api/v1/orgs/current/join-requests/" + bobRequest + "/approve",
+                Map.of("roleIds", List.of(roleIds(alice).get("LAWYER")))));
+        Resp byMember = call(bob, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Омск", "timeZone", "Asia/Omsk"));
+        assertThat(byMember.status()).isEqualTo(403);
+        assertThat(byMember.code()).isEqualTo("NOT_ADMIN");
+
+        JsonNode changed = ok(call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Казань", "timeZone", "Europe/Moscow")));
+        assertThat(changed.path("city").asText()).isEqualTo("Казань");
+        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").path("timeZone").asText())
+                .as("сотрудник видит пояс компании сразу").isEqualTo("Europe/Moscow");
+        assertThat(call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Где-то", "timeZone", "Mars/Olympus")).status()).isEqualTo(400);
+    }
+
     // ---------- Последний администратор и незавершённые шаги ----------
 
     @Test
@@ -363,36 +406,6 @@ class OnboardingIntegrationTest {
         assertThat(last.code()).isEqualTo("LAST_ADMIN");
         // права Alice сняты и действуют сразу
         assertThat(call(alice, "GET", "/api/v1/orgs/current/members", null).code()).isEqualTo("NOT_ADMIN");
-    }
-
-    /** Выйти из компании самому (#56, аудит 27.09): как исключение, но последний администратор не бросает коллег. */
-    @Test
-    void memberLeavesTheCompanyButTheOnlyAdministratorStaysWhileOthersRemain() {
-        long alice = newUser();
-        long bob = newUser();
-        createCompany(alice, "Ромашка");
-        Map<String, Long> roles = roleIds(alice);
-        long bobRequest = submit(bob, inviteCode(alice));
-        ok(call(alice, "POST", "/api/v1/orgs/current/join-requests/" + bobRequest + "/approve",
-                Map.of("roleIds", List.of(roles.get("LAWYER")))));
-        long bobUserId = ok(call(bob, "GET", "/api/v1/me", null)).path("user").path("id").asLong();
-        long aliceUserId = ok(call(alice, "GET", "/api/v1/me", null)).path("user").path("id").asLong();
-        long awaited = insertPendingStep(aliceUserId, bobUserId, roles.get("LAWYER"));
-
-        // Alice — единственный администратор, а Bob остаётся: компанией некому было бы управлять
-        Resp aliceLeaves = call(alice, "POST", "/api/v1/orgs/current/members/me/leave", null);
-        assertThat(aliceLeaves.status()).isEqualTo(409);
-        assertThat(aliceLeaves.code()).isEqualTo("LAST_ADMIN");
-
-        // Bob выходит: документ, который ждал его решения, вернулся автору, компании у него больше нет
-        assertThat(call(bob, "POST", "/api/v1/orgs/current/members/me/leave", null).status()).isEqualTo(204);
-        assertThat(stepState(awaited)).isEqualTo("SKIPPED/MEMBER_REMOVED/RETURNED");
-        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").isNull()).isTrue();
-
-        // теперь Alice одна — выходит и она; вернуться можно по коду, как новый сотрудник
-        assertThat(call(alice, "POST", "/api/v1/orgs/current/members/me/leave", null).status()).isEqualTo(204);
-        assertThat(ok(call(alice, "GET", "/api/v1/me", null)).path("membership").isNull()).isTrue();
-        assertThat(call(alice, "POST", "/api/v1/orgs/current/members/me/leave", null).status()).isEqualTo(403);
     }
 
     @Test

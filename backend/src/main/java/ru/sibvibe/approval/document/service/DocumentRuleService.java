@@ -9,6 +9,8 @@ import ru.sibvibe.approval.document.entity.DocumentType;
 import ru.sibvibe.approval.document.entity.DocumentTypeField;
 import ru.sibvibe.approval.document.repository.DocumentTypeFieldRepository;
 import ru.sibvibe.approval.document.repository.DocumentTypeRepository;
+import ru.sibvibe.approval.organization.service.CompanyTimeZones;
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import ru.sibvibe.approval.rules.RuleEngine;
 import ru.sibvibe.approval.rules.service.RuleCatalogService;
 
@@ -26,13 +28,6 @@ import java.util.stream.Collectors;
 @Service
 public class DocumentRuleService {
 
-    /**
-     * «Сегодня» для правила «не позже сегодняшнего дня» — по самому восточному часовому поясу России (UTC+12). Дату
-     * ставит человек по своим часам: в Новосибирске после полуночи уже 27-е, а в Москве ещё 26-е, и сегодняшняя дата
-     * считалась будущей — критичное замечание, отправить нельзя (#56, аудит 27.09). Так дата «сегодня» проходит в любом
-     * регионе; цена — вечером по Москве пропускается и московское «завтра», это безопаснее ложного запрета.
-     */
-    static final ZoneId LATEST_RUSSIAN_ZONE = ZoneId.of("Asia/Kamchatka");
     private static final int MAX_FIELDS = 100;
     private static final int MAX_FIELD_VALUE_LENGTH = 10_000;
 
@@ -40,6 +35,7 @@ public class DocumentRuleService {
     private final DocumentTypeFieldRepository fieldRepository;
     private final RuleCatalogService ruleCatalog;
     private final RuleEngine ruleEngine;
+    private final CompanyZoneService companyZones;
     private final Clock clock;
 
     public DocumentRuleService(
@@ -47,12 +43,14 @@ public class DocumentRuleService {
             DocumentTypeFieldRepository fieldRepository,
             RuleCatalogService ruleCatalog,
             RuleEngine ruleEngine,
+            CompanyZoneService companyZones,
             Clock clock
     ) {
         this.typeRepository = typeRepository;
         this.fieldRepository = fieldRepository;
         this.ruleCatalog = ruleCatalog;
         this.ruleEngine = ruleEngine;
+        this.companyZones = companyZones;
         this.clock = clock;
     }
 
@@ -98,7 +96,9 @@ public class DocumentRuleService {
                 type,
                 List.copyOf(schema),
                 Collections.unmodifiableMap(new LinkedHashMap<>(fields)),
-                rules);
+                rules,
+                Map.of(),
+                companyZones.zoneOf(orgId));
     }
 
     public CheckData execute(PreparedCheck prepared) {
@@ -121,7 +121,7 @@ public class DocumentRuleService {
                         values,
                         prepared.rules(),
                         new RuleEngine.ValidationContext(
-                                LocalDate.ofInstant(clock.instant(), LATEST_RUSSIAN_ZONE), locations))
+                                LocalDate.ofInstant(clock.instant(), prepared.zone()), locations))
                 .stream()
                 .map(issue -> new DocumentCardResponse.ValidationIssueView(
                         issue.ruleId(),
@@ -259,7 +259,9 @@ public class DocumentRuleService {
             List<DocumentTypeField> schema,
             Map<String, String> suppliedFields,
             List<RuleEngine.RequirementRule> rules,
-            Map<String, String> fileValues
+            Map<String, String> fileValues,
+            /* Часовой пояс компании (#56): «сегодня» для правила «не позже сегодняшнего дня». */
+            ZoneId zone
     ) {
         public PreparedCheck(
                 DocumentType type,
@@ -267,11 +269,11 @@ public class DocumentRuleService {
                 Map<String, String> suppliedFields,
                 List<RuleEngine.RequirementRule> rules
         ) {
-            this(type, schema, suppliedFields, rules, Map.of());
+            this(type, schema, suppliedFields, rules, Map.of(), CompanyTimeZones.zoneOf(null));
         }
 
         public PreparedCheck withFileValues(Map<String, String> values) {
-            return new PreparedCheck(type, schema, suppliedFields, rules, Map.copyOf(values));
+            return new PreparedCheck(type, schema, suppliedFields, rules, Map.copyOf(values), zone);
         }
     }
 

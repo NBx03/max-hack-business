@@ -1356,7 +1356,3 @@ button.ds-row:active {
 .ds-field-issue--warning { color: var(--status-warning-fg); }
 .ds-field-issue--neutral { color: var(--text-secondary); }
 
-/* Тихая кнопка необратимого действия («Выйти из компании»): контур как у ghost, текст — цветом опасности. */
-.ds-button--ghost.ds-button--quiet-danger {
-  color: var(--status-danger-fg);
-}

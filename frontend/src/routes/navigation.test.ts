@@ -20,7 +20,7 @@ const base: MeResponse = {
 
 const member: MeResponse = {
   ...base,
-  membership: { orgId: 5, orgName: 'ООО «Тест»', roles: [], isAdmin: true },
+  membership: { orgId: 5, orgName: 'ООО «Тест»', roles: [], isAdmin: true, city: 'Москва', timeZone: 'Europe/Moscow' },
 };
 const pending: MeResponse = {
   ...base,
@@ -28,7 +28,7 @@ const pending: MeResponse = {
 };
 const inSandbox: MeResponse = {
   ...base,
-  sandbox: { orgId: 900, orgName: 'Демо-компания' },
+  sandbox: { orgId: 900, orgName: 'Демо-компания', city: 'Москва', timeZone: 'Europe/Moscow' },
   actingAs: { user: { id: 101, fullName: 'Демо Автор' }, roles: [], isAdmin: false },
 };
 

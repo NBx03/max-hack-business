@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.document.service;
 
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import ru.sibvibe.approval.document.entity.Document;
@@ -22,7 +23,6 @@ import java.util.Set;
 public class DemoDocumentSeedService {
 
     private static final String MEMO_TYPE = "OFFICIAL_MEMO";
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Europe/Moscow");
     private static final DateTimeFormatter DEMO_DATE = DateTimeFormatter.ofPattern("dd.MM.uuuu");
 
     private final DocumentTypeRepository typeRepository;
@@ -31,6 +31,7 @@ public class DemoDocumentSeedService {
     private final DocumentRuleService ruleService;
     private final ObjectMapper objectMapper;
     private final CompanyRulesService companyRules;
+    private final CompanyZoneService companyZones;
 
     public DemoDocumentSeedService(
             DocumentTypeRepository typeRepository,
@@ -38,7 +39,8 @@ public class DemoDocumentSeedService {
             DocumentVersionRepository versionRepository,
             DocumentRuleService ruleService,
             ObjectMapper objectMapper,
-            CompanyRulesService companyRules
+            CompanyRulesService companyRules,
+            CompanyZoneService companyZones
     ) {
         this.typeRepository = typeRepository;
         this.documentRepository = documentRepository;
@@ -46,6 +48,7 @@ public class DemoDocumentSeedService {
         this.ruleService = ruleService;
         this.objectMapper = objectMapper;
         this.companyRules = companyRules;
+        this.companyZones = companyZones;
     }
 
     public SeededDocuments seed(long orgId, long authorId, Instant now) {
@@ -54,7 +57,8 @@ public class DemoDocumentSeedService {
         DocumentType type = typeRepository.findByCodeIn(Set.of(MEMO_TYPE)).stream()
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Не найден тип документа " + MEMO_TYPE));
-        Map<String, String> fields = memoFields(now);
+        // Дата записки — «сегодня» демо-компании, по её часовому поясу (#56): иначе правило даты сочло бы её будущей.
+        Map<String, String> fields = memoFields(now, companyZones.zoneOf(orgId));
         DocumentRuleService.CheckData check = ruleService.execute(ruleService.prepare(orgId, type.getId(), fields));
         if (check == null || check.issues().stream()
                 .anyMatch(issue -> issue.severity() == ru.sibvibe.approval.rules.RuleEngine.Severity.BLOCKER)) {
@@ -117,11 +121,11 @@ public class DemoDocumentSeedService {
         return document.getId();
     }
 
-    private Map<String, String> memoFields(Instant now) {
+    private Map<String, String> memoFields(Instant now, ZoneId zone) {
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put("addressee", "Генеральному директору ООО «Демо-компания» Орлову В.П.");
         fields.put("author_name", "А.С. Петрова");
-        fields.put("doc_date", LocalDate.ofInstant(now, BUSINESS_ZONE).format(DEMO_DATE));
+        fields.put("doc_date", LocalDate.ofInstant(now, zone).format(DEMO_DATE));
         fields.put("reg_number", "СЗ-117");
         fields.put("subject", "О закупке ноутбуков для отдела продаж");
         fields.put("body", "Прошу согласовать закупку пяти ноутбуков для новых сотрудников отдела продаж. "

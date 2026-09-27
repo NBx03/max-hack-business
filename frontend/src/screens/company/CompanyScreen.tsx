@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
 import { getDocumentTypes } from '../../api/documents';
-import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount, getRoutes } from '../../api/organization';
-import { leaveCompany } from '../../api/admin';
+import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount, getRoutes, updateCompanyLocation } from '../../api/organization';
 import type { MemberView } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
 import { demoEntryUser } from '../../app/demo';
 import { useAsync } from '../../hooks/useAsync';
 import { ROUTE_PATTERNS } from '../../routes/paths';
-import { Button, ConfirmSheet, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section } from '../../ui';
+import { Button, ConfirmSheet, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section, SelectSheet } from '../../ui';
+import { cityByName, cityOptions, mskLabel } from '../../app/companyTime';
 import { MetricsCard } from './MetricsCard';
 import { RoutesCard } from './RoutesCard';
 
@@ -20,11 +20,29 @@ import { RoutesCard } from './RoutesCard';
  */
 export function CompanyScreen() {
   const navigate = useNavigate();
-  const { me, actAs, startSandbox, refresh } = useSession();
+  const { me, actAs, startSandbox, refreshQuietly } = useSession();
   const demo = useOpenDemo();
   const inDemo = Boolean(me?.actingAs);
   const actor = me?.actingAs ?? (me?.membership ? { user: me.user, roles: me.membership.roles, isAdmin: me.membership.isAdmin } : null);
   const orgName = inDemo ? me?.sandbox?.orgName : me?.membership?.orgName;
+  // Город компании (#56): по его часовому поясу считается «сегодня» — дата в документах, периоды, показатели.
+  const company = inDemo ? me?.sandbox : me?.membership;
+  const place = company ? `${company.city} · ${mskLabel(company.timeZone)}` : null;
+  const [cityOpen, setCityOpen] = useState(false);
+  const [cityError, setCityError] = useState<string | null>(null);
+
+  async function changeCity(city: string) {
+    const next = cityByName(city);
+    if (!next) return;
+    setCityError(null);
+    try {
+      await updateCompanyLocation(next.city, next.timeZone);
+      setCityOpen(false);
+      await refreshQuietly();
+    } catch (err) {
+      setCityError(errorMessage(err));
+    }
+  }
   const isAdmin = Boolean(actor?.isAdmin);
   const pendingQuery = useAsync(() => (isAdmin ? getPendingJoinRequestsCount() : Promise.resolve(0)), [isAdmin]);
   const pending = pendingQuery.status === 'ready' ? pendingQuery.data : 0;
@@ -35,22 +53,6 @@ export function CompanyScreen() {
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const [confirmRestart, setConfirmRestart] = useState(false);
-  const [leaveOpen, setLeaveOpen] = useState(false);
-  const [leaving, setLeaving] = useState(false);
-  const [leaveError, setLeaveError] = useState<string | null>(null);
-
-  // Выход из компании (#56, аудит 27.09): после него /me без компании — охранник сам уведёт на приветствие.
-  async function leave() {
-    setLeaving(true);
-    setLeaveError(null);
-    try {
-      await leaveCompany();
-      await refresh();
-    } catch (err) {
-      setLeaveError(errorMessage(err));
-      setLeaving(false);
-    }
-  }
 
   async function restartDemo() {
     if (restarting) return;
@@ -79,7 +81,7 @@ export function CompanyScreen() {
         <PageHeader
           back={{ to: ROUTE_PATTERNS.home, label: 'Главная' }}
           title={orgName ?? 'Компания'}
-          subtitle={inDemo ? 'Демонстрационная компания с вымышленными сотрудниками' : undefined}
+          subtitle={inDemo ? 'Демонстрационная компания с вымышленными сотрудниками' : place ?? undefined}
         />
       }
     >
@@ -101,7 +103,19 @@ export function CompanyScreen() {
               onClick={() => navigate(ROUTE_PATTERNS.adminRequests)}
             />
             <Row title="Участники и роли" subtitle="Роли, права администратора, исключение" onClick={() => navigate(ROUTE_PATTERNS.adminMembers)} />
+            {/* В демо город задан устройством проверяющего и не меняется (сервер тоже не даст). */}
+            {!inDemo && place && <Row title="Город компании" subtitle={place} onClick={() => setCityOpen(true)} />}
           </List>
+          {cityError && <InlineError>{cityError}</InlineError>}
+          <SelectSheet
+            open={cityOpen}
+            onClose={() => setCityOpen(false)}
+            title="Город компании"
+            searchable
+            options={cityOptions()}
+            value={company?.city ?? null}
+            onSelect={(city) => void changeCity(city)}
+          />
         </Section>
       )}
 
@@ -179,28 +193,6 @@ export function CompanyScreen() {
               {demo.error && <InlineError>{demo.error}</InlineError>}
             </>
           )}
-        </Section>
-      )}
-      {/* Редкое и необратимое — в самом конце и тихо. В демо не показываем: там «Выйти из демонстрации». */}
-      {!inDemo && me?.membership && (
-        <Section>
-          <Button stretched variant="ghost" className="ds-button--quiet-danger" onClick={() => setLeaveOpen(true)}>
-            Выйти из компании
-          </Button>
-          <ConfirmSheet
-            open={leaveOpen}
-            onClose={() => {
-              setLeaveOpen(false);
-              setLeaveError(null);
-            }}
-            title={`Выйти из компании ${me.membership.orgName}?`}
-            description="Документы, которые ждут вашего решения, вернутся авторам. Вернуться можно по коду компании."
-            confirmLabel="Выйти"
-            destructive
-            busy={leaving}
-            error={leaveError}
-            onConfirm={() => void leave()}
-          />
         </Section>
       )}
     </Page>

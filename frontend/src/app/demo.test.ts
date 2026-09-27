@@ -9,7 +9,7 @@ const withoutCompany: MeResponse = {
   membership: null,
   pendingJoinRequest: null,
   demoMode: true,
-  sandbox: { orgId: 9, orgName: 'Демо-компания' },
+  sandbox: { orgId: 9, orgName: 'Демо-компания', city: 'Москва', timeZone: 'Europe/Moscow' },
   actingAs: null,
   startParam: null,
 };
@@ -28,7 +28,7 @@ describe('demoActorToResume', () => {
   it('не возвращает сотрудника настоящей компании и того, кто уже в демонстрации', () => {
     expect(demoActorToResume({
       ...withoutCompany,
-      membership: { orgId: 5, orgName: 'ООО «Тест»', roles: [], isAdmin: false },
+      membership: { orgId: 5, orgName: 'ООО «Тест»', roles: [], isAdmin: false, city: 'Москва', timeZone: 'Europe/Moscow' },
     }, 42)).toBeNull();
     expect(demoActorToResume({
       ...withoutCompany,

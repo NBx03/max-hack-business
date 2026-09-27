@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.document.service;
 
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -29,7 +30,13 @@ class DemoDocumentSeedServiceTest {
     private final DocumentRuleService rules = mock(DocumentRuleService.class);
     private final CompanyRulesService companyRules = mock(CompanyRulesService.class);
     private final DemoDocumentSeedService service =
-            new DemoDocumentSeedService(types, documents, versions, rules, new ObjectMapper(), companyRules);
+            new DemoDocumentSeedService(types, documents, versions, rules, new ObjectMapper(), companyRules, moscow());
+
+    private static CompanyZoneService moscow() {
+        CompanyZoneService zones = mock(CompanyZoneService.class);
+        when(zones.zoneOf(org.mockito.ArgumentMatchers.anyLong())).thenReturn(java.time.ZoneId.of("Europe/Moscow"));
+        return zones;
+    }
 
     @Test
     void createsOneCheckedMemoInEveryDocumentState() {

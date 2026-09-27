@@ -205,7 +205,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | Сущность | Поля |
 |---|---|
 | `AppUser` | id, **max_user_id** (unique), full_name, created_at — только личность |
-| `Organization` | id, name, inn (необязательный, не проверяется), created_by, created_at, **is_demo**, **demo_owner_id** → AppUser (у демо-песочницы — чья она) |
+| `Organization` | id, name, inn (необязательный, не проверяется), created_by, created_at, **is_demo**, **demo_owner_id** → AppUser (у демо-песочницы — чья она), **city**, **time_zone** (только пояса России; по нему «сегодня» для правил, периодов и показателей, #56) |
 | `OrganizationMember` | id, org_id, user_id, **status** (ACTIVE / DISABLED), **is_admin**, joined_at, **is_demo** (техническая копия признака организации); unique(org_id, user_id); не более одного ACTIVE на пользователя среди реальных компаний |
 | `Role` | id, org_id, code, name — **только предметные роли**: Директор, Юрист, Бухгалтер… Права администратора — не роль |
 | `MemberRole` | member_id, role_id, **granted_by, granted_at** |

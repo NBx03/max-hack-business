@@ -15,7 +15,8 @@ public record MeResponse(
         ActingAs actingAs,
         String startParam
 ) {
-    public record Membership(long orgId, String orgName, List<RoleRef> roles, boolean isAdmin) {
+    /** city, timeZone — город и часовой пояс компании (#56): по ним экран считает «сегодня» (дата в записке, периоды). */
+    public record Membership(long orgId, String orgName, List<RoleRef> roles, boolean isAdmin, String city, String timeZone) {
         public Membership {
             roles = List.copyOf(roles);
         }
@@ -24,7 +25,7 @@ public record MeResponse(
     public record PendingJoinRequest(long id, String orgName, Instant createdAt) {
     }
 
-    public record Sandbox(long orgId, String orgName) {
+    public record Sandbox(long orgId, String orgName, String city, String timeZone) {
     }
 
     public record ActingAs(UserRef user, List<RoleRef> roles, boolean isAdmin) {

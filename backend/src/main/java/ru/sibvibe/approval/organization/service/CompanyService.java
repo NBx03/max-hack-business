@@ -2,6 +2,8 @@ package ru.sibvibe.approval.organization.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.sibvibe.approval.common.security.CurrentUser;
+import ru.sibvibe.approval.organization.dto.CompanyLocationRequest;
 import ru.sibvibe.approval.organization.dto.CreateOrganizationRequest;
 import ru.sibvibe.approval.organization.dto.OrganizationCreatedResponse;
 import ru.sibvibe.approval.organization.entity.Organization;
@@ -59,6 +61,10 @@ public class CompanyService {
         Organization org = new Organization();
         org.setName(request.name().trim());
         org.setInn(blankToNull(request.inn()));
+        // Город и пояс не переданы (старый клиент) — Москва, как было до #56.
+        if (request.timeZone() != null || request.city() != null) {
+            applyLocation(org, request.city(), request.timeZone());
+        }
         org.setCreatedBy(userId);
         org.setCreatedAt(clock.instant());
         org.setDemo(false);
@@ -77,6 +83,32 @@ public class CompanyService {
         inviteService.issueOrgCode(org.getId(), userId);
         routeTemplateService.createDefaultRoutes(org.getId(), roleIdsByCode);
         return new OrganizationCreatedResponse(org.getId(), org.getName());
+    }
+
+    /** Город и часовой пояс компании меняет администратор (#56): действует на новые проверки, периоды и показатели. */
+    @Transactional
+    public CompanyLocationView updateLocation(CurrentUser actor, CompanyLocationRequest request) {
+        long orgId = OrganizationAccess.requireAdminOrg(actor);
+        Organization org = organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
+        if (org.isDemo()) {
+            throw OrganizationErrors.forbidden("Город демо-компании не меняется");
+        }
+        applyLocation(org, request.city(), request.timeZone());
+        return new CompanyLocationView(org.getCity(), org.getTimeZone());
+    }
+
+    private static void applyLocation(Organization org, String city, String timeZone) {
+        if (!CompanyTimeZones.isSupported(timeZone)) {
+            throw OrganizationErrors.validation("Выберите город из списка");
+        }
+        if (city == null || city.isBlank()) {
+            throw OrganizationErrors.validation("Укажите город компании");
+        }
+        org.setCity(city.trim());
+        org.setTimeZone(timeZone);
+    }
+
+    public record CompanyLocationView(String city, String timeZone) {
     }
 
     private static String blankToNull(String value) {

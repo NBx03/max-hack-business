@@ -122,11 +122,12 @@ type MemberView = {               // участник компании: отве
 ```ts
 {
   user: UserRef;                 // всегда сам пользователь, даже с X-Demo-Act-As
-  membership: null | { orgId: number; orgName: string; roles: RoleRef[]; isAdmin: boolean };
+  membership: null | { orgId: number; orgName: string; roles: RoleRef[]; isAdmin: boolean;
+                      city: string; timeZone: string };   // город и часовой пояс компании (#56)
                                  // только реальная компания; roles — предметные роли, права администратора — isAdmin
   pendingJoinRequest: null | { id: number; orgName: string; createdAt: string };
   demoMode: boolean;             // показывать ли «Открыть демо-компанию» и переключатель
-  sandbox: null | { orgId: number; orgName: string };   // личная песочница, если создана
+  sandbox: null | { orgId: number; orgName: string; city: string; timeZone: string };   // личная песочница, если создана
   actingAs: null | { user: UserRef; roles: RoleRef[]; isAdmin: boolean };
                                  // только при X-Demo-Act-As: для плашки «Демо: действую как …»
   startParam: string | null;     // из проверенной initData: c_<код>, p_<токен> или d_<id документа>
@@ -141,7 +142,7 @@ type MemberView = {               // участник компании: отве
 
 | Метод и путь | Ответ |
 |---|---|
-| `POST /demo/sandbox` | Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
+| `POST /demo/sandbox` | `{ timeZone? }` — пояс устройства (#56; не из России или нет — Москва). Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
 | `GET /demo/sandbox` | Та же песочница; 404, если ещё не создана |
 
 `X-Demo-Act-As` принимает id из `users` своей песочницы. Сам вызывающий в `users` не входит.
@@ -152,8 +153,9 @@ type MemberView = {               // участник компании: отве
 
 | Метод и путь | Кто | Тело → ответ |
 |---|---|---|
-| `POST /orgs` | Не состоит в реальной компании | `{ name, inn? }` → 201 `{ id, name }`. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
+| `POST /orgs` | Не состоит в реальной компании | `{ name, inn?, city?, timeZone? }` → 201 `{ id, name }`. Город и часовой пояс (#56): пояс — только из поясов России, иначе 400; не переданы — Москва. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
 | `GET /orgs/current/roles` | Участник | → `RoleRef[]` — только предметные роли |
+| `PUT /orgs/current/location` | ADMIN | `{ city, timeZone }` → `{ city, timeZone }`. Город и часовой пояс компании (#56): по ним «сегодня» в правилах, периоды списков и показатели. Пояс не из России — 400; у демо-песочницы — 403 |
 | *SHOULD* `POST /orgs/current/roles` | ADMIN | `{ name }` → 201 `RoleRef` |
 | *SHOULD* `PATCH /orgs/current/roles/{id}` | ADMIN | `{ name }` → `RoleRef` |
 | `GET /orgs/current/invite-code` | ADMIN | → `{ code, link, createdAt }`, `link` = `https://max.ru/t354_hakaton_max_bot?startapp=c_<code>` |
@@ -172,7 +174,6 @@ type MemberView = {               // участник компании: отве
 | `PUT /orgs/current/members/{memberId}/roles` | ADMIN | `{ roleIds }` → `MemberView & { returnedDocuments: number }`. Снятая роль действует сразу: документы, где человек ещё не решил в этой роли, возвращаются авторам (приёмка 24.09, п. 15); `returnedDocuments` — сколько, администратор видит это в сообщении. 403 `FORBIDDEN` (свои роли менять нельзя), 409 `INVALID_STATE` (участник отключён) |
 | `PUT /orgs/current/members/{memberId}/admin` | ADMIN | `{ isAdmin }` → `MemberView`. 409 `LAST_ADMIN` |
 | *SHOULD* `POST /orgs/current/members/{memberId}/disable` | ADMIN | → 200 `MemberView & { returnedDocuments: number }`; сразу, повторный вызов ничего не меняет (`returnedDocuments: 0`). Документы, где человек ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` |
-| `POST /orgs/current/members/me/leave` | участник | → 204. Выйти из компании самому (#56): как исключение — документы, где он ещё не решил, возвращаются авторам. 409 `LAST_ADMIN` — единственный администратор, а в компании есть другие сотрудники; 403 — из демо-песочницы или уже не участник |
 
 Заявка, участник, роль и приглашение ищутся **в компании администратора**: чужой id — 404, в том
 числе роль другой компании в `roleIds`.
