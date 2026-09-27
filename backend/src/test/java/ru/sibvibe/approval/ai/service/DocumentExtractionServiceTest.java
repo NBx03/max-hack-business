@@ -228,6 +228,21 @@ class DocumentExtractionServiceTest {
     }
 
     /**
+     * Ревью Mat10t к #104, третье ревью, п.1 из желательного: месяц с заглавной буквы (начало предложения,
+     * например) — та же основа, регистр значения не имеет.
+     */
+    @Test
+    void monthWordWithCapitalLetterIsRecognizedRegardlessOfCase() {
+        String source = "Май 2026 года — срок поставки.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Поставка ожидается в мае 2026 года.", source))
+                .isTrue();
+        assertThat(DocumentExtractionService.summarySupportedBy(
+                "Поставка — Декабрь 2026 года.", "5 мая 2026 года, поставка."))
+                .isFalse();
+    }
+
+    /**
      * Ревью Mat10t к #104, второе ревью, п.8: «Мартынов» и «Августова» — фамилии, не месяцы; закрытый список
      * падежных окончаний не должен принимать их за «март»/«август».
      */
