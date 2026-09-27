@@ -16,3 +16,11 @@ export function removedRoleIds(before: number[], after: number[]): number[] {
   const kept = new Set(after);
   return before.filter((id) => !kept.has(id));
 }
+
+/**
+ * В компании пока только администратор — на экране приглашения подсказка и «Готово» к документам. Считаются только
+ * активные: список сотрудников отдаёт и исключённых (ревью #122, п. 5).
+ */
+export function onlyAdminLeft(members: { status: 'ACTIVE' | 'DISABLED' }[]): boolean {
+  return members.filter((member) => member.status === 'ACTIVE').length === 1;
+}

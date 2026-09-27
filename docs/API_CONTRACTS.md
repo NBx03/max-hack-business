@@ -50,7 +50,7 @@
 
 | HTTP | Когда |
 |---|---|
-| 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED` |
+| 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED` (формат основного файла не PDF и не DOCX), `FILE_INVALID` (содержимое основного файла не читается: пустой, повреждённый PDF, опасный DOCX). Оба файловых кода экран показывает у зоны файла и убирает файл |
 | 415 | Неподдерживаемый формат тела или multipart-части: `VALIDATION_FAILED` |
 | 413 | `FILE_TOO_LARGE`. Бэкенд переводит `MaxUploadSizeExceededException` в этот формат; nginx при превышении 32 МБ отвечает своей страницей 413 |
 | 401 | Личность не подтверждена: `INIT_DATA_INVALID`, `INIT_DATA_EXPIRED` (данные запуска старше 24 часов — фронтенд показывает «Откройте приложение заново») |

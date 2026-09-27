@@ -19,7 +19,7 @@ import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath }
 import { recognizedKindOf } from './documentKind';
 import { RecognizedKind } from './RecognizedKind';
 import { FormFields, VersionHistory } from './VersionHistory';
-import { findReturnReason, personMeta, showVersionChanges } from './versionOutcome';
+import { finalFile, findReturnReason, personMeta, showVersionChanges } from './versionOutcome';
 import { demoNextActor } from './demoNext';
 import { useSession } from '../../app/SessionContext';
 import {
@@ -193,6 +193,7 @@ export function DocumentCardScreen() {
   const [comment, setComment] = useState('');
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -209,6 +210,7 @@ export function DocumentCardScreen() {
    * перед скачиванием берём свежую ссылку, иначе человек получил бы ошибку вместо файла (ревью #71).
    */
   async function download(file: FileRef) {
+    setDownloadError(null);
     const expiresSoon = new Date(file.downloadExpiresAt).getTime() - Date.now() < 30_000;
     if (!expiresSoon) {
       downloadFile(file.downloadUrl, file.fileName);
@@ -219,7 +221,8 @@ export function DocumentCardScreen() {
       const freshFile = fresh.versions.flatMap((version) => version.files).find((item) => item.id === file.id);
       downloadFile((freshFile ?? file).downloadUrl, file.fileName);
     } catch (err) {
-      setDecisionError(errorMessage(err));
+      // Отдельно от ошибки решения: у завершённого документа панели решения нет, и ошибка пропала бы (ревью #122, п. 4).
+      setDownloadError(errorMessage(err));
     }
   }
 
@@ -461,12 +464,21 @@ export function DocumentCardScreen() {
     footer = demoButton;
   }
   // Утверждён или согласован — дальше документ несут своим путём: главное действие — забрать итоговый файл (#56).
-  const mainFile = currentVersion?.files.find((file) => file.kind === 'MAIN') ?? null;
-  if (footer === null && doc.status === 'APPROVED' && mainFile) {
+  const mainFile = finalFile(doc);
+  if (footer === null && mainFile) {
     footer = (
       <Button variant="primary" stretched icon="file" onClick={() => void download(mainFile)}>
         Скачать итоговый файл
       </Button>
+    );
+  }
+  // Ошибка скачивания — над действиями экрана, какими бы они ни были: файл скачивают и из списка «Файлы».
+  if (downloadError) {
+    footer = (
+      <>
+        <InlineError>{downloadError}</InlineError>
+        {footer}
+      </>
     );
   }
 

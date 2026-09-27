@@ -18,6 +18,7 @@ import { RolePicker } from '../../components/base/RolePicker';
 import { copyToClipboard, shareOrCopy } from '../../lib/share';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
 import { ADMIN_BACK, AdminLoadError, formatTimeLeft, roleNames } from './AdminFormParts';
+import { onlyAdminLeft } from './memberChanges';
 
 function upperFirst(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -56,7 +57,7 @@ export function InviteScreen() {
       const [codeInfo, roleList, memberList] = await Promise.all([getInviteCode(), getRoles(), getMembers()]);
       setCode(codeInfo);
       setRoles(roleList);
-      setSoloAdmin(memberList.length === 1);
+      setSoloAdmin(onlyAdminLeft(memberList));
       // Личные ссылки - SHOULD: если недоступны (эндпоинта нет в этой сборке),
       // основной блок «Код компании» всё равно должен показаться.
       try {
