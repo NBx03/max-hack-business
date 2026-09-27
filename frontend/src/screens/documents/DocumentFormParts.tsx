@@ -1,10 +1,10 @@
-import { Button, Input, Spinner, Textarea, Typography } from '@maxhub/max-ui';
+import { Input, Textarea, Typography } from '@maxhub/max-ui';
 import type { CSSProperties, ReactNode } from 'react';
 import type { DocumentTypeField } from '../../api/types';
-import { AppNav } from '../../components/base/AppNav';
-import { BackLink } from '../../components/base/BackLink';
 import { fieldHint } from './fieldHints';
-import { BottomActionBar, CenteredColumn, FullscreenCenter, ScreenShell } from '../../components/base/Layout';
+import { Button, Loading, Page, PageHeader } from '../../ui';
+
+export { Notice } from '../../ui';
 
 export const stackStyle: CSSProperties = {
   display: 'flex',
@@ -12,30 +12,18 @@ export const stackStyle: CSSProperties = {
   gap: 16,
 };
 
+/** Карточка-группа — то же, что ds-card дизайн-системы: подложка без рамки и цветных полос (принцип 8). */
 export const sectionStyle: CSSProperties = {
   ...stackStyle,
-  padding: 16,
-  border: '1px solid var(--divider-primary)',
-  borderRadius: 12,
-  background: 'var(--background-secondary)',
+  padding: 'var(--ds-space-m)',
+  borderRadius: 'var(--ds-radius-m)',
+  background: 'var(--ds-surface)',
 };
 
 export const fieldStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
-};
-
-export const inputStyle: CSSProperties = {
-  width: '100%',
-  minHeight: 44,
-  padding: '10px 12px',
-  border: '1px solid var(--divider-primary)',
-  borderRadius: 8,
-  background: 'var(--background-primary)',
-  color: 'var(--text-primary)',
-  font: 'inherit',
-  boxSizing: 'border-box',
 };
 
 /** Подпись поля формы — одна на все экраны документов. */
@@ -45,70 +33,34 @@ export const labelStyle: CSSProperties = { fontSize: 14, fontWeight: 500, color:
 export const linkStyle: CSSProperties = { color: 'var(--text-themed)' };
 
 /**
- * Экран документа: заголовок и содержимое в колонке, главное действие — в нижней панели.
- * Панель стоит рядом с колонкой, а не внутри неё: у BottomActionBar своя колонка, и внутри
- * чужой отступы удваивались — кнопка съезжала вправо (components/base/Layout.tsx).
- *
- * back — ссылка «‹ …» над заголовком (куда вернуться), nav — нижнее меню разделов.
+ * Экран на каркасе дизайн-системы (ui/Page): шапка с «‹ Куда» и заголовком, контент прокручивается, главное
+ * действие — в закреплённой нижней панели (LAY-1). Нижнего меню разделов больше нет (NAV-1): путь домой — «‹ Главная».
  */
 export function DocumentScreen({
   title,
+  subtitle,
   children,
   footer,
   back,
-  nav,
 }: {
   title: string;
+  subtitle?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   back?: { to: string; label: string };
-  nav?: boolean;
 }) {
   return (
-    <ScreenShell>
-      <CenteredColumn
-        style={{ ...stackStyle, flex: 1, padding: '20px 16px 16px', color: 'var(--text-primary)' }}
-      >
-        {back && <BackLink to={back.to} label={back.label} />}
-        <Typography.Headline variant="large-strong">{title}</Typography.Headline>
-        {children}
-      </CenteredColumn>
-      {(footer || nav) && <BottomActionBar nav={nav ? <AppNav /> : undefined}>{footer}</BottomActionBar>}
-    </ScreenShell>
-  );
-}
-
-export function LoadingState({ label = 'Загрузка' }: { label?: string }) {
-  return (
-    <FullscreenCenter>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} role="status">
-        <Spinner />
-        <Typography.Text>{label}</Typography.Text>
-      </div>
-    </FullscreenCenter>
-  );
-}
-
-export function Notice({ tone = 'info', children }: { tone?: 'info' | 'danger' | 'success'; children: ReactNode }) {
-  const accent = tone === 'danger'
-    ? 'var(--status-danger-fg)'
-    : tone === 'success'
-      ? 'var(--status-success-fg)'
-      : 'var(--status-progress-fg)';
-  return (
-    <div
-      role={tone === 'danger' ? 'alert' : undefined}
-      style={{
-        padding: '12px 14px',
-        border: '1px solid var(--divider-primary)',
-        borderLeft: `4px solid ${accent}`,
-        borderRadius: 8,
-        background: 'var(--background-secondary)',
-        color: 'var(--text-primary)',
-      }}
-    >
+    <Page header={<PageHeader title={title} subtitle={subtitle} back={back} />} footer={footer}>
       {children}
-    </div>
+    </Page>
+  );
+}
+
+export function LoadingState({ label = 'Загружаем…' }: { label?: string }) {
+  return (
+    <Page center>
+      <Loading label={label} />
+    </Page>
   );
 }
 
@@ -176,7 +128,7 @@ export function SubmitButton({
   children: ReactNode;
 }) {
   return (
-    <Button stretched type="submit" form={form} variant="primary" size="large" loading={busy} disabled={busy || disabled}>
+    <Button stretched type="submit" form={form} variant="primary" loading={busy} disabled={disabled}>
       {children}
     </Button>
   );

@@ -1,4 +1,3 @@
-import { Button, CellList, CellSimple, Typography } from '@maxhub/max-ui';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
@@ -8,26 +7,15 @@ import type { MemberView } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
 import { demoEntryUser } from '../../app/demo';
-import { CountBadge } from '../../components/base/Tabs';
-import { ErrorText } from '../../components/base/StateCard';
 import { useAsync } from '../../hooks/useAsync';
 import { ROUTE_PATTERNS } from '../../routes/paths';
-import { DocumentScreen, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
+import { Button, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section } from '../../ui';
 import { MetricsCard } from './MetricsCard';
 import { RoutesCard } from './RoutesCard';
 
-function roleLine(roles: { name: string }[], isAdmin: boolean): string {
-  const names = roles.map((role) => role.name);
-  if (isAdmin) names.push('администратор');
-  return names.length > 0 ? names.join(', ') : 'без ролей — роли назначает администратор';
-}
-
-const captionStyle = { fontSize: 14, color: 'var(--text-secondary)' } as const;
-
 /**
- * Раздел «Компания» нижнего меню: кто в компании и с какими ролями (видно всем), администрирование,
- * показатели согласования и то, как устроен процесс. Демонстрационный режим — внизу и без акцента:
- * он нужен для знакомства с продуктом, а не для работы (приёмка 24.09).
+ * «Компания» (плитка главной): кто в компании и с какими ролями, администрирование, правила, маршруты и показатели.
+ * Демонстрационный режим — внизу и без акцента: он для знакомства с продуктом, а не для работы (приёмка 24.09).
  */
 export function CompanyScreen() {
   const navigate = useNavigate();
@@ -67,172 +55,172 @@ export function CompanyScreen() {
   }
 
   return (
-    <DocumentScreen title="Компания" nav>
-      <section style={sectionStyle}>
-        <div style={{ ...stackStyle, gap: 4 }}>
-          <Typography.Headline variant="medium">{orgName ?? 'Компания'}</Typography.Headline>
-          {inDemo && <span style={captionStyle}>Демонстрационная компания с вымышленными сотрудниками</span>}
-        </div>
-        {actor && (
-          <div style={{ ...stackStyle, gap: 2 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{inDemo ? 'Вы действуете как' : 'Вы'}</span>
-            <strong>{actor.user.fullName}</strong>
-            <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{roleLine(actor.roles, actor.isAdmin)}</span>
-          </div>
-        )}
-      </section>
-
+    <Page
+      header={
+        <PageHeader
+          back={{ to: ROUTE_PATTERNS.home, label: 'Главная' }}
+          title={orgName ?? 'Компания'}
+          subtitle={inDemo ? 'Демонстрационная компания с вымышленными сотрудниками' : undefined}
+        />
+      }
+    >
+      {/* Сначала люди — вы в том же списке, первым: раньше «Вы» стояли отдельно, а «Сотрудники · 4» показывали троих (#56). */}
       <ColleaguesSection
         status={colleaguesQuery.status}
         colleagues={colleaguesQuery.status === 'ready' ? colleaguesQuery.data : []}
-        currentUserId={actor?.user.id}
-        onManage={isAdmin ? () => navigate(ROUTE_PATTERNS.adminMembers) : undefined}
+        me={actor}
       />
 
       {isAdmin && (
-        <div style={{ ...stackStyle, gap: 8 }}>
-          <Typography.Headline variant="small">Администрирование</Typography.Headline>
-          <CellList mode="full-width">
-            <CellSimple
-              as="button"
-              showChevron
-              onClick={() => navigate(ROUTE_PATTERNS.adminInvite)}
-              title="Пригласить сотрудников"
-              subtitle="Код компании и личные ссылки"
-            />
-            <CellSimple
-              as="button"
-              showChevron
-              separator
-              onClick={() => navigate(ROUTE_PATTERNS.adminRequests)}
+        <Section title="Администрирование">
+          <List label="Администрирование">
+            <Row title="Пригласить сотрудников" subtitle="Код компании и личные ссылки" onClick={() => navigate(ROUTE_PATTERNS.adminInvite)} />
+            <Row
               title="Заявки на вступление"
               subtitle="Принять и назначить роли"
-              after={pending ? <CountBadge count={pending} /> : undefined}
+              after={pending > 0 ? <Count value={pending} accent /> : undefined}
+              onClick={() => navigate(ROUTE_PATTERNS.adminRequests)}
             />
-            <CellSimple
-              as="button"
-              showChevron
-              separator
-              onClick={() => navigate(ROUTE_PATTERNS.adminMembers)}
-              title="Участники и роли"
-              subtitle="Роли, права администратора, отключение"
-            />
-          </CellList>
-        </div>
+            <Row title="Участники и роли" subtitle="Роли, права администратора, исключение" onClick={() => navigate(ROUTE_PATTERNS.adminMembers)} />
+          </List>
+        </Section>
       )}
 
-      {/* Правила — всем: автор хочет понять, откуда замечание; администратор — подстроить под компанию (#91). */}
-      <CellList mode="full-width">
-        <CellSimple
-          as="button"
-          showChevron
-          onClick={() => navigate(ROUTE_PATTERNS.companyRules)}
-          title="Правила проверки"
-          subtitle={isAdmin ? 'Что проверяется в документах — и настройка под компанию' : 'Что проверяется в документах и почему'}
+      {/* Правила и маршруты — рядом: оба отвечают на вопрос «как у нас проверяют и согласуют документы» (#56). */}
+      <Section title="Проверка и согласование">
+        <RoutesCard
+          // Маршруты хранятся в состоянии карточки (их меняет администратор) — пересоздаём, когда загрузились.
+          key={routesQuery.status}
+          routes={routesQuery.status === 'ready' ? routesQuery.data[0] : []}
+          types={routesQuery.status === 'ready' ? routesQuery.data[1] : []}
+          isAdmin={isAdmin}
+          before={
+            // Правила — всем: автор хочет понять, откуда замечание; администратор — подстроить под компанию (#91).
+            <Row
+              title="Правила проверки"
+              subtitle={isAdmin ? 'Что проверяется — и настройка под компанию' : 'Что проверяется в документах и почему'}
+              onClick={() => navigate(ROUTE_PATTERNS.companyRules)}
+            />
+          }
         />
-      </CellList>
-
-      {/* Второстепенные блоки: при ошибке просто не показываем, раздел не должен выглядеть сломанным. */}
-      {routesQuery.status === 'ready' && <RoutesCard routes={routesQuery.data[0]} types={routesQuery.data[1]} />}
+      </Section>
 
       {metricsQuery.status === 'ready' && <MetricsCard metrics={metricsQuery.data} />}
 
-      <section style={sectionStyle}>
-        <Typography.Headline variant="small">Как устроено согласование</Typography.Headline>
-        <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 10, color: 'var(--text-primary)' }}>
+      <Section title="Как проходит согласование">
+        <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 'var(--ds-text-s)', lineHeight: '20px', color: 'var(--text-secondary)' }}>
           <li>
-            <strong>Проверка.</strong> Сервис распознаёт реквизиты и находит ошибки оформления.
+            <strong style={{ color: 'var(--text-primary)' }}>Проверка.</strong> Сервис находит реквизиты и ошибки оформления до отправки.
           </li>
           <li>
-            <strong>Исправление.</strong> Критичные замечания устраняются до отправки.
+            <strong style={{ color: 'var(--text-primary)' }}>Маршрут.</strong> Автор видит всю цепочку согласующих с именами и может её поправить.
           </li>
           <li>
-            <strong>Маршрут.</strong> Автор видит всю цепочку согласующих с именами.
+            <strong style={{ color: 'var(--text-primary)' }}>Решения.</strong> Когда подходит очередь, согласующий получает сообщение в MAX.
           </li>
           <li>
-            <strong>Решения.</strong> Согласующие получают сообщение в MAX, когда подошла их очередь.
-          </li>
-          <li>
-            <strong>Результат.</strong> Статус «Согласован» и история решений по каждой версии.
+            <strong style={{ color: 'var(--text-primary)' }}>Результат.</strong> Итоговый статус и история решений по каждой версии.
           </li>
         </ol>
-      </section>
+      </Section>
 
       {me?.demoMode && (
-        <section style={{ ...sectionStyle, gap: 8 }}>
-          <Typography.Headline variant="small">Демонстрационный режим</Typography.Headline>
+        <Section title="Демонстрационный режим">
           {inDemo ? (
             <>
-              <span style={captionStyle}>Сотрудника меняйте полосой вверху. Настоящие компании это не затрагивает.</span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <Button variant="secondary" disabled={restarting} onClick={() => void actAs(null)}>
-                  Выйти из демонстрации
-                </Button>
-                <Button variant="ghost" loading={restarting} onClick={() => void restartDemo()}>
-                  Начать заново
-                </Button>
-              </div>
-              {restartError && <ErrorText>{restartError}</ErrorText>}
+              <Muted>Сотрудника меняйте полосой вверху. Настоящие компании это не затрагивает.</Muted>
+              <Button stretched disabled={restarting} onClick={() => void actAs(null)}>
+                Выйти из демонстрации
+              </Button>
+              <Button stretched variant="ghost" loading={restarting} onClick={() => void restartDemo()}>
+                Начать заново
+              </Button>
+              {restartError && <InlineError>{restartError}</InlineError>}
             </>
           ) : (
             <>
-              <span style={captionStyle}>Компания с вымышленными сотрудниками — пройти согласование за каждого.</span>
-              <div>
-                <Button variant="ghost" loading={demo.busy} onClick={() => void demo.open()}>
-                  {demo.hasSandbox ? 'Продолжить демонстрацию' : 'Открыть демонстрацию'}
-                </Button>
-              </div>
-              {demo.error && <ErrorText>{demo.error}</ErrorText>}
+              <Muted>Компания с вымышленными сотрудниками — пройти согласование за каждого.</Muted>
+              <Button stretched loading={demo.busy} onClick={() => void demo.open()}>
+                Посмотреть демонстрацию
+              </Button>
+              {demo.error && <InlineError>{demo.error}</InlineError>}
             </>
           )}
-        </section>
+        </Section>
       )}
-    </DocumentScreen>
+    </Page>
   );
 }
 
+/** Сколько человек видно сразу: дальше — «Показать всех», чтобы раздел не превращался в простыню. */
+const COLLEAGUES_PREVIEW = 5;
+
+type Me = { user: { id: number; fullName: string }; roles: { name: string }[]; isAdmin: boolean } | null;
+
+/**
+ * Сотрудники: вы — первым, в том же списке, остальные — по порядку (#56: «Сотрудники · 4» над тремя строками читалось
+ * как ошибка). У каждого — инициалы, имя и роли одной строкой.
+ */
 function ColleaguesSection({
   status,
   colleagues,
-  currentUserId,
-  onManage,
+  me,
 }: {
   status: 'loading' | 'ready' | 'error';
   colleagues: MemberView[];
-  currentUserId: number | undefined;
-  onManage?: () => void;
+  me: Me;
 }) {
+  const [showAll, setShowAll] = useState(false);
   if (status === 'error') return null;
+  // Себя берём из /me: в демо «вы» — участник песочницы, от имени которого идёт работа.
+  const others = colleagues.filter((colleague) => colleague.user.id !== me?.user.id);
+  const people = [
+    ...(me ? [{ key: 'me', name: me.user.fullName, title: `${me.user.fullName} (вы)`, roles: me.roles, isAdmin: me.isAdmin }] : []),
+    ...others.map((colleague) => ({
+      key: String(colleague.memberId),
+      name: colleague.user.fullName,
+      title: colleague.user.fullName,
+      roles: colleague.roles,
+      isAdmin: colleague.isAdmin,
+    })),
+  ];
+  const visible = showAll ? people : people.slice(0, COLLEAGUES_PREVIEW);
   return (
-    <div style={{ ...stackStyle, gap: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-        <Typography.Headline variant="small">
-          Сотрудники{status === 'ready' ? ` · ${colleagues.length}` : ''}
-        </Typography.Headline>
-        {onManage && (
-          <button
-            type="button"
-            onClick={onManage}
-            style={{ border: 'none', background: 'none', padding: 0, color: 'var(--text-accent, #2d7ff9)', fontSize: 14, cursor: 'pointer' }}
-          >
-            Управлять
-          </button>
-        )}
-      </div>
+    <Section title={`Сотрудники${status === 'ready' ? ` · ${people.length}` : ''}`}>
       {status === 'loading' ? (
-        <span style={captionStyle}>Загружаем список сотрудников…</span>
+        <Muted>Загружаем список сотрудников…</Muted>
       ) : (
-        <CellList mode="full-width">
-          {colleagues.map((colleague, index) => (
-            <CellSimple
-              key={colleague.memberId}
-              separator={index > 0}
-              title={colleague.user.id === currentUserId ? `${colleague.user.fullName} (вы)` : colleague.user.fullName}
-              subtitle={roleLine(colleague.roles, colleague.isAdmin)}
-            />
-          ))}
-        </CellList>
+        <>
+          <List label="Сотрудники">
+            {visible.map((person) => (
+              <Row
+                key={person.key}
+                before={<Initials name={person.name} />}
+                title={person.title}
+                subtitle={person.key === 'me' && person.roles.length === 0 && !person.isAdmin
+                  ? 'Роли не назначены — их назначает администратор'
+                  : shortRoleLine(person.roles, person.isAdmin)}
+              />
+            ))}
+          </List>
+          {others.length === 0 && <Muted>Пока в компании только вы.</Muted>}
+          {people.length > COLLEAGUES_PREVIEW && (
+            <button type="button" className="ds-link-toggle" aria-expanded={showAll} onClick={() => setShowAll((open) => !open)}>
+              {showAll ? 'Свернуть' : `Показать всех (${people.length})`}
+              <span style={{ display: 'inline-flex', transform: showAll ? 'rotate(180deg)' : undefined }}>
+                <Icon name="chevronDown" size={16} />
+              </span>
+            </button>
+          )}
+        </>
       )}
-    </div>
+    </Section>
   );
+}
+
+/** Роли через точку; без ролей — коротко, без объяснений на каждой строке. */
+function shortRoleLine(roles: { name: string }[], isAdmin: boolean): string {
+  const names = roles.map((role) => role.name);
+  if (isAdmin) names.push('администратор');
+  return names.length > 0 ? names.join(' · ') : 'Роли не назначены';
 }

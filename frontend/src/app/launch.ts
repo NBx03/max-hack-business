@@ -70,6 +70,9 @@ export function launchDataToReloadFor(hash: string, bridgeInitData: string | und
   if (bridgeInitData === undefined) return null;
   const next = launchDataFromHash(hash);
   if (!next || next === bridgeInitData) return null;
+  // Любая новая строка в хэше — новый запуск: MAX кладёт её туда, только когда приложение открывают заново, в том числе
+  // по той же ссылке или по кнопке бота без параметра («Заявка одобрена»). Мост при этом новых данных сам не прочитает:
+  // initData он берёт из хэша один раз, при загрузке (сверено с st.max.ru/js/max-web-app.js 26.09, ревью Матвея на #112).
   const mark = fingerprint(next);
   return mark === reloadedFor ? null : mark;
 }
@@ -87,7 +90,8 @@ function readReloadedFor(): string | null {
  * Следит за повторным открытием уже открытого мини-приложения (приёмка 24.09, п. 6). Если MAX поменял
  * только хэш (новые данные запуска без перезагрузки), перезагружаем страницу: мост MAX читает initData
  * лишь при загрузке, и без перезагрузки все запросы ушли бы со старыми данными запуска, а переход
- * по ссылке из уведомления не случился бы. Проверяем не только hashchange: смену адреса фрейма
+ * по ссылке из уведомления не случился бы. Сам мост новых данных не прочитает — initData он берёт из хэша один раз,
+ * при загрузке, поэтому признак нового запуска — только хэш. Проверяем не только hashchange: смену адреса фрейма
  * браузер может сообщить и как popstate, а возвращение к открытому приложению — как focus или
  * visibilitychange.
  *
@@ -105,7 +109,7 @@ export function watchRelaunch(): void {
     } catch {
       return;
     }
-    console.debug('[approval] новый запуск мини-приложения:', reason);
+    console.info('[approval] новый запуск мини-приложения:', reason, '(хэш)');
     window.location.reload();
   };
   window.addEventListener('hashchange', () => check('hashchange'));
@@ -120,4 +124,20 @@ export function watchRelaunch(): void {
       console.debug('[approval] сообщение моста MAX:', event.data.slice(0, 120));
     }
   });
+}
+
+/**
+ * Диагностика диплинков (LNK-1, LNK-2): дошёл ли параметр ссылки до моста и до бэкенда. Сам параметр не пишем — токен
+ * личной ссылки секретный; только вид (c_, p_, d_). Смотреть в консоли веб-версии MAX, строки [approval].
+ */
+export function logLaunch(meStartParam: string | null): void {
+  const bridgeParam = getWebApp()?.initDataUnsafe?.start_param ?? null;
+  // Только наши виды; у чужого параметра не печатаем даже начало (ревью #112, п. 4).
+  const kind = (value: string | null) => {
+    if (!value) return 'нет';
+    const prefix = value.slice(0, 2);
+    return ['c_', 'p_', 'd_', 's_', 'a_'].includes(prefix) ? prefix : 'другой';
+  };
+  console.info('[approval] запуск: параметр в мосте —', kind(bridgeParam), '; в /me —', kind(meStartParam),
+    '; уже обработан —', isLaunchHandled());
 }

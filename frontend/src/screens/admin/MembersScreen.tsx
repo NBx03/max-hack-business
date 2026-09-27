@@ -1,14 +1,13 @@
-import { Button, Switch, Typography } from '@maxhub/max-ui';
+import { Switch, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from '../../app/SessionContext';
 import { disableMember, getMembers, getRoles, setMemberAdmin, setMemberRoles } from '../../api/admin';
 import { errorMessage } from '../../api/errors';
 import type { MemberView, RoleRef } from '../../api/types';
-import { BottomSheet, ConfirmSheet } from '../../components/base/BottomSheet';
+import { BottomSheet, Button, ConfirmSheet, Initials, List, Muted, Row, Section, Toast } from '../../ui';
 import { RolePicker } from '../../components/base/RolePicker';
-import { Toast } from '../../components/base/Toast';
 import { DocumentScreen as AdminScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
-import { ADMIN_BACK, AdminLoadError, AdminTabs, roleNames } from './AdminFormParts';
+import { ADMIN_BACK, AdminLoadError, roleNames } from './AdminFormParts';
 import { removedRoleIds, returnedDocumentsText } from './memberChanges';
 
 function sameRoleIds(a: number[], b: number[]): boolean {
@@ -32,6 +31,7 @@ export function MembersScreen() {
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [showExcluded, setShowExcluded] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,81 +153,46 @@ export function MembersScreen() {
   if (loading) return <LoadingState />;
   if (loadError !== null || !members) {
     return (
-      <AdminScreen title="Участники" back={ADMIN_BACK} nav>
+      <AdminScreen title="Участники" back={ADMIN_BACK}>
         <AdminLoadError error={loadError} onRetry={() => void load()} />
       </AdminScreen>
     );
   }
 
   return (
-    <AdminScreen title="Участники" back={ADMIN_BACK} nav>
-      <div style={{ marginTop: 12, marginBottom: 20 }}>
-        <AdminTabs active="members" />
-      </div>
-
-      <div style={stackStyle}>
+    <AdminScreen title="Участники" back={ADMIN_BACK}>
+      <Muted>Нажмите на сотрудника, чтобы поменять роли или права администратора.</Muted>
+      <List label="Участники">
         {activeMembers.map((member) => {
-          const disabledMember = member.status === 'DISABLED';
           const isSelf = member.user.id === selfUserId;
-          const editable = !disabledMember && !isSelf;
           return (
-            <button
+            <Row
               key={member.memberId}
-              type="button"
-              onClick={() => editable && openEdit(member)}
-              disabled={!editable}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                width: '100%',
-                textAlign: 'left',
-                padding: '14px 16px',
-                borderRadius: 12,
-                border: '1px solid var(--divider-primary)',
-                background: disabledMember ? 'var(--background-tertiary)' : 'var(--background-secondary)',
-                color: 'var(--text-primary)',
-                cursor: editable ? 'pointer' : 'default',
-                opacity: disabledMember ? 0.6 : 1,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <strong>{member.user.fullName}</strong>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {member.isAdmin && (
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--icon-primary)', color: 'var(--text-primary-inverse)' }}>
-                      Администратор
-                    </span>
-                  )}
-                  {disabledMember && (
-                    <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 999, background: 'var(--background-tertiary)', color: 'var(--text-tertiary)' }}>
-                      Отключён
-                    </span>
-                  )}
-                </div>
-              </div>
-              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{roleNames(member.roles)}</span>
-            </button>
+              before={<Initials name={member.user.fullName} />}
+              title={isSelf ? `${member.user.fullName} (вы)` : member.user.fullName}
+              // Права администратора — в строке ролей, как в «Компании»: метка справа сжимала имя в две строки (#56).
+              subtitle={member.isAdmin ? [roleNames(member.roles), 'администратор'].filter(Boolean).join(' · ') : roleNames(member.roles)}
+              // Свои роли и права администратор не меняет (CLAUDE.md) — у своей строки нет стрелки и нажатия.
+              onClick={isSelf ? undefined : () => openEdit(member)}
+            />
           );
         })}
-      </div>
+      </List>
 
       {excludedMembers.length > 0 && (
-        <details style={{ marginTop: 20 }}>
-          <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 14 }}>
-            Исключённые · {excludedMembers.length}
-          </summary>
-          <div style={{ ...stackStyle, gap: 6, marginTop: 10 }}>
-            {excludedMembers.map((member) => (
-              <span key={member.memberId} style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
-                {member.user.fullName}
-              </span>
-            ))}
-            <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
-              Вернуться может по коду компании или личной ссылке — займёт прежнее место.
-            </span>
-          </div>
-        </details>
+        <Section title={`Исключённые · ${excludedMembers.length}`} hint="Вернуться можно по коду компании — в заявке прежние роли будут уже отмечены — или по личной ссылке.">
+          {showExcluded ? (
+            <List label="Исключённые">
+              {excludedMembers.map((member) => (
+                <Row key={member.memberId} before={<Initials name={member.user.fullName} />} title={member.user.fullName} subtitle={roleNames(member.roles)} />
+              ))}
+            </List>
+          ) : (
+            <Button compact onClick={() => setShowExcluded(true)}>
+              Показать
+            </Button>
+          )}
+        </Section>
       )}
 
       <BottomSheet
@@ -251,7 +216,7 @@ export function MembersScreen() {
           <Button stretched variant="primary" loading={saving} disabled={saving || disabling} onClick={() => void save()}>
             Сохранить
           </Button>
-          <Button stretched variant="destructive" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
+          <Button stretched variant="danger" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
             Исключить из компании
           </Button>
         </div>

@@ -195,7 +195,7 @@ class ApprovalIntegrationTest {
         assertThat(preview.path("problems")).hasSize(1);
         assertThat(preview.path("problems").get(0).path("code").asText()).isEqualTo("ROUTE_ROLE_EMPTY");
         assertThat(preview.path("problems").get(0).path("message").asText())
-                .isEqualTo("В компании нет сотрудника с ролью «Директор»");
+                .startsWith("В компании нет сотрудника с ролью «Директор» — попросите администратора");
 
         Resp submit = call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", null);
         assertThat(submit.status()).isEqualTo(409);
@@ -373,7 +373,8 @@ class ApprovalIntegrationTest {
                 .isEqualTo(400);
         assertThat(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit", Map.of(
                 "selections", List.of(choice(1, lawyerRole, company.carol.dbId)),
-                "extraApprovers", List.of(choice(1, lawyerRole, company.erin.dbId)))).status()).isEqualTo(404);
+                "extraApprovers", List.of(choice(1, lawyerRole, company.erin.dbId)))).status())
+                .as("человек без этой роли — «обновите экран», а не «не найдено»").isEqualTo(409);
         assertThat(card(company.frank, support).path("permissions").path("canAddApprover").asBoolean()).isTrue();
 
         JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + support + "/submit", Map.of(
@@ -441,6 +442,129 @@ class ApprovalIntegrationTest {
         ok(decide(company.dave, daveStep, "APPROVE", null));
         ok(decide(company.erin, erinStep2, "APPROVE", null));
         assertThat(ok(decide(company.alice, aliceStep2, "APPROVE", null)).path("status").asText()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void authorBuildsTheRouteWithAnEndorserAndEveryScreenShowsTheSameStatus() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        long head = company.roles.get("DEPARTMENT_HEAD");
+        long lawyer = company.roles.get("LAWYER");
+        long director = company.roles.get("DIRECTOR");
+        String submit = "/api/v1/documents/" + memo + "/submit";
+
+        // D3: обязательного директора убрать нельзя, человека дважды поставить нельзя
+        Resp withoutDirector = call(company.frank, "POST", submit,
+                Map.of("stages", List.of(stage(person(company.bob, head)))));
+        assertThat(withoutDirector.status()).isEqualTo(400);
+        assertThat(withoutDirector.code()).isEqualTo("MANDATORY_ROLE_MISSING");
+        Resp twice = call(company.frank, "POST", submit, Map.of(
+                "stages", List.of(stage(person(company.carol, lawyer))),
+                "endorser", person(company.carol, lawyer)));
+        assertThat(twice.status()).isEqualTo(400);
+
+        // юрист первым, руководитель вторым, директор утверждает — порядок шаблона автор поменял
+        JsonNode submitted = ok(call(company.frank, "POST", submit, Map.of(
+                "stages", List.of(stage(person(company.carol, lawyer)), stage(person(company.bob, head))),
+                "endorser", person(company.alice, director))));
+        assertThat(submitted.path("displayStatus").asText()).isEqualTo("IN_APPROVAL");
+        assertThat(stageStates(submitted)).containsExactly("ACTIVE", "WAITING", "WAITING");
+
+        ok(decide(company.carol, stepOf(submitted, company.carol), "APPROVE", null));
+        JsonNode atEndorsement = ok(decide(company.bob, stepOf(submitted, company.bob), "APPROVE", null));
+        assertThat(atEndorsement.path("status").asText()).isEqualTo("IN_APPROVAL");
+        assertThat(atEndorsement.path("displayStatus").asText()).isEqualTo("IN_ENDORSEMENT");
+        JsonNode endorseStep = atEndorsement.path("route").path("stages").get(2).path("steps").get(0);
+        assertThat(endorseStep.path("kind").asText()).isEqualTo("ENDORSEMENT");
+        // список и фильтр видят тот же статус, что карточка
+        JsonNode list = ok(call(company.frank, "GET", "/api/v1/documents?tab=MINE&status=IN_ENDORSEMENT", null));
+        assertThat(list.path("total").asLong()).isEqualTo(1);
+        assertThat(list.path("items").get(0).path("displayStatus").asText()).isEqualTo("IN_ENDORSEMENT");
+
+        JsonNode endorsed = ok(decide(company.alice, endorseStep.path("id").asLong(), "APPROVE", null));
+        assertThat(endorsed.path("status").asText()).isEqualTo("APPROVED");
+        assertThat(endorsed.path("displayStatus").asText()).isEqualTo("ENDORSED");
+    }
+
+    @Test
+    void afterAReturnThePreviewOffersThePreviousRoute() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        long lawyer = company.roles.get("LAWYER");
+        long director = company.roles.get("DIRECTOR");
+        JsonNode submitted = ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit", Map.of(
+                "stages", List.of(stage(person(company.carol, lawyer))),
+                "endorser", person(company.alice, director))));
+
+        JsonNode returned = ok(decide(company.carol, stepOf(submitted, company.carol), "RETURN", "Уточните сумму"));
+        long fileId = returned.path("versions").get(0).path("files").get(0).path("id").asLong();
+        ok(newVersion(company.frank, memo, fileId, "OFFICIAL_MEMO"));
+
+        // DOC-4: снова черновик, но уже отправлялся — у него история, удалить нельзя
+        assertThat(call(company.frank, "DELETE", "/api/v1/documents/" + memo, null).status()).isEqualTo(409);
+
+        // RTE-6: конструктор новой версии заполняется маршрутом прошлой, а не шаблоном
+        JsonNode previous = ok(call(company.frank, "GET", "/api/v1/documents/" + memo + "/route-preview", null)).path("previous");
+        assertThat(previous.path("versionNo").asInt()).isEqualTo(1);
+        assertThat(previous.path("stages")).hasSize(1);
+        assertThat(previous.path("stages").get(0).path("participants").get(0).path("userId").asLong()).isEqualTo(company.carol.dbId);
+        assertThat(previous.path("endorser").path("userId").asLong()).isEqualTo(company.alice.dbId);
+    }
+
+    @Test
+    void adminDecidesWhichRolesAreMandatoryAndTheAuthorCannotDropThem() throws Exception {
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        long memoType = jdbc.queryForObject("select document_type_id from document where id = ?", Long.class, memo);
+        long head = company.roles.get("DEPARTMENT_HEAD");
+        long director = company.roles.get("DIRECTOR");
+        String toggle = "/api/v1/orgs/current/routes/" + memoType + "/roles/" + head;
+
+        // #109: только администратор
+        assertThat(call(company.frank, "PATCH", toggle, Map.of("mandatory", true)).status()).isEqualTo(403);
+        JsonNode routes = ok(call(company.alice, "PATCH", toggle, Map.of("mandatory", true)));
+        // именно у руководителя отдела: у директора mandatory=true было и раньше (ревью Матвея на #113, п. 9)
+        boolean headMandatory = false;
+        for (JsonNode route : routes) {
+            if (route.path("documentTypeId").asLong() != memoType) continue;
+            for (JsonNode stage : route.path("stages")) {
+                for (JsonNode participant : stage.path("participants")) {
+                    if (participant.path("role").path("id").asLong() == head) {
+                        headMandatory = participant.path("mandatory").asBoolean();
+                    }
+                }
+            }
+        }
+        assertThat(headMandatory).isTrue();
+        assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + company.roles.get("LAWYER"),
+                Map.of("mandatory", true)).status()).as("роли нет в шаблоне вида").isEqualTo(404);
+        long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);
+        assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + genericType + "/roles/" + director,
+                Map.of("mandatory", true)).status()).as("D3: у «Другого документа» обязательных нет").isEqualTo(400);
+
+        // руководитель стал обязательным — без него отправить нельзя; директор больше не обязателен — без него можно
+        Resp withoutHead = call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit",
+                Map.of("stages", List.of(stage(person(company.alice, director)))));
+        assertThat(withoutHead.code()).isEqualTo("MANDATORY_ROLE_MISSING");
+        ok(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + director, Map.of("mandatory", false)));
+        ok(call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit",
+                Map.of("stages", List.of(stage(person(company.bob, head))))));
+    }
+
+    @Test
+    void returningMemberComesBackWithTheirPreviousRolesPreselected() throws Exception {
+        String code = ok(call(company.alice, "GET", "/api/v1/orgs/current/invite-code", null)).path("code").asText();
+        ok(call(company.alice, "POST", "/api/v1/orgs/current/members/" + memberId(company.erin) + "/disable", null));
+
+        ok(call(company.erin, "POST", "/api/v1/join-requests", Map.of("code", code)), 201);
+
+        // D5: заявка бывшего участника — с его прежними ролями, администратору остаётся «Принять»
+        JsonNode requests = ok(call(company.alice, "GET", "/api/v1/orgs/current/join-requests?status=PENDING", null));
+        JsonNode erinRequest = null;
+        for (JsonNode request : requests) {
+            if (request.path("user").path("id").asLong() == company.erin.dbId) {
+                erinRequest = request;
+            }
+        }
+        assertThat(erinRequest).isNotNull();
+        assertThat(erinRequest.path("previousRoles").get(0).path("code").asText()).isEqualTo("ACCOUNTANT");
     }
 
     @Test
@@ -1270,6 +1394,15 @@ class ApprovalIntegrationTest {
             body.put("comment", comment);
         }
         return call(person, "POST", "/api/v1/approval-steps/" + stepId + "/decision", body);
+    }
+
+    private static Map<String, Object> person(Person person, long roleId) {
+        return Map.of("userId", person.dbId, "roleId", roleId);
+    }
+
+    @SafeVarargs
+    private static Map<String, Object> stage(Map<String, Object>... participants) {
+        return Map.of("participants", List.of(participants));
     }
 
     private static Map<String, Object> choice(int stage, long roleId, long userId) {

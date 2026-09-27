@@ -23,6 +23,8 @@ interface SessionValue {
   /** null - демо-режим выключен или песочница ещё не создана. */
   sandboxUsers: DemoSandboxUser[] | null;
   refresh: () => Promise<void>;
+  /** Перечитать /me без общего спиннера — экран остаётся на месте, пока ответ не изменит маршрут. */
+  refreshQuietly: () => Promise<void>;
   /** id участника своей песочницы, или null, чтобы выйти из демо. */
   actAs: (userId: number | null) => Promise<void>;
   /**
@@ -89,6 +91,16 @@ function writeDemoActor(userId: number, actorId: number | null): void {
   }
 }
 
+/**
+ * Только dev-сборка: ?demoActor=<id> в адресе открывает демо от имени этого участника — для скриншотов
+ * headless-браузером на разных ширинах (docs/review-round-1). В прод-сборке ветка вырезается.
+ */
+function devDemoActor(): number | null {
+  if (!import.meta.env.DEV) return null;
+  const value = Number(new URLSearchParams(window.location.search).get('demoActor'));
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -100,7 +112,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // silent - обновить /me, не показывая общий спиннер: при смене участника демо экран
   // не должен исчезать вместе с плашкой «Демо» (ревью #44). Экраны при этом всё равно
   // перезагружают свои данные: App пересоздаёт роутер по ключу участника.
-  const load = useCallback(async (silent: boolean) => {
+  //
+  // Загрузки идут строго по очереди: иначе вторая (StrictMode в dev, повторное нажатие «Повторить») успевала
+  // спросить /me раньше, чем первая восстановила участника демо, получала ответ «без компании», и охранник
+  // уводил с открытого по ссылке экрана на главную.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const load = useCallback((silent: boolean) => {
+    const run = queue.current.then(() => loadNow(silent));
+    queue.current = run;
+    return run;
+    // loadNow не зависит от состояния — только от стабильных сеттеров.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadNow = async (silent: boolean) => {
     if (!silent) {
       setStatus('loading');
     }
@@ -109,7 +134,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       let response = await getMeWithDemoRecovery();
       if (!resumeTried.current) {
         resumeTried.current = true;
-        const saved = demoActorToResume(response, readDemoActor(response.user.id));
+        const saved = demoActorToResume(response, devDemoActor() ?? readDemoActor(response.user.id));
         if (saved !== null) {
           setActingAsId(saved);
           // Песочницу пересоздали или участника нет — getMeWithDemoRecovery вернёт обычный вход.
@@ -132,9 +157,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setError(toApiError(err));
       setStatus('error');
     }
-  }, []);
+  };
 
   const refresh = useCallback(() => load(false), [load]);
+  const refreshQuietly = useCallback(() => load(true), [load]);
 
   useEffect(() => {
     void refresh();
@@ -181,8 +207,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh, load]);
 
   const value = useMemo<SessionValue>(
-    () => ({ status, me, error, sandboxUsers, refresh, actAs, startSandbox }),
-    [status, me, error, sandboxUsers, refresh, actAs, startSandbox],
+    () => ({ status, me, error, sandboxUsers, refresh, refreshQuietly, actAs, startSandbox }),
+    [status, me, error, sandboxUsers, refresh, refreshQuietly, actAs, startSandbox],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

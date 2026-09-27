@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactElement } from 'react';
+import { Suspense, lazy, useEffect, useState, type ReactElement } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { MeResponse } from '../api/types';
-import { isLaunchHandled, markLaunchHandled } from '../app/launch';
+import { isLaunchHandled, logLaunch, markLaunchHandled } from '../app/launch';
 import {
   CreateCompanyRoute,
   JoinRoute,
@@ -12,11 +12,13 @@ import {
 import { CompanyScreen } from '../screens/company/CompanyScreen';
 import { RulesScreen } from '../screens/company/RulesScreen';
 import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
-import { DocumentListScreen } from '../screens/documents/DocumentListScreen';
+import { DocumentListRoute } from '../screens/documents/DocumentListScreen';
+import { DocumentSearchScreen } from '../screens/documents/DocumentSearchScreen';
+import { HomeScreen } from '../screens/home/HomeScreen';
 import { RoutePreviewScreen } from '../screens/documents/RoutePreviewScreen';
 import { ROUTE_PATTERNS } from './paths';
 import { guardTarget, type GuardKind } from './guards';
-import { resolveEntryRoute } from './resolveEntryRoute';
+import { launchTargetFor, launchTargetReached, resolveEntryRoute } from './resolveEntryRoute';
 import { DocumentCheckScreen } from '../screens/documents/DocumentCheckScreen';
 import { DocumentUploadScreen } from '../screens/documents/DocumentUploadScreen';
 import { MemoFormScreen } from '../screens/documents/MemoFormScreen';
@@ -25,6 +27,14 @@ import { InviteScreen } from '../screens/admin/InviteScreen';
 import { JoinRequestsScreen } from '../screens/admin/JoinRequestsScreen';
 import { MembersScreen } from '../screens/admin/MembersScreen';
 import { useMaxBackButton } from './useMaxBackButton';
+
+// Витрина дизайн-системы — только в dev-сборке: в прод-сборке ветка вырезается вместе с импортом.
+const DesignScreen = import.meta.env.DEV
+  ? lazy(() => import('../screens/dev/DesignScreen').then((module) => ({ default: module.DesignScreen })))
+  : null;
+const UploadStatesScreen = import.meta.env.DEV
+  ? lazy(() => import('../screens/dev/UploadStatesScreen').then((module) => ({ default: module.UploadStatesScreen })))
+  : null;
 
 /**
  * Маршрутизация по ответу /me и startParam (#53) - см. docs/SCREENS.md, "Навигация".
@@ -38,24 +48,33 @@ export function AppRoutes({ me }: { me: MeResponse }) {
   // этой отметки любой переход на "/" (выход из демо, отмена заявки) снова открывал бы документ
   // или приглашение из ссылки. Запуск узнаём по его данным, а не по пути: при повторном открытии
   // из бота MAX может перезагрузить страницу на прежнем экране, а не на "/".
-  const [startParamPending, setStartParamPending] = useState(() => !isLaunchHandled() && Boolean(me.startParam));
-  const entryRoute = resolveEntryRoute(me, startParamPending);
+  //
+  // Экран ссылки держится, пока он не открылся. Раньше ссылка снималась в том же такте, что и переход на неё, а
+  // React Router 7 выполняет переход в startTransition: следующий рендер ещё видел "/", <Navigate> вёл на
+  // приветствие — и этот переход побеждал. Приглашения по ссылке открывали приветствие (#56).
+  const [launchTarget, setLaunchTarget] = useState(() => launchTargetFor(me, isLaunchHandled()));
+  const entryRoute = launchTarget ?? resolveEntryRoute(me, false);
 
   useEffect(() => {
-    if (!startParamPending) {
-      return;
+    logLaunch(me.startParam);
+    if (me.startParam) {
+      markLaunchHandled();
     }
-    markLaunchHandled();
     // На "/" переход сделает <Navigate> ниже. На любом другом пути (страница перезагружена
     // повторным открытием из бота) ведём по ссылке сами.
-    if (location.pathname !== '/' && location.pathname !== entryRoute) {
-      navigate(entryRoute, { replace: true });
+    if (launchTarget !== null && location.pathname !== '/' && location.pathname + location.search !== launchTarget) {
+      navigate(launchTarget, { replace: true });
     }
-    // Дальше entryRoute - уже без ссылки: охранники и «назад» ведут в обычные места.
-    setStartParamPending(false);
     // Только при первом монтировании: дальше startParam уже отработал.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Экран ссылки открылся — дальше entryRoute уже без неё: охранники и «назад» ведут в обычные места.
+  useEffect(() => {
+    if (launchTarget !== null && launchTargetReached(launchTarget, location.pathname)) {
+      setLaunchTarget(null);
+    }
+  }, [launchTarget, location.pathname]);
 
   // Системная BackButton моста - вне MAX (обычный браузер, локальная разработка) не
   // делает ничего: getWebApp()?.BackButton внутри хука не находит объект и выходит.
@@ -103,7 +122,10 @@ export function AppRoutes({ me }: { me: MeResponse }) {
         path={ROUTE_PATTERNS.adminMembers}
         element={companyScreen(<MembersScreen />)}
       />
-      <Route path={ROUTE_PATTERNS.documents} element={companyScreen(<DocumentListScreen />)} />
+      <Route path={ROUTE_PATTERNS.home} element={companyScreen(<HomeScreen />)} />
+      <Route path={ROUTE_PATTERNS.documents} element={<Navigate to={ROUTE_PATTERNS.home} replace />} />
+      <Route path={ROUTE_PATTERNS.documentList} element={companyScreen(<DocumentListRoute />)} />
+      <Route path={ROUTE_PATTERNS.documentSearch} element={companyScreen(<DocumentSearchScreen />)} />
       <Route
         path={ROUTE_PATTERNS.documentUpload}
         element={companyScreen(<DocumentUploadScreen />)}
@@ -119,6 +141,12 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route path={ROUTE_PATTERNS.documentCard} element={<DocumentCardScreen />} />
       <Route path={ROUTE_PATTERNS.routePreview} element={companyScreen(<RoutePreviewScreen />)} />
+      {DesignScreen && (
+        <Route path="/design" element={<Suspense fallback={null}><DesignScreen /></Suspense>} />
+      )}
+      {UploadStatesScreen && (
+        <Route path="/design/upload" element={<Suspense fallback={null}><UploadStatesScreen /></Suspense>} />
+      )}
       {/* Неизвестный путь - не 404, а туда же, куда привело бы свежее /me. */}
       <Route path="*" element={<Navigate to={entryRoute} replace />} />
     </Routes>

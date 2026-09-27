@@ -111,8 +111,16 @@ public class JoinRequestService {
         return requests.stream()
                 .map(request -> new JoinRequestView(request.getId(),
                         new UserRef(request.getUserId(), users.get(request.getUserId()).getFullName()),
-                        request.getStatus().name(), request.getCreatedAt()))
+                        request.getStatus().name(), request.getCreatedAt(), previousRoles(orgId, request.getUserId())))
                 .toList();
+    }
+
+    /** D5: прежние роли исключённого участника — при исключении они не удаляются. Новый человек — пусто. */
+    private List<ru.sibvibe.approval.common.dto.RoleRef> previousRoles(long orgId, long userId) {
+        return memberRepository.findByOrgIdAndUserId(orgId, userId)
+                .filter(member -> member.getStatus() == ru.sibvibe.approval.organization.entity.OrganizationMember.Status.DISABLED)
+                .map(member -> assembler.assemble(member).roles())
+                .orElse(List.of());
     }
 
     /**

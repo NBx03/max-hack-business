@@ -38,13 +38,20 @@ final class ApprovalErrors {
 
     static DomainException routeRoleEmpty(String roleName) {
         return new DomainException("ROUTE_ROLE_EMPTY", HttpStatus.CONFLICT,
-                "В компании нет сотрудника с ролью «" + roleName + "»", Map.of("role", roleName));
+                "В компании нет сотрудника с ролью «" + roleName + "» — попросите администратора назначить эту роль "
+                        + "или сделать её необязательной", Map.of("role", roleName));
     }
 
     static DomainException selectionRequired(int stageOrder, String roleName) {
         return new DomainException("SELECTION_REQUIRED", HttpStatus.CONFLICT,
                 "Выберите согласующего для роли «" + roleName + "»",
                 Map.of("stageOrder", stageOrder, "role", roleName));
+    }
+
+    static DomainException mandatoryRoleMissing(String roleName) {
+        return new DomainException("MANDATORY_ROLE_MISSING", HttpStatus.BAD_REQUEST,
+                "«" + roleName + "» обязателен для этого вида документа — верните его в маршрут",
+                Map.of("role", roleName));
     }
 
     static DomainException routeNotConfigured() {

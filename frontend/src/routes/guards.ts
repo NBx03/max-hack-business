@@ -22,13 +22,13 @@ export function guardTarget(kind: GuardKind, me: MeResponse, entryRoute: string)
   const pending = Boolean(me.pendingJoinRequest);
   switch (kind) {
     case 'onboarding':
-      if (companyReady) return ROUTE_PATTERNS.documents;
+      if (companyReady) return ROUTE_PATTERNS.home;
       return pending ? ROUTE_PATTERNS.pending : null;
     case 'createCompany':
       if (companyReady) return ROUTE_PATTERNS.adminInvite;
       return pending ? ROUTE_PATTERNS.pending : null;
     case 'pending':
-      if (companyReady) return ROUTE_PATTERNS.documents;
+      if (companyReady) return ROUTE_PATTERNS.home;
       return pending ? null : entryRoute;
     case 'company':
       // Карточка документа (documentCard) сюда не относится: на неё ведёт d_<id> из уведомления

@@ -5,6 +5,7 @@ import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.document.entity.Document;
 import ru.sibvibe.approval.document.entity.DocumentFile;
+import ru.sibvibe.approval.document.service.DisplayStatus;
 import ru.sibvibe.approval.document.service.VersionChangesService;
 import ru.sibvibe.approval.rules.RuleEngine;
 
@@ -17,6 +18,8 @@ public record DocumentCardResponse(
         String title,
         TypeRef type,
         Document.Status status,
+        /** Как статус видит человек: «На утверждении», «Утверждён» (D4). Показывать — его, а не status. */
+        DisplayStatus displayStatus,
         Document.Visibility visibility,
         UserRef author,
         int currentVersionNo,
@@ -29,11 +32,14 @@ public record DocumentCardResponse(
         VersionChangesService.Changes changes
 ) {
     /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
-    public record TypeRef(long id, String name, boolean isGeneric, boolean autoDetected) {}
+    /** code — по нему экран узнаёт «Другой документ» (GENERIC): вид вне шаблонов компании (DOC-7). */
+    public record TypeRef(long id, String code, String name, boolean isGeneric, boolean autoDetected) {}
 
     /**
      * withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась.
      * content — содержимое документа-формы, заполненного в приложении (#59); {@code null} у версии с файлом.
+     * issues — замечания проверки этой версии, снимок на момент проверки; {@code null} — версия не проверялась.
+     * Нужны, чтобы у прошлой версии было видно, с чем её отправляли (#56).
      */
     public record VersionView(
             int versionNo,
@@ -42,7 +48,8 @@ public record DocumentCardResponse(
             UserRef createdBy,
             List<FileRef> files,
             Instant withdrawnAt,
-            Map<String, String> content
+            Map<String, String> content,
+            List<ValidationIssueView> issues
     ) {}
 
     public record FileRef(
@@ -119,6 +126,8 @@ public record DocumentCardResponse(
             UserRef approver,
             String origin,
             String decision,
+            /** APPROVAL — согласование, ENDORSEMENT — утверждение (последний шаг, D4). */
+            String kind,
             String comment,
             Instant activatedAt,
             Instant decidedAt,

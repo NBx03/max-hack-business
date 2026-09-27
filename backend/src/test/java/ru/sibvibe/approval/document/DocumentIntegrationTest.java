@@ -39,6 +39,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -264,6 +265,24 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.permissions.canCorrectFile").value(false))
                 .andReturn().getResponse().getContentAsString());
         long documentId = created.path("id").asLong();
+        assertThat(created.path("type").path("code").asText()).isEqualTo("GENERIC");
+
+        // DOC-7: вид, который назвал сам документ, — в списке рядом с названием; признак — код GENERIC, а не is_generic.
+        jdbc.update("""
+                update document_version set extracted_fields = '{"fields": [{"name": "doc_kind", "value": "Приказ", "source": "MODEL"}]}'::jsonb
+                where document_id = ?
+                """, documentId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].recognizedKind.value").value("Приказ"))
+                .andExpect(jsonPath("$.items[0].recognizedKind.fromAi").value(true));
+        // fields — JSON null: список и поиск не падают (ревью Никиты на #113, п. 2)
+        jdbc.update("update document_version set extracted_fields = '{\"fields\": null}'::jsonb where document_id = ?", documentId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "ничего").header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].recognizedKind").isEmpty());
 
         mvc.perform(put("/api/v1/documents/{id}/versions/1/type", documentId)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -369,6 +388,26 @@ class DocumentIntegrationTest {
     }
 
     @Test
+    void onlyTheAuthorDeletesADraftAndItIsGoneEverywhere() throws Exception {
+        long documentId = createPrivateDocument(pdf()).path("id").asLong();
+
+        // DOC-4: чужой — «не найдено», коллега без прав — тоже не автор
+        mvc.perform(delete("/api/v1/documents/{id}", documentId).header("Authorization", FOREIGN_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/v1/documents/{id}", documentId).header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(delete("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", Long.toString(documentId))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+    }
+
+    @Test
     void sameCompanyReaderCanViewButCannotModifyDocument() throws Exception {
         JsonNode created = createPrivateDocument(pdf());
         long documentId = created.path("id").asLong();
@@ -391,9 +430,43 @@ class DocumentIntegrationTest {
 
         jdbc.update("update document set visibility = 'ORG' where id = ?", documentId);
 
+        // DOC-5: «видно всей компании» не открывает черновик — ни карточку, ни файл, ни строку в списке.
+        mvc.perform(get("/api/v1/documents/{id}", documentId)
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/documents").param("tab", "AVAILABLE")
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+        mvc.perform(get(tokenService.issue(fileId, colleagueId).url()))
+                .andExpect(status().isNotFound());
+
+        // Решение №9 (DECISIONS.md): согласующий прошлой версии черновик видит — и карточку, и файл.
+        long reviewerRole = jdbc.queryForObject("""
+                insert into role(org_id, code, name) values (?, 'PAST_REVIEWER', 'Прошлый согласующий') returning id
+                """, Long.class, authorOrgId);
+        jdbc.update("""
+                insert into approval_step(document_id, version_no, approver_id, role_id, stage_order,
+                    origin, decision, created_at, decided_at)
+                values (?, 1, ?, ?, 1, 'TEMPLATE', 'APPROVED', current_timestamp, current_timestamp)
+                """, documentId, colleagueId, reviewerRole);
         mvc.perform(get("/api/v1/documents/{id}", documentId)
                         .header("Authorization", COLLEAGUE_AUTH))
                 .andExpect(status().isOk());
+        mvc.perform(get(tokenService.issue(fileId, colleagueId).url()))
+                .andExpect(status().isOk());
+        jdbc.update("delete from approval_step where document_id = ?", documentId);
+
+        // Отправленный документ компания уже видит.
+        jdbc.update("update document set status = 'IN_APPROVAL' where id = ?", documentId);
+
+        mvc.perform(get("/api/v1/documents/{id}", documentId)
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/documents").param("tab", "AVAILABLE")
+                        .header("Authorization", COLLEAGUE_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
         mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
                         .file(textJsonPart("meta", Map.of(
                                 "containsSensitive", false,
@@ -449,6 +522,44 @@ class DocumentIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(documentId));
+        // Период создания: раньше даты уходили в драйвер как Instant и запрос падал с 500 (ни разу не проверялся).
+        java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Europe/Moscow"));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE")
+                        .param("from", today.minusDays(6).toString()).param("to", today.plusDays(1).toString())
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("from", today.plusDays(2).toString())
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+        // NAV-3: поиск по части названия и по номеру документа; ACL — тот же, что у списка
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "прика")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", Long.toString(documentId))
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(documentId));
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "100%_\\")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+        // по автору и по регистрационному номеру из полей (ревью Матвея на #113, п. 9)
+        String authorName = jdbc.queryForObject("select full_name from app_user where id = ?", String.class, authorId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", authorName.toLowerCase())
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(documentId));
+        jdbc.update("""
+                update document_version set extracted_fields = '{"fields": [{"name": "reg_number", "value": "СЗ-117", "source": "MODEL"}]}'::jsonb
+                where document_id = ?
+                """, documentId);
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "сз-117")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1));
 
         JsonNode versioned = json(mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
                         .file(jsonPart("meta", Map.of(
@@ -472,6 +583,12 @@ class DocumentIntegrationTest {
                 .andExpect(jsonPath("$.status").value("CHECKED"))
                 .andExpect(jsonPath("$.issues[0].ruleId").isNumber())
                 .andExpect(jsonPath("$.issues[0].severity").value("BLOCKER"));
+        // Замечания — у каждой версии своим снимком: у прошлой их видно и после новой (#56, история версий).
+        JsonNode withIssues = json(mvc.perform(get("/api/v1/documents/{id}", documentId).header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.versions[1].issues[0].severity").value("BLOCKER"))
+                .andReturn().getResponse().getContentAsString());
+        assertThat(withIssues.path("versions").get(1).path("issues")).isEqualTo(withIssues.path("check").path("issues"));
 
         long roleId = jdbc.queryForObject("""
                 insert into role(org_id, code, name) values (?, 'REVIEWER', 'Проверяющий') returning id

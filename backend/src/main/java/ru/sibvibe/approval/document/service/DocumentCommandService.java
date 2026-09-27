@@ -238,6 +238,15 @@ public class DocumentCommandService {
         return viewService.card(documentId, currentUser);
     }
 
+    /** DOC-4: «Удалить черновик» — только автор и только черновик, который ещё не отправлялся. */
+    public void deleteDraft(long documentId, CurrentUser currentUser) {
+        Membership membership = requireMembership(currentUser);
+        requireOwnedDocument(documentId, membership.orgId(), currentUser.userId());
+        // «Отправлялся ли» — уже под блокировкой строки документа (ревью Матвея на #113, п. 6).
+        persistenceService.deleteDraft(documentId, membership.orgId(), currentUser.userId(),
+                () -> documentReadRepository.everSubmitted(documentId));
+    }
+
     /** «Сменить тип» у черновика: вид, определённый моделью, оказался неверным (#86). */
     public DocumentCardResponse changeType(long documentId, int versionNo, CurrentUser currentUser, long documentTypeId) {
         Membership membership = requireMembership(currentUser);
