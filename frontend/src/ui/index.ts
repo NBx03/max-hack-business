@@ -12,6 +12,7 @@ export { Timeline, TimelinePerson, type TimelineItem, type TimelineState } from 
 export { FileDrop, AttachmentsField, Stepper, formatFileSize, type AttachmentItem } from './FileDrop';
 export { ThemeSync } from './ThemeSync';
 export { StatusBadge, DocumentStatusBadge, StepDecisionBadge, AiMark, AiLegend } from './Badge';
+export { AiSummaryCard } from './AiSummaryCard';
 export {
   documentStatusMeta,
   stepDecisionMeta,

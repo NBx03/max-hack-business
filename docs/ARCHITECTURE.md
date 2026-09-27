@@ -115,7 +115,7 @@
 |---|---|---|---|
 | `FileStorage` | `storage` | MinIO | Подмена в тестах, смена хранилища |
 | `TextExtractor` | `ai` | PDFBox + JDK для DOCX | Новые форматы без изменения конвейера |
-| `DocumentExtractor` | `ai` | Spring AI + GigaChat | Смена провайдера модели настройкой |
+| `DocumentExtractor` | `ai` | Spring AI + GigaChat | Поля (`extract`) и краткая сводка (`summarize`) — раздельными вызовами, последовательно (личный аккаунт GigaChat держит один поток); смена провайдера настройкой |
 | `DocumentClassifier` | `ai` | Spring AI + GigaChat | Вид документа по тексту при загрузке с «определить автоматически» (#86); недоступна модель — «Другой документ» |
 | `MaxIdentityVerifier` | `security` | HMAC-SHA256 по секрету бота | Тесты без настоящего MAX |
 | `Notifier` | `bot` | MAX Bot API | Тесты и отключение уведомлений |
@@ -144,7 +144,7 @@
 2. Транзакция: документ, версия, файлы версии → commit. У типа с проверкой
    `check_status = FAILED` сразу: если процесс упадёт до шага 4, версия честно
    останется «проверка не выполнена», а не `null`.
-3. Извлечение текста и полей моделью — вне транзакции, с тайм-аутом.
+3. Извлечение текста, полей и краткой сводки моделью — вне транзакции, с тайм-аутом.
 4. Транзакция: результаты проверки на версию, `check_status = CHECKED` → commit.
 5. Ответ клиенту. Упал шаг 3 — документ всё равно сохранён, `modelAvailable = false`,
    правила проверены по полям, введённым вручную.
@@ -218,7 +218,7 @@ Hibernate в режиме `validate`. Слитый в `main` changeset не ре
 | `RequirementRule` | id, document_type_id, field_name, description, check_type, expected, **kind**, severity, source_title, source_url, source_ref, source_checked_at |
 | `OrganizationRuleSetting` | **org_id + rule_id** (PK), enabled, severity, description, source_title, source_ref, expected, updated_by, updated_at — отличие правила компании от шаблона (#90); `NULL` — как в шаблоне, строки нет — правило целиком как в шаблоне |
 | `Document` | id, document_type_id, author_id, org_id, **title**, status, current_stage, **current_version_no**, visibility, **type_auto_detected** (тип выбрал ИИ, #86), created_at, updated_at |
-| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **check_status** (`CHECKED` / `FAILED`; null у типа с `is_generic = true`; с #86 таких типов нет — «Другой документ» (`GENERIC`) тоже проверяется), **withdrawn_at** (автор отозвал версию с согласования) |
+| `DocumentVersion` | id, document_id, **version_no**, **contains_sensitive**, content (jsonb, у документа-формы), created_by, created_at, extracted_fields (jsonb), validation_issues (jsonb), **ai_summary** (проверенная краткая сводка или null), **check_status** (`CHECKED` / `FAILED`; null у типа с `is_generic = true`; с #86 таких типов нет — «Другой документ» (`GENERIC`) тоже проверяется), **withdrawn_at** (автор отозвал версию с согласования) |
 | `DocumentFile` | id, version_id, **kind** (MAIN / ATTACHMENT), position, storage_key, file_name, mime_type, file_size, created_at |
 | `ApprovalStep` | id, document_id, **version_no**, approver_id, **role_id**, **stage_order**, **origin** (TEMPLATE / ADDED_BY_AUTHOR), decision, **auto_reason**, comment, created_at, **activated_at** (этап стал активным), decided_at, **last_reminded_at** (напоминание о застрявшем шаге, issue #60; `null` — ни разу) |
 

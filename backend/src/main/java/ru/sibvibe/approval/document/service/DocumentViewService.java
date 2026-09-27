@@ -272,6 +272,7 @@ public class DocumentViewService {
                 version.getVersionNo(),
                 version.getCheckStatus(),
                 modelAvailable,
+                version.getAiSummary(),
                 fields,
                 issues,
                 textMissing);

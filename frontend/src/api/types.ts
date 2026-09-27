@@ -229,6 +229,8 @@ export interface CheckResult {
   versionNo: number;
   status: 'CHECKED' | 'FAILED';
   modelAvailable: boolean;
+  /** Проверенная краткая сводка модели (#92), отдельный вызов; null/не пришла — сводки нет. */
+  summary?: string | null;
   /** В файле нет текста (скан): ИИ его не читал, поля вводятся вручную. */
   textMissing?: boolean;
   fields: CheckField[];

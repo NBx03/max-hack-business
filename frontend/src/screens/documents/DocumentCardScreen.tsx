@@ -13,6 +13,7 @@ import {
 } from '../../api/documents';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentTypeField, FileRef, RouteView, StepView, VersionChanges } from '../../api/types';
+import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
 import { downloadFile } from '../../max/webApp';
 import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath } from '../../routes/paths';
@@ -21,9 +22,9 @@ import { RecognizedKind } from './RecognizedKind';
 import { FormFields, VersionHistory } from './VersionHistory';
 import { finalFile, findReturnReason, personMeta, showVersionChanges } from './versionOutcome';
 import { demoNextActor } from './demoNext';
-import { useSession } from '../../app/SessionContext';
 import {
   AccessErrorState,
+  AiSummaryCard,
   BottomSheet,
   Button,
   ButtonRow,
@@ -172,6 +173,8 @@ export function DocumentCardScreen() {
   const documentId = Number(id);
   const navigate = useNavigate();
   const location = useLocation();
+  const { me, sandboxUsers, actAs } = useSession();
+  const currentUserId = me?.actingAs?.user.id ?? me?.user.id;
 
   const query = useAsync(() => getDocument(documentId), [documentId]);
   // Подписи полей — документу-форме (#59) и замечаниям в истории версий (#56).
@@ -202,7 +205,6 @@ export function DocumentCardScreen() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
-  const { me, sandboxUsers, actAs } = useSession();
   const [switching, setSwitching] = useState(false);
 
   /**
@@ -535,6 +537,10 @@ export function DocumentCardScreen() {
           content={formContent}
           definitions={types.status === 'ready' ? types.data.find((type) => type.id === doc.type.id)?.fields ?? [] : []}
         />
+      )}
+
+      {doc.check?.summary && (
+        <AiSummaryCard summary={doc.check.summary} isAuthor={doc.author.id === currentUserId} />
       )}
 
       {currentVersion && currentVersion.files.length > 0 && (

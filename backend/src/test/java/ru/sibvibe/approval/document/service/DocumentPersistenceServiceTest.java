@@ -185,6 +185,54 @@ class DocumentPersistenceServiceTest {
     }
 
     @Test
+    void carriesSummaryAndManualFieldsWhenNewVersionReusesSuccessfullyCheckedMainFile() {
+        current.setCheckStatus("CHECKED");
+        current.setAiSummary("Согласовать закупку на 1000 рублей.");
+        current.setExtractedFields(new ObjectMapper().valueToTree(
+                new DocumentPersistenceService.StoredFields(true, List.of(
+                        new ru.sibvibe.approval.document.dto.DocumentCardResponse.FieldValue(
+                                "amount", "1200", "MANUAL", null, null, "1000")), null)));
+
+        var created = service.createVersion(1, 10, 7, 1, false, List.of(201L), prepared(), null, List.of());
+
+        ArgumentCaptor<DocumentVersion> captor = ArgumentCaptor.forClass(DocumentVersion.class);
+        verify(versions).save(captor.capture());
+        assertThat(captor.getValue().getAiSummary()).isEqualTo("Согласовать закупку на 1000 рублей.");
+        assertThat(created.previousFields().fields()).singleElement().satisfies(field -> {
+            assertThat(field.source()).isEqualTo("MANUAL");
+            assertThat(field.value()).isEqualTo("1200");
+            assertThat(field.fileValue()).isEqualTo("1000");
+        });
+    }
+
+    @Test
+    void modelAnalysisPersistsSummaryOnCurrentAttempt() {
+        current.setExtractedFields(new ObjectMapper().createObjectNode().put("checkToken", "attempt"));
+        when(versions.findById(101L)).thenReturn(Optional.of(current));
+
+        boolean completed = service.completeCheck(1L,
+                new DocumentPersistenceService.CheckAttempt(101L, "attempt"),
+                new DocumentRuleService.CheckData(true, List.of(), List.of()),
+                "Согласовать закупку на 1000 рублей.");
+
+        assertThat(completed).isTrue();
+        assertThat(current.getAiSummary()).isEqualTo("Согласовать закупку на 1000 рублей.");
+    }
+
+    @Test
+    void manualCheckPreservesExistingSummary() {
+        current.setAiSummary("Сводка по тексту файла.");
+        current.setExtractedFields(new ObjectMapper().createObjectNode().put("checkToken", "attempt"));
+        when(versions.findById(101L)).thenReturn(Optional.of(current));
+
+        service.completeCheck(1L,
+                new DocumentPersistenceService.CheckAttempt(101L, "attempt"),
+                new DocumentRuleService.CheckData(false, List.of(), List.of()));
+
+        assertThat(current.getAiSummary()).isEqualTo("Сводка по тексту файла.");
+    }
+
+    @Test
     void returnedDocumentBecomesDraftWithNextVersion() {
         document.setStatus(Document.Status.RETURNED);
         document.setCurrentStage(2);

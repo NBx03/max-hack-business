@@ -41,7 +41,7 @@ class GigaChatLiveIntegrationTest {
 
     @Test
     @EnabledIfEnvironmentVariable(named = "GIGACHAT_CREDENTIALS", matches = ".+")
-    void extractsExpectedFieldsFromSyntheticDocumentsWithLiveModel() throws Exception {
+    void extractsExpectedFieldsAndSummariesFromSyntheticDocumentsWithLiveModel() throws Exception {
         String credentials = System.getenv("GIGACHAT_CREDENTIALS");
         String clientId = System.getenv().getOrDefault("GIGACHAT_CLIENT_ID", "");
         String scope = System.getenv().getOrDefault("GIGACHAT_SCOPE", "GIGACHAT_API_PERS");
@@ -67,7 +67,7 @@ class GigaChatLiveIntegrationTest {
                     true, "gigachat", credentials, 120);
             try {
                 DocumentExtractionService service = new DocumentExtractionService(
-                        new PdfDocxTextExtractor(), model, classifier, new TextMinimizer(), new SensitiveDataMasker());
+                        new PdfDocxTextExtractor(), model, classifier, new TextMinimizer(), new SensitiveDataMasker(), 120);
                 verifyDocuments(service);
             } finally {
                 model.closeExecutor();
@@ -87,6 +87,9 @@ class GigaChatLiveIntegrationTest {
         }
         List<DocumentReport> reports = new ArrayList<>();
         boolean issueMismatch = false;
+        int summariesCount = 0;
+        assertThat(expected.path("documents").isArray()).isTrue();
+        assertThat(expected.path("documents").size()).isPositive();
         for (JsonNode document : expected.path("documents")) {
             String typeCode = document.path("type").asText();
             TypeData type = typeData(rules, typeCode);
@@ -95,17 +98,18 @@ class GigaChatLiveIntegrationTest {
             String mime = file.toString().endsWith(".pdf")
                     ? "application/pdf"
                     : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-            DocumentExtractor.ExtractionResult result;
+            DocumentExtractionService.ExtractionOutcome outcome;
             DocumentClassifier.Classification classification;
             try (InputStream content = Files.newInputStream(file);
                  InputStream again = Files.newInputStream(file)) {
-                result = service.extract(content, mime, typeCode, schema);
+                outcome = service.extract(content, mime, typeCode, schema);
                 classification = service.classify(again, mime, typeOptions(rules));
             } catch (IOException exception) {
                 throw new IllegalStateException("Не удалось прочитать " + file, exception);
             }
+            DocumentExtractor.ExtractionResult result = outcome.fields();
             if (!result.available()) {
-                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—"));
+                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—", "—", "—"));
                 issueMismatch = true;
                 continue;
             }
@@ -137,14 +141,28 @@ class GigaChatLiveIntegrationTest {
             document.path("issues").forEach(issue -> expectedIssues.add(issue.asText()));
             boolean matches = actualIssues.equals(expectedIssues);
             issueMismatch |= !matches;
+            // Сводка — не обязательный результат: проверка фактов (#92) намеренно отбрасывает её целиком, если
+            // модель что-то досочинила, и это не регрессия. В отчёте видна, но не проваливает извлечение полей.
+            // Причина отсутствия — отдельной колонкой (ревью Mat10t к #104, повторное ревью, п.3): по одному
+            // «СВОДКИ НЕТ» не понять, отброшена ли она проверкой фактов, сказала ли модель «НЕТ» сама, или вызов
+            // просто не удался.
+            boolean hasSummary = outcome.summary() != null && !outcome.summary().isBlank();
+            if (hasSummary) {
+                summariesCount++;
+            }
             reports.add(new DocumentReport(
                     file.getFileName().toString(),
                     String.join(" ", expectedIssues) + " → " + String.join(" ", actualIssues),
                     (matches ? "совпали" : "расхождение") + "; " + typeReport
                             + "; название: " + display(classification.title()),
-                    fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences)));
+                    fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences),
+                    hasSummary ? outcome.summary() : "СВОДКИ НЕТ",
+                    summaryStatusLabel(outcome.summaryStatus())));
         }
-        String report = report(reports);
+        // Готово, когда (#92): живой прогон комментарием, со сводкой по числу документов, у которых есть сводка —
+        // её отсутствие у части документов законно (проверка фактов отбросила или модель ничего не дала), поэтому
+        // это не входит в issueMismatch и не проваливает тест.
+        String report = report(reports) + "\nСводок: " + summariesCount + " из " + reports.size() + ".\n";
         if (issueMismatch) {
             throw new AssertionError(report);
         }
@@ -153,13 +171,25 @@ class GigaChatLiveIntegrationTest {
 
     private String report(List<DocumentReport> reports) {
         StringBuilder result = new StringBuilder("Отчёт GigaChat по testdata/expected.json:\n\n")
-                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей |\n")
-                .append("| --- | --- | --- | --- |\n");
+                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей | Кратко от ИИ | Если сводки нет — почему |\n")
+                .append("| --- | --- | --- | --- | --- | --- |\n");
         reports.forEach(row -> result.append("| ").append(table(row.file()))
                 .append(" | ").append(table(row.issues()))
                 .append(" | ").append(table(row.status()))
-                .append(" | ").append(table(row.fields())).append(" |\n"));
+                .append(" | ").append(table(row.fields()))
+                .append(" | ").append(table(row.summary()))
+                .append(" | ").append(table(row.summaryStatusLabel())).append(" |\n"));
         return result.toString();
+    }
+
+    private String summaryStatusLabel(DocumentExtractionService.SummaryStatus status) {
+        return switch (status) {
+            case PRESENT -> "—";
+            case NOT_ATTEMPTED -> "не вызывалась (поля недоступны или бюджет времени кончился)";
+            case MODEL_UNAVAILABLE -> "модель недоступна (тайм-аут или ошибка вызова)";
+            case NO_SUMMARY_FROM_MODEL -> "модель ответила «НЕТ»";
+            case REJECTED_BY_FACT_CHECK -> "отброшена проверкой фактов";
+        };
     }
 
     private String display(String value) {
@@ -226,5 +256,7 @@ class GigaChatLiveIntegrationTest {
             Map<Long, String> codeById
     ) {}
 
-    private record DocumentReport(String file, String issues, String status, String fields) {}
+    private record DocumentReport(
+            String file, String issues, String status, String fields, String summary, String summaryStatusLabel
+    ) {}
 }
