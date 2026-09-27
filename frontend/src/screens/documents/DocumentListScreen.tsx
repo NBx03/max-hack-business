@@ -281,6 +281,9 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
 
 /** Строка документа — в разделах и в поиске одинаковая. */
 export function DocumentRow({ item, list, onOpen }: { item: DocumentListItem; list: DocumentListKey; onOpen: () => void }) {
+  // «Пришёл сегодня / вчера» — по календарю компании (ревью #123, п. 1); строку показывают список, главная и поиск.
+  const { me } = useSession();
+  const zone = companyZoneOf(me);
   return (
     <Row
       title={item.title}
@@ -302,7 +305,7 @@ export function DocumentRow({ item, list, onOpen }: { item: DocumentListItem; li
             {' · '}
             {[
               item.author.fullName,
-              list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince) : formatDate(item.updatedAt),
+              list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince, zone) : formatDate(item.updatedAt),
             ].join(' · ')}
           </span>
         </span>

@@ -45,7 +45,11 @@ export function InviteScreen() {
   // «Поделиться», а не закрывается сразу (SCREENS.md: «→ ссылка и «Поделиться»»; PR #72, №7).
   const [createdInvite, setCreatedInvite] = useState<PersonalInviteView | null>(null);
 
-  const [actionError, setActionError] = useState<string | null>(null);
+  // Ошибка — там, где её причина (ревью #123, п. 2): у кода на экране, у перевыпуска — в его подтверждении, у действий
+  // с личной ссылкой — в её листе. Каждое действие и открытие листа сбрасывает прежнюю ошибку.
+  const [screenError, setScreenError] = useState<string | null>(null);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [sheetError, setSheetError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [openedInvite, setOpenedInvite] = useState<PersonalInviteView | null>(null);
 
@@ -75,18 +79,27 @@ export function InviteScreen() {
     void load();
   }, [load]);
 
-  async function share(url: string, label: string) {
+  /** inSheet — делятся личной ссылкой из её листа: ошибку показать там же, а не под листом. */
+  async function share(url: string, label: string, inSheet: boolean) {
+    const setError = inSheet ? setSheetError : setScreenError;
+    setError(null);
     const result = await shareOrCopy(url, label);
     if (result === 'copied') setToast('Ссылка скопирована');
-    if (result === 'failed') setActionError('Не удалось поделиться ссылкой');
+    if (result === 'failed') setError('Не удалось поделиться ссылкой');
+  }
+
+  function openInvite(invite: PersonalInviteView) {
+    setSheetError(null);
+    setOpenedInvite(invite);
   }
 
   async function copyCode() {
     if (!code) return;
+    setScreenError(null);
     if (await copyToClipboard(code.code)) {
       setToast('Код скопирован');
     } else {
-      setActionError('Не удалось скопировать код');
+      setScreenError('Не удалось скопировать код');
     }
   }
 
@@ -94,13 +107,13 @@ export function InviteScreen() {
     // ConfirmSheet не блокирует свою кнопку по loading - защита от повторного тапа здесь.
     if (regenerating) return;
     setRegenerating(true);
-    setActionError(null);
+    setRegenerateError(null);
     try {
       setCode(await regenerateInviteCode());
       setConfirmRegenerate(false);
       setToast('Код перевыпущен');
     } catch (error) {
-      setActionError(errorMessage(error));
+      setRegenerateError(errorMessage(error));
     } finally {
       setRegenerating(false);
     }
@@ -110,6 +123,7 @@ export function InviteScreen() {
     if (newRoleIds.length === 0) return;
     setCreating(true);
     setCreateError(null);
+    setSheetError(null);
     try {
       const created = await createPersonalInvite(newRoleIds);
       setPersonalInvites((current) => [created, ...(current ?? [])]);
@@ -126,17 +140,18 @@ export function InviteScreen() {
     setCreateOpen(false);
     setCreatedInvite(null);
     setCreateError(null);
+    setSheetError(null);
   }
 
   async function revoke(invite: PersonalInviteView) {
-    setActionError(null);
+    setSheetError(null);
     try {
       await revokePersonalInvite(invite.id);
       setPersonalInvites((current) => (current ?? []).filter((item) => item.id !== invite.id));
       setOpenedInvite(null);
       setToast('Ссылка отозвана');
     } catch (error) {
-      setActionError(errorMessage(error));
+      setSheetError(errorMessage(error));
     }
   }
 
@@ -174,14 +189,14 @@ export function InviteScreen() {
           <span className="ds-invite-code">{code.code}</span>
           <span className="ds-invite-link">{code.link}</span>
           <ButtonRow>
-            <Button variant="primary" onClick={() => void share(code.link, 'Приглашение в компанию')}>Поделиться</Button>
+            <Button variant="primary" onClick={() => void share(code.link, 'Приглашение в компанию', false)}>Поделиться</Button>
             <Button variant="secondary" onClick={() => void copyCode()}>Скопировать код</Button>
           </ButtonRow>
         </Card>
         <Button variant="ghost" compact onClick={() => setConfirmRegenerate(true)}>Перевыпустить код</Button>
       </Section>
 
-      {actionError && !openedInvite && <Notice tone="danger">{actionError}</Notice>}
+      {screenError && <Notice tone="danger">{screenError}</Notice>}
 
       {personalInvites !== null && (
         <Section title="Личные ссылки" hint="Одноразовые, на 72 часа, роли выбраны заранее — вступают без заявки">
@@ -197,7 +212,7 @@ export function InviteScreen() {
                   key={invite.id}
                   title={roleNames(invite.roles)}
                   subtitle={upperFirst(formatTimeLeft(invite.expiresAt))}
-                  onClick={() => setOpenedInvite(invite)}
+                  onClick={() => openInvite(invite)}
                 />
               ))}
             </List>
@@ -207,17 +222,27 @@ export function InviteScreen() {
 
       <ConfirmSheet
         open={confirmRegenerate}
-        onClose={() => setConfirmRegenerate(false)}
+        onClose={() => {
+          setConfirmRegenerate(false);
+          setRegenerateError(null);
+        }}
         title="Перевыпустить код?"
         description="Старый код перестанет работать. Уже поданные заявки останутся."
         confirmLabel="Перевыпустить"
         busy={regenerating}
+        error={regenerateError}
         onConfirm={() => void regenerate()}
       />
 
       <BottomSheet open={createOpen} onClose={closeCreateSheet} title="Личная ссылка" dismissible={!creating}>
         {createdInvite ? (
-          <InviteActions invite={createdInvite} created onShare={() => void share(createdInvite.link, 'Личное приглашение в компанию')} onDone={closeCreateSheet} />
+          <InviteActions
+            invite={createdInvite}
+            created
+            onShare={() => void share(createdInvite.link, 'Личное приглашение в компанию', true)}
+            onDone={closeCreateSheet}
+            error={sheetError}
+          />
         ) : (
           <div style={stackStyle}>
             <RolePicker roles={roles} selectedRoleIds={newRoleIds} onChange={setNewRoleIds} disabled={creating} />
@@ -236,13 +261,13 @@ export function InviteScreen() {
         )}
       </BottomSheet>
 
-      <BottomSheet open={openedInvite !== null} onClose={() => { setOpenedInvite(null); setActionError(null); }} title="Личная ссылка">
+      <BottomSheet open={openedInvite !== null} onClose={() => { setOpenedInvite(null); setSheetError(null); }} title="Личная ссылка">
         {openedInvite && (
           <InviteActions
             invite={openedInvite}
-            onShare={() => void share(openedInvite.link, 'Личное приглашение в компанию')}
+            onShare={() => void share(openedInvite.link, 'Личное приглашение в компанию', true)}
             onRevoke={() => void revoke(openedInvite)}
-            error={actionError}
+            error={sheetError}
           />
         )}
       </BottomSheet>
