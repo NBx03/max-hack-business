@@ -99,7 +99,7 @@ export function showVersionChanges(doc: Pick<DocumentCard, 'status' | 'changes' 
 
 /**
  * Итоговый файл — главное действие утверждённого или согласованного документа (#56). У записки, заполненной в
- * приложении (#59), файла нет по замыслу: её текст целиком на карточке, выгрузку в DOCX в MVP не делаем — тогда null,
+ * приложении (#59), файла нет по замыслу: её текст целиком на карточке, выгрузка в файл — WON'T (CLAUDE.md) — тогда null,
  * и карточка без закреплённого действия (ревью #122, п. 1).
  */
 export function finalFile(doc: Pick<DocumentCard, 'status' | 'versions' | 'currentVersionNo'>): FileRef | null {
