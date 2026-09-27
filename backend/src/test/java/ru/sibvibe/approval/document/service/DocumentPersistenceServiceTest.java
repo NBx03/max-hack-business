@@ -153,7 +153,10 @@ class DocumentPersistenceServiceTest {
         assertThatThrownBy(() -> service.create(10L, 7L, "Записка", Document.Visibility.PRIVATE, false, false,
                 prepared(), main, List.of(large, large, large)))
                 .isInstanceOfSatisfying(DocumentApiException.class,
-                        exception -> assertThat(exception.code()).isEqualTo("FILE_TOO_LARGE"));
+                        exception -> {
+                            assertThat(exception.code()).isEqualTo("FILE_TOO_LARGE");
+                            assertThat(exception.details()).containsEntry("file", "VERSION");
+                        });
         verify(documents, never()).save(any());
     }
 
@@ -174,8 +177,10 @@ class DocumentPersistenceServiceTest {
         var large = new DocumentPersistenceService.NewFile("large", "large.pdf", "application/pdf", 10L * 1024 * 1024);
         assertThatThrownBy(() -> service.createVersion(1, 10, 7, 1, false, List.of(201L), prepared(), null,
                 List.of(large, large, large)))
-                .isInstanceOfSatisfying(DocumentApiException.class,
-                        exception -> assertThat(exception.code()).isEqualTo("FILE_TOO_LARGE"))
+                .isInstanceOfSatisfying(DocumentApiException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FILE_TOO_LARGE");
+                    assertThat(exception.details()).containsEntry("file", "VERSION");
+                })
                 .hasMessage("Размер файлов версии превышает 30 МБ");
     }
 
@@ -456,6 +461,6 @@ class DocumentPersistenceServiceTest {
         type.setCode("MEMO");
         type.setName("Записка");
         type.setGeneric(false);
-        return new DocumentRuleService.PreparedCheck(type, List.of(), fields, List.of());
+        return new DocumentRuleService.PreparedCheck(type, List.of(), fields, List.of(), Map.of(), java.time.ZoneId.of("Europe/Moscow"));
     }
 }

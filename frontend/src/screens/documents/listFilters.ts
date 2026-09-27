@@ -1,4 +1,5 @@
 import type { DocumentListFilters } from '../../api/documents';
+import { DEFAULT_ZONE, todayIn } from '../../app/companyTime';
 import type { DisplayStatus, DocumentListItem, UserRef } from '../../api/types';
 
 // Фильтры списков документов (NAV-3) — чистые функции, покрыты listFilters.test.ts.
@@ -12,10 +13,21 @@ export function pluralDays(n: number): string {
   return 'дней';
 }
 
-/** «ждёт 3 дня» — для раздела «На моём согласовании». */
-export function waitingText(iso: string, now: number = Date.now()): string {
-  const days = Math.max(0, Math.floor((now - new Date(iso).getTime()) / (24 * 60 * 60 * 1000)));
-  return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
+/** Номер календарного дня в поясе компании — чтобы считать «сегодня» и «вчера» по её часам. */
+function dayNumber(zone: string, at: Date): number {
+  const { year, month, day } = todayIn(zone, at);
+  return Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000);
+}
+
+/**
+ * «пришёл сегодня», «пришёл вчера», «ждёт 3 дня» — для раздела «На моём согласовании». Считаются календарные дни
+ * в поясе компании, а не прошедшие сутки: шаг, пришедший в 23:50, в 00:10 — уже вчерашний (ревью #123, п. 1).
+ */
+export function waitingText(iso: string, zone: string = DEFAULT_ZONE, now: number = Date.now()): string {
+  const days = Math.max(0, dayNumber(zone, new Date(now)) - dayNumber(zone, new Date(iso)));
+  if (days === 0) return 'пришёл сегодня';
+  if (days === 1) return 'пришёл вчера';
+  return `ждёт ${days} ${pluralDays(days)}`;
 }
 
 /**
@@ -34,18 +46,28 @@ export const PERIODS: { key: PeriodKey; label: string; days: number }[] = [
 /** Фильтры экрана: всё, что уходит на сервер, но период — ключом, а не датами. */
 export type ListFilters = Omit<DocumentListFilters, 'from' | 'to' | 'page' | 'size'> & { period?: PeriodKey };
 
-/** Дата начала периода (включительно), YYYY-MM-DD по местному времени: «за 7 дней» — сегодня и шесть дней до. */
-export function periodFrom(key: PeriodKey, now: Date = new Date()): string {
+/**
+ * Дата начала периода (включительно), YYYY-MM-DD: «за 7 дней» — сегодня и шесть дней до. «Сегодня» — по часовому поясу
+ * компании, как и границы на сервере (#56): иначе после полуночи в Новосибирске период съезжал бы на день.
+ */
+export function periodFrom(key: PeriodKey, now: Date = new Date(), zone: string = DEFAULT_ZONE): string {
   const days = PERIODS.find((period) => period.key === key)?.days ?? 0;
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
+  const today = todayIn(zone, now);
+  const start = new Date(Date.UTC(today.year, today.month - 1, today.day - (days - 1)));
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+  return `${start.getUTCFullYear()}-${pad(start.getUTCMonth() + 1)}-${pad(start.getUTCDate())}`;
 }
 
 /** Параметры запроса списка из фильтров экрана. */
-export function toQuery(filters: ListFilters, page: number, size: number, now: Date = new Date()): DocumentListFilters {
+export function toQuery(
+  filters: ListFilters,
+  page: number,
+  size: number,
+  now: Date = new Date(),
+  zone: string = DEFAULT_ZONE,
+): DocumentListFilters {
   const { period, ...rest } = filters;
-  return { ...rest, ...(period ? { from: periodFrom(period, now) } : {}), page, size };
+  return { ...rest, ...(period ? { from: periodFrom(period, now, zone) } : {}), page, size };
 }
 
 /** Сколько фильтров выбрано в панели «Фильтры» (статус и поиск — отдельно, на виду). */

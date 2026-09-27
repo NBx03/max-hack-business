@@ -4,8 +4,8 @@ import { approveJoinRequest, getJoinRequests, getRoles, rejectJoinRequest } from
 import { ApiError, errorMessage } from '../../api/errors';
 import type { JoinRequestView, RoleRef } from '../../api/types';
 import { RolePicker } from '../../components/base/RolePicker';
-import { EmptyState, Button, Toast } from '../../ui';
-import { DocumentScreen as AdminScreen, LoadingState, Notice, sectionStyle, stackStyle } from '../documents/DocumentFormParts';
+import { Button, ButtonRow, Card, EmptyState, Initials, Toast } from '../../ui';
+import { DocumentScreen as AdminScreen, LoadingState, Notice } from '../documents/DocumentFormParts';
 import { ADMIN_BACK, AdminLoadError, formatDateTime } from './AdminFormParts';
 
 interface RowChoice {
@@ -115,77 +115,71 @@ export function JoinRequestsScreen() {
 
       {requests.length === 0 ? (
         // LNK-4: пришло сообщение о заявке, а здесь пусто — значит, её уже решил другой администратор или отозвал сам
-        // человек. Говорим это прямо, а не оставляем гадать.
+        // человек. Говорим это прямо, но коротко (#56, аудит 27.09: было пять строк объяснения).
         <EmptyState
           title="Новых заявок нет"
-          text="Когда сотрудник подаст заявку по коду компании, она появится здесь, а бот пришлёт вам сообщение. Если сообщение пришло, а заявки нет — её уже рассмотрел другой администратор или отозвал сам сотрудник."
+          text="Здесь появятся заявки по коду компании. Нет той, о которой сообщил бот, — её уже рассмотрели или отозвали."
         />
       ) : (
-        <div style={stackStyle}>
-          {requests.map((request) => {
-            const choice = choices[request.id] ?? { roleIds: [], isAdmin: false };
-            const busy = busyId === request.id;
-            const canApprove = choice.roleIds.length > 0 || choice.isAdmin;
-            return (
-              <section key={request.id} style={sectionStyle}>
-                <div>
-                  <strong>{request.user.fullName}</strong>
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
-                    Подана {formatDateTime(request.createdAt)}
-                  </div>
-                </div>
+        requests.map((request) => {
+          const choice = choices[request.id] ?? { roleIds: [], isAdmin: false };
+          const busy = busyId === request.id;
+          const canApprove = choice.roleIds.length > 0 || choice.isAdmin;
+          const previousRoles = request.previousRoles ?? [];
+          // Карточка заявки — как лист сотрудника в «Участниках»: человек строкой с инициалами, роли, права, действия
+          // (#56, аудит 27.09: раньше — своя типографика и размеры числами).
+          return (
+            <Card key={request.id}>
+              <div className="ds-request__who">
+                <Initials name={request.user.fullName} />
+                <span className="ds-row__body">
+                  <span className="ds-row__title">{request.user.fullName}</span>
+                  <span className="ds-row__subtitle">
+                    {previousRoles.length > 0
+                      ? `Возвращается · прежние роли отмечены`
+                      : `Заявка ${formatDateTime(request.createdAt)}`}
+                  </span>
+                </span>
+              </div>
 
-                {(request.previousRoles ?? []).length > 0 && (
-                  <p className="ds-section__hint" style={{ margin: 0 }}>
-                    Возвращается в компанию — отмечены прежние роли: {request.previousRoles.map((role) => role.name).join(', ')}.
-                  </p>
-                )}
+              <RolePicker
+                roles={roles}
+                selectedRoleIds={choice.roleIds}
+                onChange={(roleIds) => setChoice(request.id, { roleIds })}
+                disabled={busy}
+              />
 
-                <RolePicker
-                  roles={roles}
-                  selectedRoleIds={choice.roleIds}
-                  onChange={(roleIds) => setChoice(request.id, { roleIds })}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Switch
+                  checked={choice.isAdmin}
                   disabled={busy}
+                  onChange={(event) => setChoice(request.id, { isAdmin: event.target.checked })}
                 />
+                <Typography.Text>Права администратора</Typography.Text>
+              </label>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Switch
-                    checked={choice.isAdmin}
-                    disabled={busy}
-                    onChange={(event) => setChoice(request.id, { isAdmin: event.target.checked })}
-                  />
-                  <Typography.Text>Права администратора</Typography.Text>
-                </label>
+              {rowErrors[request.id] && <Notice tone="danger">{rowErrors[request.id]}</Notice>}
 
-                {!canApprove && (
-                  // Почему «Принять» недоступна — рядом с ней, а не догадкой (принцип 9).
-                  <p className="ds-section__hint" style={{ margin: 0 }}>Чтобы принять, отметьте роль или права администратора.</p>
-                )}
-
-                {rowErrors[request.id] && <Notice tone="danger">{rowErrors[request.id]}</Notice>}
-
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <Button
-                      stretched
-                      variant="primary"
-                      loading={busy}
-                      disabled={busy || !canApprove}
-                      onClick={() => void approve(request)}
-                    >
-                      Принять
-                    </Button>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <Button stretched variant="secondary" disabled={busy} onClick={() => void reject(request)}>
-                      Отклонить
-                    </Button>
-                  </div>
-                </div>
-              </section>
-            );
-          })}
-        </div>
+              <ButtonRow>
+                <Button
+                  variant="primary"
+                  loading={busy}
+                  disabled={busy || !canApprove}
+                  onClick={() => void approve(request)}
+                >
+                  Принять
+                </Button>
+                <Button variant="secondary" disabled={busy} onClick={() => void reject(request)}>
+                  Отклонить
+                </Button>
+              </ButtonRow>
+              {!canApprove && (
+                // Почему «Принять» недоступна — рядом с ней, а не догадкой (принцип 9).
+                <p className="ds-section__hint" style={{ margin: 0 }}>Чтобы принять, отметьте роль или права администратора</p>
+              )}
+            </Card>
+          );
+        })
       )}
 
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}

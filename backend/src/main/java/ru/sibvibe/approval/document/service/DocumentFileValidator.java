@@ -35,7 +35,7 @@ public class DocumentFileValidator {
 
     public ValidatedFile validateMain(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() <= 0) {
-            throw DocumentApiException.validation("Основной файл не должен быть пустым");
+            throw DocumentApiException.fileInvalid("Файл пустой. Выберите файл документа ещё раз");
         }
         if (file.getSize() > MAX_FILE_SIZE) {
             throw DocumentApiException.fileTooLarge("Размер файла превышает 10 МБ");
@@ -45,10 +45,10 @@ public class DocumentFileValidator {
         try {
             content = file.getBytes();
         } catch (IOException exception) {
-            throw DocumentApiException.validation("Не удалось прочитать загруженный файл");
+            throw DocumentApiException.fileInvalid("Не удалось прочитать файл. Выберите его ещё раз");
         }
         if (content.length == 0) {
-            throw DocumentApiException.validation("Основной файл не должен быть пустым");
+            throw DocumentApiException.fileInvalid("Файл пустой. Выберите файл документа ещё раз");
         }
         String mimeType = detectMainType(content, fileName);
         return new ValidatedFile(content, fileName, mimeType);
@@ -61,19 +61,20 @@ public class DocumentFileValidator {
     public ValidatedFile validateAttachment(MultipartFile file) {
         String fileName = safeFileName(file.getOriginalFilename());
         if (file.isEmpty()) {
-            throw DocumentApiException.validation("Приложение «" + fileName + "» пустое");
+            throw DocumentApiException.fileInvalid("Приложение «" + fileName + "» пустое").aboutAttachment(fileName);
         }
         if (file.getSize() > MAX_FILE_SIZE) {
-            throw DocumentApiException.fileTooLarge("Приложение «" + fileName + "» больше 10 МБ");
+            throw DocumentApiException.fileTooLarge("Приложение «" + fileName + "» больше 10 МБ").aboutAttachment(fileName);
         }
         byte[] content;
         try {
             content = file.getBytes();
         } catch (IOException exception) {
-            throw DocumentApiException.validation("Не удалось прочитать приложение «" + fileName + "»");
+            throw DocumentApiException.fileInvalid("Не удалось прочитать приложение «" + fileName + "»")
+                    .aboutAttachment(fileName);
         }
         if (content.length == 0) {
-            throw DocumentApiException.validation("Приложение «" + fileName + "» пустое");
+            throw DocumentApiException.fileInvalid("Приложение «" + fileName + "» пустое").aboutAttachment(fileName);
         }
         return new ValidatedFile(content, fileName, detectAttachmentType(content, fileName));
     }
@@ -98,7 +99,7 @@ public class DocumentFileValidator {
             return XLSX;
         }
         throw DocumentApiException.fileTypeNotAllowed(
-                "Приложение «" + fileName + "» не подходит: нужен " + ATTACHMENT_TYPES);
+                "Приложение «" + fileName + "» не подходит: нужен " + ATTACHMENT_TYPES).aboutAttachment(fileName);
     }
 
     private String detectMainType(byte[] content, String fileName) {
@@ -114,7 +115,22 @@ public class DocumentFileValidator {
             // Говорим, как пересохранить: это десять секунд в Word.
             throw DocumentApiException.fileTypeNotAllowed(DOC_NOT_SUPPORTED);
         }
-        throw DocumentApiException.fileTypeNotAllowed("Основной файл должен быть PDF или DOCX");
+        throw DocumentApiException.fileTypeNotAllowed(mismatchMessage(fileName));
+    }
+
+    /**
+     * Имя обещает PDF или DOCX, а внутри не он — файл повреждён или переименован: так и говорим, с советом, а не общее
+     * «должен быть PDF или DOCX» при файле .pdf (#56, аудит 27.09).
+     */
+    static String mismatchMessage(String fileName) {
+        String name = fileName.toLowerCase(java.util.Locale.ROOT);
+        if (name.endsWith(".pdf")) {
+            return "Файл повреждён или это не PDF. Откройте его и сохраните заново как PDF";
+        }
+        if (name.endsWith(".docx")) {
+            return "Файл повреждён или это не DOCX. Откройте его в Word и сохраните заново";
+        }
+        return "Основной файл должен быть PDF или DOCX";
     }
 
     static final String DOC_NOT_SUPPORTED = "DOC — устаревший формат Word. Откройте файл в Word и сохраните как DOCX: "
@@ -149,13 +165,13 @@ public class DocumentFileValidator {
     private void validatePdf(byte[] content) {
         try (var document = Loader.loadPDF(content)) {
             if (document.getNumberOfPages() < 1) {
-                throw DocumentApiException.validation("PDF не содержит страниц");
+                throw DocumentApiException.fileInvalid("В PDF нет ни одной страницы. Сохраните документ в PDF заново");
             }
         } catch (IOException | RuntimeException exception) {
             if (exception instanceof DocumentApiException apiException) {
                 throw apiException;
             }
-            throw DocumentApiException.validation("PDF повреждён или имеет неподдерживаемую структуру");
+            throw DocumentApiException.fileInvalid("PDF повреждён и не открывается. Откройте исходный документ и сохраните его в PDF заново");
         }
     }
 
@@ -175,14 +191,14 @@ public class DocumentFileValidator {
             byte[] buffer = new byte[8192];
             while ((entry = zip.getNextEntry()) != null) {
                 if (++entries > MAX_DOCX_ENTRIES) {
-                    throw DocumentApiException.validation("DOCX содержит слишком много записей");
+                    throw DocumentApiException.fileInvalid("DOCX устроен необычно и не может быть проверен. Сохраните его в Word заново");
                 }
                 required.remove(entry.getName());
                 int read;
                 while ((read = zip.read(buffer)) != -1) {
                     uncompressedSize += read;
                     if (uncompressedSize > MAX_DOCX_UNCOMPRESSED_SIZE) {
-                        throw DocumentApiException.validation("Распакованный DOCX слишком большой");
+                        throw DocumentApiException.fileInvalid("DOCX слишком большой после распаковки. Сохраните его в Word заново без лишних вложений");
                     }
                 }
             }

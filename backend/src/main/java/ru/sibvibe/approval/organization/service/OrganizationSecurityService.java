@@ -144,6 +144,12 @@ public class OrganizationSecurityService {
 
     @Transactional
     public SandboxInfo resetSandbox(long ownerUserId) {
+        return resetSandbox(ownerUserId, null);
+    }
+
+    /** timeZone — пояс устройства проверяющего (#56): демо-компания живёт по его часам; не из России — Москва. */
+    @Transactional
+    public SandboxInfo resetSandbox(long ownerUserId, String timeZone) {
         userRepository.findByIdForUpdate(ownerUserId).orElseThrow();
         organizationRepository.findFirstByDemoOwnerIdAndDemoTrueOrderByIdDesc(ownerUserId)
                 .ifPresent(previous -> {
@@ -160,6 +166,9 @@ public class OrganizationSecurityService {
         sandbox.setCreatedAt(now);
         sandbox.setDemo(true);
         sandbox.setDemoOwnerId(ownerUserId);
+        String zone = CompanyTimeZones.isSupported(timeZone) ? timeZone : CompanyTimeZones.DEFAULT_ZONE;
+        sandbox.setTimeZone(zone);
+        sandbox.setCity(CompanyTimeZones.defaultCity(zone));
         sandbox = organizationRepository.save(sandbox);
 
         Map<String, Role> roles = new HashMap<>();
@@ -238,7 +247,7 @@ public class OrganizationSecurityService {
     private MembershipInfo membershipInfo(OrganizationMember member) {
         Organization organization = organizationRepository.findById(member.getOrgId()).orElseThrow();
         return new MembershipInfo(member.getId(), organization.getId(), organization.getName(),
-                rolesFor(member.getId()), member.isAdmin());
+                rolesFor(member.getId()), member.isAdmin(), organization.getCity(), organization.getTimeZone());
     }
 
     private SandboxInfo sandboxInfo(Organization sandbox) {
@@ -246,7 +255,7 @@ public class OrganizationSecurityService {
                         sandbox.getId(), OrganizationMember.Status.ACTIVE).stream()
                 .map(this::sandboxUserInfo)
                 .toList();
-        return new SandboxInfo(sandbox.getId(), sandbox.getName(), users);
+        return new SandboxInfo(sandbox.getId(), sandbox.getName(), users, sandbox.getCity(), sandbox.getTimeZone());
     }
 
     private SandboxUserInfo sandboxUserInfo(OrganizationMember member) {
@@ -290,8 +299,9 @@ public class OrganizationSecurityService {
     public record RoleInfo(long id, String code, String name) {
     }
 
+    /** city, timeZone — город и часовой пояс компании (#56): «сегодня» считается по нему. */
     public record MembershipInfo(long memberId, long orgId, String orgName,
-                                 List<RoleInfo> roles, boolean admin) {
+                                 List<RoleInfo> roles, boolean admin, String city, String timeZone) {
         public MembershipInfo {
             roles = List.copyOf(roles);
         }
@@ -307,7 +317,7 @@ public class OrganizationSecurityService {
         }
     }
 
-    public record SandboxInfo(long orgId, String orgName, List<SandboxUserInfo> users) {
+    public record SandboxInfo(long orgId, String orgName, List<SandboxUserInfo> users, String city, String timeZone) {
         public SandboxInfo {
             users = List.copyOf(users);
         }

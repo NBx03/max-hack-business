@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.document.service;
 
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +40,6 @@ import java.util.stream.Collectors;
 @Service
 public class DocumentViewService {
 
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Europe/Moscow");
 
     private static final TypeReference<List<DocumentCardResponse.FieldValue>> FIELD_LIST =
             new TypeReference<>() {};
@@ -57,6 +57,7 @@ public class DocumentViewService {
     private final DownloadTokenService tokenService;
     private final ObjectMapper objectMapper;
     private final VersionChangesService versionChanges;
+    private final CompanyZoneService companyZones;
 
     public DocumentViewService(
             DocumentRepository documentRepository,
@@ -68,7 +69,8 @@ public class DocumentViewService {
             OrganizationSecurityService organizationService,
             DownloadTokenService tokenService,
             ObjectMapper objectMapper,
-            VersionChangesService versionChanges
+            VersionChangesService versionChanges,
+            CompanyZoneService companyZones
     ) {
         this.documentRepository = documentRepository;
         this.versionRepository = versionRepository;
@@ -80,6 +82,7 @@ public class DocumentViewService {
         this.tokenService = tokenService;
         this.objectMapper = objectMapper;
         this.versionChanges = versionChanges;
+        this.companyZones = companyZones;
     }
 
     @Transactional(readOnly = true)
@@ -119,8 +122,10 @@ public class DocumentViewService {
             int size
     ) {
         long orgId = requireOrganization(currentUser);
-        Instant fromInstant = from == null ? null : from.atStartOfDay(BUSINESS_ZONE).toInstant();
-        Instant toExclusive = to == null ? null : to.plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant();
+        // Границы периода — по часовому поясу компании (#56).
+        ZoneId zone = companyZones.zoneOf(orgId);
+        Instant fromInstant = from == null ? null : from.atStartOfDay(zone).toInstant();
+        Instant toExclusive = to == null ? null : to.plusDays(1).atStartOfDay(zone).toInstant();
         DocumentReadRepository.PageRows rows = readRepository.findDocuments(
                 tab, orgId, currentUser.userId(), status, typeId, authorId,
                 fromInstant, toExclusive, query, page, size);

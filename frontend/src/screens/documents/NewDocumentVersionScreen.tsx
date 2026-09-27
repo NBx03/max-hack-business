@@ -11,6 +11,8 @@ import {
   MAIN_FILE_ACCEPT,
   MAIN_FILE_CAPTION,
   MAX_ATTACHMENTS,
+  attachmentErrorOf,
+  fileErrorOf,
   fileProblem,
   pickAttachments,
   versionSizeProblem,
@@ -149,7 +151,19 @@ export function NewDocumentVersionScreen() {
       });
       navigate(documentCheckPath(updated.id), { state: { card: updated } });
     } catch (versionError) {
-      setSubmitError(errorMessage(versionError));
+      // Как на первой загрузке: сервер отверг новый файл — ошибка у зоны файла, файл убран (ревью #122, п. 2).
+      // Не подошло новое приложение (#69) — у списка приложений, убираем именно его.
+      const fileError = newMain ? fileErrorOf(versionError) : null;
+      const attachmentError = attachmentErrorOf(versionError);
+      if (fileError) {
+        setNewMain(null);
+        setNewMainError(fileError);
+      } else if (attachmentError) {
+        setNewAttachments((current) => current.filter((item) => item.file.name !== attachmentError.fileName));
+        setAttachmentsError(attachmentError.message);
+      } else {
+        setSubmitError(errorMessage(versionError));
+      }
     } finally {
       setSubmitting(false);
     }

@@ -21,3 +21,11 @@ export function demoEntryUser(users: DemoSandboxUser[] | null): number | null {
   const author = users.find((u) => u.roles.some((r) => r.code === 'DEPARTMENT_HEAD'));
   return (author ?? users[0]).user.id;
 }
+
+/**
+ * Ключ экранов — от чьего имени идёт работа. Смена участника демо меняет ключ, и все экраны пересоздаются и заново
+ * загружают свои данные уже для него: карточка документа показывает шаг и права нового участника (ревью #121, п. 2).
+ */
+export function actorKey(me: Pick<MeResponse, 'user' | 'actingAs'>): string {
+  return me.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me.user.id}`;
+}

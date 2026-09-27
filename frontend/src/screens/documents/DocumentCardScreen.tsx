@@ -19,7 +19,9 @@ import { ROUTE_PATTERNS, documentCheckPath, documentListPath, routePreviewPath }
 import { recognizedKindOf } from './documentKind';
 import { RecognizedKind } from './RecognizedKind';
 import { FormFields, VersionHistory } from './VersionHistory';
-import { personMeta } from './versionOutcome';
+import { finalFile, findReturnReason, personMeta, showVersionChanges } from './versionOutcome';
+import { demoNextActor } from './demoNext';
+import { useSession } from '../../app/SessionContext';
 import {
   AccessErrorState,
   BottomSheet,
@@ -50,19 +52,6 @@ import {
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-}
-
-/** Последнее решение RETURNED - в текущем маршруте или в истории прошлых версий. */
-function findReturnReason(route: RouteView | null): StepView | null {
-  if (!route) {
-    return null;
-  }
-  const steps = [...route.stages.flatMap((stage) => stage.steps), ...route.history];
-  const returned = steps.filter((step) => step.decision === 'RETURNED');
-  return returned.reduce<StepView | null>((latest, step) => {
-    if (!latest) return step;
-    return (step.decidedAt ?? '') > (latest.decidedAt ?? '') ? step : latest;
-  }, null);
 }
 
 /** Согласующий текущей версии выбыл (исключён или снята роль) — поэтому документ и вернулся автору. */
@@ -204,6 +193,7 @@ export function DocumentCardScreen() {
   const [comment, setComment] = useState('');
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -212,12 +202,15 @@ export function DocumentCardScreen() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
+  const { me, sandboxUsers, actAs } = useSession();
+  const [switching, setSwitching] = useState(false);
 
   /**
    * Ссылка на скачивание живёт 15 минут (downloadExpiresAt). Если карточка открыта дольше,
    * перед скачиванием берём свежую ссылку, иначе человек получил бы ошибку вместо файла (ревью #71).
    */
   async function download(file: FileRef) {
+    setDownloadError(null);
     const expiresSoon = new Date(file.downloadExpiresAt).getTime() - Date.now() < 30_000;
     if (!expiresSoon) {
       downloadFile(file.downloadUrl, file.fileName);
@@ -228,7 +221,8 @@ export function DocumentCardScreen() {
       const freshFile = fresh.versions.flatMap((version) => version.files).find((item) => item.id === file.id);
       downloadFile((freshFile ?? file).downloadUrl, file.fileName);
     } catch (err) {
-      setDecisionError(errorMessage(err));
+      // Отдельно от ошибки решения: у завершённого документа панели решения нет, и ошибка пропала бы (ревью #122, п. 4).
+      setDownloadError(errorMessage(err));
     }
   }
 
@@ -378,6 +372,27 @@ export function DocumentCardScreen() {
     setDecisionError(null);
   };
 
+  // Демонстрация: ход не за текущим участником — главная кнопка перейти к тому, чья очередь (#56, аудит 27.09).
+  // Карточка остаётся на месте: у нового участника сразу видно его действие («Согласовать», «Исправить документ»).
+  const demoNext = !myStep && me?.actingAs && sandboxUsers
+    ? demoNextActor(doc, me.actingAs.user.id, sandboxUsers.map((participant) => participant.user.id))
+    : null;
+  const demoButton = demoNext && (
+    <Button
+      variant="primary"
+      stretched
+      loading={switching}
+      onClick={() => {
+        setSwitching(true);
+        // Карточку отдельно не перечитываем: смена участника пересоздаёт все экраны (AppRoutes key={actorKey} в App.tsx),
+        // и документ загружается заново — уже с шагами и правами нового участника (ревью #121, п. 2).
+        void actAs(demoNext.id).finally(() => setSwitching(false));
+      }}
+    >
+      Действовать как {demoNext.fullName}
+    </Button>
+  );
+
   // Закреплённые действия (DOC-2): у согласующего — главная «Согласовать»/«Утвердить» на всю ширину, ниже поровну
   // «Вернуть на доработку» и тихая «Отклонить»; у автора — то, что можно сделать с документом сейчас.
   let footer = null;
@@ -411,6 +426,7 @@ export function DocumentCardScreen() {
   } else if (doc.permissions.canWithdraw) {
     footer = (
       <>
+        {demoButton}
         {withdrawError && !withdrawOpen && <InlineError>{withdrawError}</InlineError>}
         <Button stretched icon="return" onClick={() => setWithdrawOpen(true)}>
           Отозвать с согласования
@@ -440,6 +456,28 @@ export function DocumentCardScreen() {
         <Button stretched loading={resendBusy} disabled={resendBusy} onClick={() => void resendUnchanged()}>
           Отправить заново без изменений
         </Button>
+      </>
+    );
+  }
+
+  if (footer === null && demoButton) {
+    footer = demoButton;
+  }
+  // Утверждён или согласован — дальше документ несут своим путём: главное действие — забрать итоговый файл (#56).
+  const mainFile = finalFile(doc);
+  if (footer === null && mainFile) {
+    footer = (
+      <Button variant="primary" stretched icon="file" onClick={() => void download(mainFile)}>
+        Скачать итоговый файл
+      </Button>
+    );
+  }
+  // Ошибка скачивания — над действиями экрана, какими бы они ни были: файл скачивают и из списка «Файлы».
+  if (downloadError) {
+    footer = (
+      <>
+        <InlineError>{downloadError}</InlineError>
+        {footer}
       </>
     );
   }
@@ -490,7 +528,7 @@ export function DocumentCardScreen() {
         <Timeline items={timelineItems(doc)} collapseLabel={(count) => `Этапы 1–${count} пройдены`} />
       </Section>
 
-      {doc.changes && doc.status !== 'DRAFT' && <ChangesSummary changes={doc.changes} isForm={isForm} />}
+      {doc.changes && showVersionChanges(doc) && <ChangesSummary changes={doc.changes} isForm={isForm} />}
 
       {formContent && (
         <FormContent

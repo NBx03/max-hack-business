@@ -29,6 +29,8 @@ import {
   MAIN_FILE_ACCEPT,
   MAIN_FILE_CAPTION,
   MAX_ATTACHMENTS,
+  attachmentErrorOf,
+  fileErrorOf,
   fileProblem,
   pickAttachments,
   versionSizeProblem,
@@ -137,7 +139,20 @@ export function DocumentUploadScreen() {
       });
       navigate(documentCheckPath(card.id), { state: { card } });
     } catch (error) {
-      setSubmitError(errorMessage(error));
+      // Файл не подошёл по содержимому (переименован, повреждён, слишком большой) — ошибка у зоны файла, где его и
+      // меняют, а не внизу у кнопки; сам файл убираем: он и есть причина (#56, аудит 27.09).
+      // Не подошло приложение (#69) — так же, но у списка приложений: убираем именно его.
+      const fileError = fileErrorOf(error);
+      const attachmentError = attachmentErrorOf(error);
+      if (fileError) {
+        setMainFile(null);
+        setFileError(fileError);
+      } else if (attachmentError) {
+        setAttachments((current) => current.filter((item) => item.file.name !== attachmentError.fileName));
+        setAttachmentsError(attachmentError.message);
+      } else {
+        setSubmitError(errorMessage(error));
+      }
     } finally {
       setSubmitting(false);
     }

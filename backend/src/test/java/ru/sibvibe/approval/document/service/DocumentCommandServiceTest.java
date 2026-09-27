@@ -295,7 +295,8 @@ class DocumentCommandServiceTest {
     @Test
     void formTitleFallsBackToSubjectThenTypeName() {
         DocumentType type = prepared().type();
-        var withSubject = new DocumentRuleService.PreparedCheck(type, List.of(), Map.of("subject", " О закупке "), List.of());
+        var withSubject = new DocumentRuleService.PreparedCheck(type, List.of(), Map.of("subject", " О закупке "), List.of(),
+                Map.of(), java.time.ZoneId.of("Europe/Moscow"));
 
         assertThat(DocumentCommandService.formTitle(" Моя записка ", withSubject)).isEqualTo("Моя записка");
         assertThat(DocumentCommandService.formTitle(null, withSubject)).isEqualTo("О закупке");
@@ -308,7 +309,7 @@ class DocumentCommandServiceTest {
         DocumentType other = prepared().type();
         other.setCode("GENERIC");
         when(rules.prepare(10L, 5L, Map.of()))
-                .thenReturn(new DocumentRuleService.PreparedCheck(other, List.of(), Map.of(), List.of()));
+                .thenReturn(new DocumentRuleService.PreparedCheck(other, List.of(), Map.of(), List.of(), Map.of(), java.time.ZoneId.of("Europe/Moscow")));
 
         assertThatThrownBy(() -> service.createForm(user(), new ru.sibvibe.approval.document.dto.CreateFormDocumentRequest(
                 5L, null, Document.Visibility.PRIVATE, false, Map.of())))
@@ -334,6 +335,6 @@ class DocumentCommandServiceTest {
         type.setId(5L);
         type.setCode("MEMO");
         type.setName("Записка");
-        return new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of());
+        return new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of(), Map.of(), java.time.ZoneId.of("Europe/Moscow"));
     }
 }

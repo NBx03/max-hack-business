@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getRoutePreview, submitDocument } from '../../api/documents';
-import { errorMessage } from '../../api/errors';
+import { ApiError, errorMessage } from '../../api/errors';
 import { getColleagues } from '../../api/organization';
 import type { MemberView, RoutePreview, StepKind } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
@@ -34,6 +34,7 @@ import {
   moveSlot,
   moveStage,
   placeOf,
+  needsApprover,
   problemsOf,
   removeSlot,
   resolveChoice,
@@ -91,6 +92,11 @@ export function RoutePreviewScreen() {
         <Loading />
       </Page>
     );
+  }
+  // Документ уже отправлен (старая ссылка, «назад» после отправки) — маршрут не нужен, ведём на карточку, а не в
+  // «Не получилось загрузить… Повторить», где повтор не поможет (#56, аудит 27.09).
+  if (query.status === 'error' && query.error instanceof ApiError && query.error.code === 'INVALID_STATE') {
+    return <Navigate to={documentCardPath(documentId)} replace />;
   }
   if (query.status === 'error') {
     return (
@@ -203,12 +209,16 @@ function RouteBuilder({
       {serverProblems.filter((problem) => problem.code !== 'ROUTE_ROLE_EMPTY').map((problem) => (
         <Notice key={problem.code} tone="danger">{problem.message}</Notice>
       ))}
-      <Muted>
-        Перетащите человека за <Icon name="drag" size={14} /> или нажмите на него, чтобы перенести. Замок — обязательный
-        по правилам компании: перенести можно, убрать нельзя.
-      </Muted>
-      {state.stages.length === 0 && (
-        // Пустой маршрут — сразу карточка «Этап 1» с «+ Согласующий», а не одна пунктирная заглушка (ревью #111, п. 4).
+      {/* Подсказка о перетаскивании — только когда есть кого перетаскивать. */}
+      {allSlotsOf(state).length > 0 && (
+        <Muted>
+          Перетащите человека за <Icon name="drag" size={14} /> или нажмите на него, чтобы перенести. Замок — обязательный
+          по правилам компании: перенести можно, убрать нельзя.
+        </Muted>
+      )}
+      {state.stages.length === 0 && needsApprover(state, context) && (
+        // Без согласующего не отправить — карточка «Этап 1» с «+ Согласующий», а не пунктирная заглушка (ревью #111, п. 4).
+        // Если маршрут и так проходит (есть утверждающий или шаг автора), ниже — пунктирная зона: добавить можно, не нужно.
         <section
           className="ds-card ds-drop-target"
           data-drop={targetKey({ kind: 'newStage', index: 0 })}
@@ -245,7 +255,7 @@ function RouteBuilder({
         </section>
       ))}
 
-      {state.stages.length > 0 && (
+      {(state.stages.length > 0 || !needsApprover(state, context)) && (
         <button
           type="button"
           className="ds-dropzone"
@@ -254,7 +264,7 @@ function RouteBuilder({
           onClick={() => setAdding({ kind: 'newStage', index: state.stages.length })}
         >
           <Icon name="plus" size={20} />
-          {drag.active ? 'Отпустите — будет новый этап' : 'Новый этап'}
+          {drag.active ? 'Отпустите — будет новый этап' : state.stages.length > 0 ? 'Новый этап' : 'Согласующий'}
         </button>
       )}
 
@@ -473,7 +483,8 @@ function AddSheet({
   let title = 'Добавить согласующего';
   if (choice && choice.kind === 'choice') title = `Кто будет «${choice.roleName}»`;
   else if (target?.kind === 'endorser') title = 'Кто утверждает';
-  else if (target?.kind === 'newStage') title = 'Новый этап';
+  // В пустом маршруте «+ Согласующий» — это первый этап, а не «новый» (#56).
+  else if (target?.kind === 'newStage') title = state.stages.length === 0 ? 'Добавить согласующего' : 'Новый этап';
   else if (target?.kind === 'stage') title = `Добавить в этап ${target.index + 1}`;
   return (
     <SelectSheet

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { ApiError } from '../../api/errors';
 import {
   DOC_NOT_SUPPORTED,
   MAIN_FILE_ACCEPT,
+  attachmentErrorOf,
   attachmentProblem,
+  fileErrorOf,
   fileProblem,
   pickAttachments,
   versionSizeProblem,
@@ -89,5 +92,44 @@ describe('вид «Другого документа» (DOC-7)', () => {
       fields: [{ name: 'doc_kind', value: 'ПРИКАЗ', source: 'MODEL' as const, quote: null, page: null }] };
     expect(recognizedKindOf('GENERIC', check)).toEqual({ value: 'Приказ', fromAi: true });
     expect(recognizedKindOf('OFFICIAL_MEMO', check)).toBeNull();
+  });
+});
+
+describe('ошибка сервера про сам файл (ревью #122, пп. 2–3)', () => {
+  const api = (status: number, code: string, message = 'текст') => new ApiError(status, { code, message });
+
+  it('формат, битое содержимое и размер — у зоны файла', () => {
+    expect(fileErrorOf(api(400, 'FILE_TYPE_NOT_ALLOWED', 'Файл повреждён или это не PDF'))).toBe('Файл повреждён или это не PDF');
+    expect(fileErrorOf(api(400, 'FILE_INVALID', 'PDF повреждён и не открывается'))).toBe('PDF повреждён и не открывается');
+    expect(fileErrorOf(api(413, 'FILE_TOO_LARGE'))).toBe('текст');
+  });
+
+  it('413 от nginx без нашего кода — тоже про файл', () => {
+    expect(fileErrorOf(api(413, 'UNKNOWN', 'Файл слишком большой'))).toBe('Файл слишком большой');
+  });
+
+  it('ошибка про приложение или версию целиком — не про основной файл (#69)', () => {
+    const attachment = new ApiError(400, {
+      code: 'FILE_TYPE_NOT_ALLOWED',
+      message: 'Приложение «Смета.xlsx» не подходит',
+      details: { file: 'ATTACHMENT', fileName: 'Смета.xlsx' },
+    });
+    const version = new ApiError(413, {
+      code: 'FILE_TOO_LARGE',
+      message: 'Размер файлов версии превышает 30 МБ',
+      details: { file: 'VERSION' },
+    });
+    expect(fileErrorOf(attachment)).toBeNull();
+    expect(fileErrorOf(version)).toBeNull();
+    expect(attachmentErrorOf(attachment)).toEqual({ fileName: 'Смета.xlsx', message: 'Приложение «Смета.xlsx» не подходит' });
+    expect(attachmentErrorOf(version)).toBeNull();
+    expect(attachmentErrorOf(api(400, 'FILE_TYPE_NOT_ALLOWED'))).toBeNull();
+  });
+
+  it('прочие ошибки — не про файл: остаются у кнопки', () => {
+    expect(fileErrorOf(api(400, 'VALIDATION_FAILED'))).toBeNull();
+    expect(fileErrorOf(api(409, 'INVALID_STATE'))).toBeNull();
+    expect(fileErrorOf(new Error('сеть'))).toBeNull();
+    expect(fileErrorOf('строка')).toBeNull();
   });
 });

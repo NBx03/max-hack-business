@@ -604,7 +604,7 @@ public class DocumentPersistenceService {
         }
         long total = main.size() + attachments.stream().mapToLong(NewFile::size).sum();
         if (total > MAX_VERSION_SIZE) {
-            throw DocumentApiException.fileTooLarge(VERSION_TOO_LARGE);
+            throw DocumentApiException.fileTooLarge(VERSION_TOO_LARGE).aboutVersion();
         }
     }
 
@@ -624,7 +624,7 @@ public class DocumentPersistenceService {
             throw DocumentApiException.validation(TOO_MANY_ATTACHMENTS);
         }
         if (total > MAX_VERSION_SIZE) {
-            throw DocumentApiException.fileTooLarge(VERSION_TOO_LARGE);
+            throw DocumentApiException.fileTooLarge(VERSION_TOO_LARGE).aboutVersion();
         }
     }
 

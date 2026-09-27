@@ -149,3 +149,35 @@ export function pickAttachments<T extends PickedFile>(
   }
   return { accepted, problems };
 }
+
+/** Коды сервера про сам основной файл: формат, битое содержимое, размер (API_CONTRACTS.md, «Ошибки»). */
+const FILE_ERROR_CODES: ReadonlySet<string> = new Set(['FILE_TYPE_NOT_ALLOWED', 'FILE_INVALID', 'FILE_TOO_LARGE']);
+
+/**
+ * Текст ошибки, если сервер отверг сам основной файл, иначе null. Такую ошибку экран показывает у зоны файла и убирает
+ * файл — он и есть причина; на первой загрузке и при замене файла одинаково (ревью #122, пп. 2–3). 413 без нашего
+ * кода — это nginx: файл больше его лимита.
+ */
+export function fileErrorOf(error: unknown): string | null {
+  if (!(error instanceof Error) || !('status' in error) || !('code' in error)) return null;
+  const { status, code } = error as Error & { status: number; code: string };
+  // Те же коды бывают у приложения и у версии целиком (#69): их сервер помечает details.file — основной файл не виноват.
+  if (fileScopeOf(error)) return null;
+  return FILE_ERROR_CODES.has(code) || status === 413 ? error.message : null;
+}
+
+/** details.file у ошибок сервера про файлы (#69): ATTACHMENT — одно из приложений, VERSION — все файлы версии вместе. */
+function fileScopeOf(error: Error): 'ATTACHMENT' | 'VERSION' | null {
+  const details = (error as Error & { details?: Record<string, unknown> }).details;
+  return details?.file === 'ATTACHMENT' || details?.file === 'VERSION' ? details.file : null;
+}
+
+/**
+ * Сервер отверг одно из новых приложений (#69) — его имя и текст ошибки, иначе null. Экран показывает ошибку у списка
+ * приложений и убирает это приложение: как с основным файлом, причина — сам файл.
+ */
+export function attachmentErrorOf(error: unknown): { fileName: string; message: string } | null {
+  if (!(error instanceof Error) || fileScopeOf(error) !== 'ATTACHMENT') return null;
+  const fileName = (error as Error & { details?: Record<string, unknown> }).details?.fileName;
+  return typeof fileName === 'string' ? { fileName, message: error.message } : null;
+}
