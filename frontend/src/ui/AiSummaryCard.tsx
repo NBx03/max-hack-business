@@ -8,7 +8,8 @@ import { Section } from './Page';
  */
 export function AiSummaryCard({ summary, isAuthor }: { summary: string; isAuthor?: boolean }) {
   return (
-    <Section title="Кратко от ИИ" hint={<AiLegend />}>
+    <Section title="Кратко от ИИ">
+      <AiLegend />
       <p style={{ margin: 0 }}>{summary}</p>
       <p className="ds-text-secondary" style={{ margin: 0 }}>
         {isAuthor

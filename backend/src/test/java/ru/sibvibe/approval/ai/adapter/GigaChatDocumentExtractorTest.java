@@ -4,10 +4,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.retry.NonTransientAiException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.web.client.ResourceAccessException;
 import ru.sibvibe.approval.ai.DocumentExtractor;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -179,5 +183,29 @@ class GigaChatDocumentExtractorTest {
         } finally {
             enabled.closeExecutor();
         }
+    }
+
+    /**
+     * Ревью Mat10t к #104, второе ревью, п.7: повторяем только временный сбой — 429 и 5xx (даже если Spring AI
+     * завернул их в {@code NonTransientAiException}, называя временными только 5xx) и обрыв соединения.
+     * 401/400 и другие ошибки клиента — не временные, вебсервер не «поправится сам», повтор их не изменит.
+     */
+    @Test
+    void classifiesOnlyTransientErrorsAsRetryable() {
+        assertThat(GigaChatDocumentExtractor.isRetryable(
+                new ExecutionException(new NonTransientAiException("429 - {\"message\":\"Too Many Requests\"}"))))
+                .as("429 — временно, хотя Spring AI называет исключение NonTransient").isTrue();
+        assertThat(GigaChatDocumentExtractor.isRetryable(
+                new ExecutionException(new org.springframework.ai.retry.TransientAiException("500 - {\"message\":\"Internal Server Error\"}"))))
+                .isTrue();
+        assertThat(GigaChatDocumentExtractor.isRetryable(
+                new ExecutionException(new ResourceAccessException("Request was interrupted", new IOException()))))
+                .as("обрыв соединения — временная ошибка ввода-вывода").isTrue();
+        assertThat(GigaChatDocumentExtractor.isRetryable(
+                new ExecutionException(new NonTransientAiException("401 - {\"message\":\"Unauthorized\"}"))))
+                .as("401 — токен неверный или просрочен, повтор не поможет").isFalse();
+        assertThat(GigaChatDocumentExtractor.isRetryable(
+                new ExecutionException(new NonTransientAiException("400 - {\"message\":\"Bad Request\"}"))))
+                .as("400 — ошибка запроса, повтор не поможет").isFalse();
     }
 }

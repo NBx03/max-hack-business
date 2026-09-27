@@ -91,10 +91,6 @@ class GigaChatLiveIntegrationTest {
         assertThat(expected.path("documents").isArray()).isTrue();
         assertThat(expected.path("documents").size()).isPositive();
         for (JsonNode document : expected.path("documents")) {
-            // Пауза между документами — только у теста: поля и сводка теперь идут двумя параллельными запросами
-            // (#92, ревью Mat10t к #104, п.1), и 16 документов подряд без пауз чаще упираются в 429 «Too Many
-            // Requests» аккаунта, чем один пользователь, загружающий один документ. Продакшен-код это не трогает.
-            pauseBetweenDocuments();
             String typeCode = document.path("type").asText();
             TypeData type = typeData(rules, typeCode);
             List<DocumentExtractor.FieldSpec> schema = type.schema();
@@ -113,7 +109,7 @@ class GigaChatLiveIntegrationTest {
             }
             DocumentExtractor.ExtractionResult result = outcome.fields();
             if (!result.available()) {
-                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—", "—"));
+                reports.add(new DocumentReport(file.getFileName().toString(), "недоступен", "—", "—", "—", "—"));
                 issueMismatch = true;
                 continue;
             }
@@ -147,6 +143,9 @@ class GigaChatLiveIntegrationTest {
             issueMismatch |= !matches;
             // Сводка — не обязательный результат: проверка фактов (#92) намеренно отбрасывает её целиком, если
             // модель что-то досочинила, и это не регрессия. В отчёте видна, но не проваливает извлечение полей.
+            // Причина отсутствия — отдельной колонкой (ревью Mat10t к #104, повторное ревью, п.3): по одному
+            // «СВОДКИ НЕТ» не понять, отброшена ли она проверкой фактов, сказала ли модель «НЕТ» сама, или вызов
+            // просто не удался.
             boolean hasSummary = outcome.summary() != null && !outcome.summary().isBlank();
             if (hasSummary) {
                 summariesCount++;
@@ -157,7 +156,8 @@ class GigaChatLiveIntegrationTest {
                     (matches ? "совпали" : "расхождение") + "; " + typeReport
                             + "; название: " + display(classification.title()),
                     fieldDifferences.isEmpty() ? "—" : String.join("; ", fieldDifferences),
-                    hasSummary ? outcome.summary() : "СВОДКИ НЕТ"));
+                    hasSummary ? outcome.summary() : "СВОДКИ НЕТ",
+                    summaryStatusLabel(outcome.summaryStatus())));
         }
         // Готово, когда (#92): живой прогон комментарием, со сводкой по числу документов, у которых есть сводка —
         // её отсутствие у части документов законно (проверка фактов отбросила или модель ничего не дала), поэтому
@@ -171,22 +171,25 @@ class GigaChatLiveIntegrationTest {
 
     private String report(List<DocumentReport> reports) {
         StringBuilder result = new StringBuilder("Отчёт GigaChat по testdata/expected.json:\n\n")
-                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей | Кратко от ИИ |\n")
-                .append("| --- | --- | --- | --- | --- |\n");
+                .append("| Документ | Замечания: ожидалось → получили | Результат | Отличия полей | Кратко от ИИ | Если сводки нет — почему |\n")
+                .append("| --- | --- | --- | --- | --- | --- |\n");
         reports.forEach(row -> result.append("| ").append(table(row.file()))
                 .append(" | ").append(table(row.issues()))
                 .append(" | ").append(table(row.status()))
                 .append(" | ").append(table(row.fields()))
-                .append(" | ").append(table(row.summary())).append(" |\n"));
+                .append(" | ").append(table(row.summary()))
+                .append(" | ").append(table(row.summaryStatusLabel())).append(" |\n"));
         return result.toString();
     }
 
-    private static void pauseBetweenDocuments() {
-        try {
-            Thread.sleep(2_000);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-        }
+    private String summaryStatusLabel(DocumentExtractionService.SummaryStatus status) {
+        return switch (status) {
+            case PRESENT -> "—";
+            case NOT_ATTEMPTED -> "не вызывалась (поля недоступны или бюджет времени кончился)";
+            case MODEL_UNAVAILABLE -> "модель недоступна (тайм-аут или ошибка вызова)";
+            case NO_SUMMARY_FROM_MODEL -> "модель ответила «НЕТ»";
+            case REJECTED_BY_FACT_CHECK -> "отброшена проверкой фактов";
+        };
     }
 
     private String display(String value) {
@@ -253,5 +256,7 @@ class GigaChatLiveIntegrationTest {
             Map<Long, String> codeById
     ) {}
 
-    private record DocumentReport(String file, String issues, String status, String fields, String summary) {}
+    private record DocumentReport(
+            String file, String issues, String status, String fields, String summary, String summaryStatusLabel
+    ) {}
 }

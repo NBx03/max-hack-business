@@ -115,7 +115,7 @@
 |---|---|---|---|
 | `FileStorage` | `storage` | MinIO | Подмена в тестах, смена хранилища |
 | `TextExtractor` | `ai` | PDFBox + JDK для DOCX | Новые форматы без изменения конвейера |
-| `DocumentExtractor` | `ai` | Spring AI + GigaChat | Поля (`extract`) и краткая сводка (`summarize`) — раздельными вызовами, параллельно; смена провайдера настройкой |
+| `DocumentExtractor` | `ai` | Spring AI + GigaChat | Поля (`extract`) и краткая сводка (`summarize`) — раздельными вызовами, последовательно (личный аккаунт GigaChat держит один поток); смена провайдера настройкой |
 | `DocumentClassifier` | `ai` | Spring AI + GigaChat | Вид документа по тексту при загрузке с «определить автоматически» (#86); недоступна модель — «Другой документ» |
 | `MaxIdentityVerifier` | `security` | HMAC-SHA256 по секрету бота | Тесты без настоящего MAX |
 | `Notifier` | `bot` | MAX Bot API | Тесты и отключение уведомлений |

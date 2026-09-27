@@ -10,6 +10,7 @@ import ru.sibvibe.approval.ai.TextExtractor;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -50,15 +51,40 @@ public class DocumentExtractionService {
                     + "(?:[\\s\\u00A0\\u202F]+(\\d{4}))?(?![\\p{L}\\p{N}_])");
     /**
      * Отдельно от даты целиком: неверный месяц должен отбрасывать сводку, даже без числа дня рядом («в декабре»).
-     * Без числа дня месяц чаще стоит не в родительном падеже («в декабре», не «в декабря»), поэтому сравниваются
-     * основы слов, а не целые формы: «декабр» из «декабре», «декабря» и «декабрь» — один и тот же токен.
+     * Без числа дня месяц чаще стоит не в родительном падеже («в декабре», не «в декабря»), поэтому по каждому
+     * месяцу — закрытый список падежных окончаний, а не основа плюс произвольный хвост из букв (ревью Mat10t
+     * к #104, повторное ревью, п.8): произвольный хвост не ловил «мае» (у «май» нет окончания на «й»/«я» —
+     * «мае» оканчивается на «е») и ложно принимал за месяц фамилии вроде «Мартынов» или «Августова», у которых
+     * после основы идут ещё буквы. Закрытый список окончаний не даёт ни того, ни другого.
      */
-    private static final String MONTH_STEMS =
-            "январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр";
-    private static final Pattern SUMMARY_MONTH_WORD = Pattern.compile(
-            "(?iu)(?<![\\p{L}])(" + MONTH_STEMS + ")\\p{L}*(?![\\p{L}])");
+    private static final Pattern[] MONTH_STEM_PATTERNS = {
+            Pattern.compile("(?i)январ(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)феврал(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)март(?:а|у|е|ом)?"),
+            Pattern.compile("(?i)апрел(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)ма(?:й|я|ю|е|ем)"),
+            Pattern.compile("(?i)июн(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)июл(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)август(?:а|у|е|ом)?"),
+            Pattern.compile("(?i)сентябр(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)октябр(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)ноябр(?:ь|я|е|ю|ём)"),
+            Pattern.compile("(?i)декабр(?:ь|я|е|ю|ём)"),
+    };
+    private static final String[] MONTH_STEM_NAMES = {
+            "январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр",
+    };
+    private static final Pattern SUMMARY_MONTH_WORD = Pattern.compile("(?u)(?<![\\p{L}])("
+            + Arrays.stream(MONTH_STEM_PATTERNS).map(Pattern::pattern).collect(Collectors.joining("|"))
+            + ")(?![\\p{L}])");
     private static final Pattern UNRESOLVED_PLACEHOLDER = Pattern.compile("<[A-Z]+_\\d+>");
     private static final Pattern NUMBER_SPACES = Pattern.compile("[ \\u00A0\\u202F]+");
+
+    /**
+     * Сводка не ждётся дольше этого потолка сверх бюджета полей (ревью Mat10t к #104, повторное ревью, п.1):
+     * иначе редкий медленный ответ растягивал бы загрузку почти до второго полного тайм-аута.
+     */
+    private static final Duration SUMMARY_MAX_WAIT = Duration.ofSeconds(15);
 
     private final TextExtractor textExtractor;
     private final DocumentExtractor documentExtractor;
@@ -85,12 +111,28 @@ public class DocumentExtractionService {
     }
 
     /**
-     * @param fields  поля и статус модели — как раньше
-     * @param summary проверенная краткая сводка (#92); {@code null} — документ чувствительный (решает вызывающий
-     *                код), файл без текста, модель недоступна для полей или для сводки, либо сводка не прошла
-     *                проверку фактов
+     * @param fields        поля и статус модели — как раньше
+     * @param summary       проверенная краткая сводка (#92); {@code null}, если {@code summaryStatus} не
+     *                      {@link SummaryStatus#PRESENT}
+     * @param summaryStatus почему сводки нет, если её нет (ревью Mat10t к #104, повторное ревью, п.3):
+     *                      документ, для которого поля недоступны, всегда получает {@code NOT_ATTEMPTED}
      */
-    public record ExtractionOutcome(DocumentExtractor.ExtractionResult fields, String summary) {}
+    public record ExtractionOutcome(
+            DocumentExtractor.ExtractionResult fields, String summary, SummaryStatus summaryStatus
+    ) {}
+
+    public enum SummaryStatus {
+        /** Сводка есть и прошла проверку фактов. */
+        PRESENT,
+        /** Не вызывали вовсе: поля недоступны, или к их получению бюджет времени уже кончился. */
+        NOT_ATTEMPTED,
+        /** Модель была недоступна для сводки — тайм-аут, ошибка вызова или формат не восстановился за повторы. */
+        MODEL_UNAVAILABLE,
+        /** Модель сама ответила, что сводки нет («НЕТ» или пустой ответ). */
+        NO_SUMMARY_FROM_MODEL,
+        /** Проверка фактов отбросила ответ целиком: число или дата не нашлись в тексте документа. */
+        REJECTED_BY_FACT_CHECK,
+    }
 
     public ExtractionOutcome extract(
             InputStream content,
@@ -100,28 +142,28 @@ public class DocumentExtractionService {
     ) {
         Optional<TextExtractor.ExtractedText> extracted = textExtractor.extract(content, mimeType);
         if (extracted.isEmpty()) {
-            return new ExtractionOutcome(unavailable(), null);
+            return new ExtractionOutcome(unavailable(), null, SummaryStatus.NOT_ATTEMPTED);
         }
         if (!hasText(extracted.get())) {
             return new ExtractionOutcome(
-                    new DocumentExtractor.ExtractionResult(Map.of(), false, DocumentExtractor.NO_TEXT), null);
+                    new DocumentExtractor.ExtractionResult(Map.of(), false, DocumentExtractor.NO_TEXT),
+                    null, SummaryStatus.NOT_ATTEMPTED);
         }
         TextExtractor.ExtractedText original = extracted.get();
         String minimized = minimizer.minimize(original.fullText(), schema);
         SensitiveDataMasker.MaskedText masked = masker.mask(minimized);
 
-        // Оба вызова идут параллельно, не один за другим (ревью Mat10t к #104, п.1): сводка зависит только от
-        // текста, а не от результата полей, и ждать её после — значит платить суммой двух тайм-аутов вместо одного.
-        long deadline = System.nanoTime() + timeout.toNanos();
-        Future<DocumentExtractor.ExtractionResult> fieldsFuture = executor.submit(() -> documentExtractor.extract(
-                new DocumentExtractor.ExtractionRequest(masked.text(), documentTypeCode, schema)));
-        Future<DocumentExtractor.SummaryResult> summaryFuture = executor.submit(
-                () -> documentExtractor.summarize(new DocumentExtractor.SummaryRequest(masked.text())));
-
-        DocumentExtractor.ExtractionResult model = awaitFields(fieldsFuture, deadline);
+        // Последовательно, не параллельно (ревью Mat10t к #104, повторное ревью, п.1): личный аккаунт GigaChat
+        // (scope GIGACHAT_API_PERS) допускает только один поток вызовов одновременно — два параллельных запроса
+        // на документ гарантированно роняют один из них 429 «Too Many Requests», и это било по полям, не только
+        // по сводке (живой прогон 27.09). Сначала поля с полным бюджетом; сводка — только в оставшееся время,
+        // дополнительно ограниченное отдельным потолком, чтобы редкий медленный ответ не растягивал загрузку
+        // почти до второго полного тайм-аута.
+        long fieldsDeadline = System.nanoTime() + timeout.toNanos();
+        DocumentExtractor.ExtractionResult model = documentExtractor.extract(
+                new DocumentExtractor.ExtractionRequest(masked.text(), documentTypeCode, schema));
         if (!model.available()) {
-            summaryFuture.cancel(true);
-            return new ExtractionOutcome(model, null);
+            return new ExtractionOutcome(model, null, SummaryStatus.NOT_ATTEMPTED);
         }
 
         Map<String, DocumentExtractor.ExtractedField> restored = new LinkedHashMap<>();
@@ -136,46 +178,36 @@ public class DocumentExtractionService {
             restored.put(spec.fieldName(), new DocumentExtractor.ExtractedField(
                     value, verified.valid() ? verified.quote() : null, verified.valid() ? verified.page() : null));
         }
+        DocumentExtractor.ExtractionResult extractionResult =
+                new DocumentExtractor.ExtractionResult(Map.copyOf(restored), true, model.providerId());
 
-        // Сводку не ждём дольше, чем осталось до дедлайна полей — та же бюджетная граница, а не отдельные
-        // 30 секунд поверх уже потраченного времени.
-        DocumentExtractor.SummaryResult summaryResult = awaitSummary(summaryFuture, deadline);
-        String summary = summaryResult.available() ? masked.restore(summaryResult.summary()) : null;
+        long summaryBudget = Math.min(fieldsDeadline - System.nanoTime(), SUMMARY_MAX_WAIT.toNanos());
+        if (summaryBudget <= 0) {
+            return new ExtractionOutcome(extractionResult, null, SummaryStatus.NOT_ATTEMPTED);
+        }
+        DocumentExtractor.SummaryResult summaryResult = summarizeWithinBudget(masked.text(), summaryBudget);
+        if (!summaryResult.available()) {
+            return new ExtractionOutcome(extractionResult, null, SummaryStatus.MODEL_UNAVAILABLE);
+        }
+        if (summaryResult.summary() == null) {
+            return new ExtractionOutcome(extractionResult, null, SummaryStatus.NO_SUMMARY_FROM_MODEL);
+        }
+        String summary = masked.restore(summaryResult.summary());
         if (!summarySupportedBy(summary, original.fullText())) {
-            summary = null;
+            return new ExtractionOutcome(extractionResult, null, SummaryStatus.REJECTED_BY_FACT_CHECK);
         }
-        return new ExtractionOutcome(
-                new DocumentExtractor.ExtractionResult(Map.copyOf(restored), true, model.providerId()), summary);
+        return new ExtractionOutcome(extractionResult, summary, SummaryStatus.PRESENT);
     }
 
-    private DocumentExtractor.ExtractionResult awaitFields(
-            Future<DocumentExtractor.ExtractionResult> future, long deadline
-    ) {
+    /**
+     * Сводка вызывается только после того, как поля уже получены (не параллельно с ними) — не длиннее
+     * {@code budgetNanos}. «Висит» или падает — задание отменяется, сводки просто нет, поля это уже не трогает.
+     */
+    private DocumentExtractor.SummaryResult summarizeWithinBudget(String maskedText, long budgetNanos) {
+        Future<DocumentExtractor.SummaryResult> future = executor.submit(
+                () -> documentExtractor.summarize(new DocumentExtractor.SummaryRequest(maskedText)));
         try {
-            return future.get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
-        } catch (TimeoutException exception) {
-            future.cancel(true);
-            return unavailable();
-        } catch (InterruptedException exception) {
-            future.cancel(true);
-            Thread.currentThread().interrupt();
-            return unavailable();
-        } catch (ExecutionException exception) {
-            return unavailable();
-        }
-    }
-
-    /** Сводка «висит» или падает — поля это не задерживает и не роняет: их результат уже получен выше. */
-    private DocumentExtractor.SummaryResult awaitSummary(
-            Future<DocumentExtractor.SummaryResult> future, long deadline
-    ) {
-        long left = deadline - System.nanoTime();
-        if (left <= 0) {
-            future.cancel(true);
-            return new DocumentExtractor.SummaryResult(null, false);
-        }
-        try {
-            return future.get(left, TimeUnit.NANOSECONDS);
+            return future.get(budgetNanos, TimeUnit.NANOSECONDS);
         } catch (TimeoutException exception) {
             future.cancel(true);
             return new DocumentExtractor.SummaryResult(null, false);
@@ -261,38 +293,72 @@ public class DocumentExtractionService {
         return true;
     }
 
+    /**
+     * Число дня внутри словесной даты («1» в «1 октября») сюда не попадает — его сравнивает {@link DateToken}
+     * как целое число, а не как строку (ревью Mat10t к #104, повторное ревью, п.2): иначе «01» из документа
+     * и «1» из сводки — один и тот же день — здесь же ловились как разные строки и отбрасывали верную сводку
+     * ещё до date-проверки.
+     */
     private static Set<String> numericTokens(String text) {
+        Set<Integer> dayDigitStarts = dayDigitStarts(text);
         Set<String> result = new HashSet<>();
         Matcher matcher = SUMMARY_NUMBER.matcher(text);
         while (matcher.find()) {
+            if (dayDigitStarts.contains(matcher.start())) {
+                continue;
+            }
             result.add(NUMBER_SPACES.matcher(matcher.group()).replaceAll(" "));
         }
         return result;
+    }
+
+    private static Set<Integer> dayDigitStarts(String text) {
+        Set<Integer> starts = new HashSet<>();
+        Matcher matcher = SUMMARY_WORD_DATE.matcher(text);
+        while (matcher.find()) {
+            starts.add(matcher.start(1));
+        }
+        return starts;
     }
 
     private static Set<String> monthWords(String text) {
         Set<String> result = new HashSet<>();
         Matcher matcher = SUMMARY_MONTH_WORD.matcher(text);
         while (matcher.find()) {
-            result.add(matcher.group(1).toLowerCase(Locale.ROOT));
+            result.add(monthStemOf(matcher.group(1)));
         }
         return result;
+    }
+
+    /** «мае», «мая», «маю» и т. п. — один и тот же токен «ма», по какой бы форме падежа он ни встретился. */
+    private static String monthStemOf(String word) {
+        for (int index = 0; index < MONTH_STEM_PATTERNS.length; index++) {
+            if (MONTH_STEM_PATTERNS[index].matcher(word).matches()) {
+                return MONTH_STEM_NAMES[index];
+            }
+        }
+        return word.toLowerCase(Locale.ROOT);
     }
 
     private static List<DateToken> dateTokens(String text) {
         List<DateToken> result = new ArrayList<>();
         Matcher matcher = SUMMARY_WORD_DATE.matcher(text);
         while (matcher.find()) {
-            result.add(new DateToken(matcher.group(1), matcher.group(2).toLowerCase(Locale.ROOT), matcher.group(3)));
+            result.add(new DateToken(
+                    Integer.parseInt(matcher.group(1)), matcher.group(2).toLowerCase(Locale.ROOT), matcher.group(3)));
         }
         return result;
     }
 
-    /** @param year {@code null}, если дата в тексте без года. */
-    private record DateToken(String day, String month, String year) {
+    /**
+     * @param day  число дня как число, не строка (ревью Mat10t к #104, повторное ревью, п.2): «01» и «1» —
+     *             один и тот же день, а сравнение строк их различало
+     * @param year {@code null}, если дата в тексте без года
+     */
+    private record DateToken(int day, String month, String year) {
         /** Год сверяется, только если он указан в этом токене — иначе дата без года отбрасывалась бы зря. */
         boolean matchesIgnoringAbsentYear(DateToken sourceToken) {
-            return day.equals(sourceToken.day) && month.equals(sourceToken.month)
+            return day == sourceToken.day && month.equals(sourceToken.month)
                     && (year == null || year.equals(sourceToken.year));
         }
     }

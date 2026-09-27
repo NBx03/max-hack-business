@@ -93,8 +93,9 @@ class DocumentExtractionServiceTest {
     }
 
     /**
-     * Ревью Mat10t к #104, п.1: сводка не должна задерживать или ломать поля. Здесь summarize() «висит»,
-     * а затем падает — поля при этом приходят вовремя, в пределах короткого тайм-аута теста.
+     * Ревью Mat10t к #104, первое ревью, п.1: сводка не должна задерживать или ломать поля. Здесь summarize()
+     * «висит», а затем падает — поля при этом приходят вовремя, в пределах короткого тайм-аута теста. Вызов
+     * идёт после полей (не параллельно — второе ревью, п.1), но всё равно ограничен бюджетом.
      */
     @Test
     void hangingOrFailingSummaryDoesNotDelayOrBreakFields() {
@@ -122,6 +123,47 @@ class DocumentExtractionServiceTest {
         assertThat(result.fields().fields().get("inn").value()).isEqualTo("1234567890");
         assertThat(result.summary()).isNull();
         assertThat(elapsedMs).as("сводка не должна была задержать общий результат").isLessThan(4_000);
+    }
+
+    /**
+     * Ревью Mat10t к #104, второе ревью, п.1: поля отвечают почти весь бюджет — сводку либо совсем не
+     * вызывают (бюджета не осталось), либо обрывают в пределах общего дедлайна, но не тянут вызов ко
+     * второму полному тайм-ауту поверх первого.
+     */
+    @Test
+    void whenFieldsConsumeMostOfBudgetSummaryDoesNotDoubleTheWait() {
+        TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
+                List.of("ИНН заявителя 1234567890"), true));
+        DocumentExtractor model = extractor(
+                request -> {
+                    sleep(900);
+                    return new DocumentExtractor.ExtractionResult(Map.of(
+                            "inn", new DocumentExtractor.ExtractedField("<INN_1>", "ИНН заявителя <INN_1>", 1)),
+                            true, "test");
+                },
+                request -> {
+                    // Если вызвали (бюджета едва хватило) — обязана оборваться немедленно, не за свои полные
+                    // 5 секунд: elapsedMs ниже проверяет именно это, независимо от того, вызвали её или нет.
+                    sleep(5_000);
+                    return new DocumentExtractor.SummaryResult("не должно быть использовано", true);
+                });
+
+        long start = System.nanoTime();
+        var result = service(text, model, 1).extract(
+                new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertThat(result.fields().available()).isTrue();
+        assertThat(result.summary()).isNull();
+        assertThat(elapsedMs).as("общее время — не сумма двух тайм-аутов, а один бюджет").isLessThan(2_000);
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test
@@ -153,6 +195,48 @@ class DocumentExtractionServiceTest {
         String source = "Начало с 1 ноября 2026 года на 14 дней.";
 
         assertThat(DocumentExtractionService.summarySupportedBy("Согласование в декабре 2026 года.", source)).isFalse();
+    }
+
+    /**
+     * Ревью Mat10t к #104, второе ревью, п.2: документ пишет дату цифрами («01.10.2026») — модель просят
+     * оставлять её как есть, а не переводить в «1 октября 2026 года». Числовая дата целиком ловится обычной
+     * проверкой чисел, отдельная логика для дат со словом-месяцем тут не нужна.
+     */
+    @Test
+    void digitDateMatchesVerbatimWithoutWordDateLogic() {
+        String source = "Отпуск с 01.10.2026 на 14 дней.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Отпуск с 01.10.2026 на 14 дней.", source)).isTrue();
+    }
+
+    /**
+     * Ревью Mat10t к #104, второе ревью, п.2: «01» и «1» — один день, сравнение не должно быть строковым.
+     */
+    @Test
+    void dayWithLeadingZeroMatchesSameDayWithoutIt() {
+        String source = "Отпуск с 01 октября 2026 года.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Отпуск с 1 октября 2026 года.", source)).isTrue();
+    }
+
+    /** Ревью Mat10t к #104, второе ревью, п.8: «мае» (предложный падеж) — тоже «май», без числа дня рядом. */
+    @Test
+    void monthWordInPrepositionalCaseIsRecognized() {
+        String source = "Отпуск в мае 2026 года.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Отпуск запланирован в мае.", source)).isTrue();
+    }
+
+    /**
+     * Ревью Mat10t к #104, второе ревью, п.8: «Мартынов» и «Августова» — фамилии, не месяцы; закрытый список
+     * падежных окончаний не должен принимать их за «март»/«август».
+     */
+    @Test
+    void surnamesResemblingMonthStemsAreNotTreatedAsMonths() {
+        String source = "Заявку подписал Мартынов И.И., согласовала Августова Е.Н. Сроков в тексте нет.";
+
+        assertThat(DocumentExtractionService.summarySupportedBy(
+                "Заявку подписал Мартынов, согласовала Августова.", source)).isTrue();
     }
 
     @Test
@@ -209,7 +293,7 @@ class DocumentExtractionServiceTest {
     @Test
     void acceptsQuoteWhoseLineBreakModelReturnedAsSpaceAndKeepsDocumentText() {
         TextExtractor text = (content, mime) -> Optional.of(new TextExtractor.ExtractedText(
-                List.of("Шапка", "ИНН заявителя\n  1234567890"), true));
+                List.of("Шапка", "ИНН\u00A0заявителя\n  1234567890"), true));
         DocumentExtractor model = fieldsOnly(request -> new DocumentExtractor.ExtractionResult(Map.of(
                 "inn", new DocumentExtractor.ExtractedField("<INN_1>", "ИНН заявителя <INN_1>", 1)),
                 true, "test"));
@@ -218,7 +302,7 @@ class DocumentExtractionServiceTest {
                 new ByteArrayInputStream(new byte[0]), "application/pdf", "TYPE", List.of(FIELD));
 
         assertThat(result.fields().fields().get("inn"))
-                .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", "ИНН заявителя\n  1234567890", 2));
+                .isEqualTo(new DocumentExtractor.ExtractedField("1234567890", "ИНН\u00A0заявителя\n  1234567890", 2));
     }
 
     private DocumentExtractionService service(TextExtractor text, DocumentExtractor model) {
