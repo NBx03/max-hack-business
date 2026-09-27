@@ -5,6 +5,7 @@ import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
 import { DOCUMENT_LISTS, ROUTE_PATTERNS, documentCardPath, documentListPath } from '../../routes/paths';
 import { DocumentRow } from '../documents/DocumentListScreen';
+import { waitingForYou } from './homeToDo';
 import { Button, IconButton, List, Muted, Page, PageHeader, Section, Tile, Tiles } from '../../ui';
 
 const RECENT_COUNT = 3;
@@ -36,7 +37,8 @@ export function HomeScreen() {
   const returnedCount = returned.status === 'ready' ? returned.data.total : undefined;
   const waitingItems = waiting.status === 'ready' ? waiting.data.items : [];
   const returnedItems = returned.status === 'ready' ? returned.data.items : [];
-  const hasToDo = waitingItems.length + returnedItems.length > 0;
+  const toDo = waitingForYou(waitingItems, returnedItems);
+  const hasToDo = toDo.length > 0;
   const requestsCount = requests.status === 'ready' ? requests.data : undefined;
   // Недавние — под плитками, чтобы не было пустого места до «Нового документа» (замечание Ильи, #56).
   const recent = useAsync(() => getDocuments(DOCUMENT_LISTS.mine.tab, { size: RECENT_COUNT }), []);
@@ -98,11 +100,8 @@ export function HomeScreen() {
       {hasToDo && (
         <Section title="Ждут вас">
           <List label="Ждут вас">
-            {waitingItems.map((item) => (
-              <DocumentRow key={`w${item.id}`} item={item} list="waiting" onOpen={() => navigate(documentCardPath(item.id))} />
-            ))}
-            {returnedItems.map((item) => (
-              <DocumentRow key={`r${item.id}`} item={item} list="mine" onOpen={() => navigate(documentCardPath(item.id))} />
+            {toDo.map(({ item, list }) => (
+              <DocumentRow key={`${list}${item.id}`} item={item} list={list} onOpen={() => navigate(documentCardPath(item.id))} />
             ))}
           </List>
         </Section>

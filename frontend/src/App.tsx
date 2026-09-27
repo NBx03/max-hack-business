@@ -1,5 +1,6 @@
 import { BrowserRouter } from 'react-router-dom';
 import { useSession } from './app/SessionContext';
+import { actorKey } from './app/demo';
 import { GENERIC_ERROR_MESSAGE } from './api/errors';
 import { DemoSwitcher } from './components/base/DemoSwitcher';
 import { ErrorState, Loading, Page } from './ui';
@@ -32,16 +33,14 @@ export function App() {
     );
   }
 
-  // Ключ - от чьего имени идёт работа: при смене участника демо (тихое обновление /me, без
+  // Ключ - от чьего имени идёт работа (actorKey): при смене участника демо (тихое обновление /me, без
   // общего спиннера) экраны пересоздаются и заново загружают свои данные уже для него.
-  const actorKey = me.actingAs ? `demo-${me.actingAs.user.id}` : `user-${me.user.id}`;
-
   return (
     <BrowserRouter>
       <DemoSwitcher />
       {/* Экран занимает остаток высоты под плашкой демо и прокручивается сам (Layout.ScreenShell). */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <AppRoutes key={actorKey} me={me} />
+        <AppRoutes key={actorKey(me)} me={me} />
       </div>
     </BrowserRouter>
   );

@@ -1361,7 +1361,6 @@ button.ds-row:active {
 .ds-field-issue--warning { color: var(--status-warning-fg); }
 .ds-field-issue--neutral { color: var(--text-secondary); }
 
-
 /* ---------- Раскрывающийся блок (<details>) (#56, аудит 27.09) ---------- */
 
 /* Нативный треугольник ▶ выбивался из дизайн-системы: вместо него шеврон, как у «Показать ещё». */

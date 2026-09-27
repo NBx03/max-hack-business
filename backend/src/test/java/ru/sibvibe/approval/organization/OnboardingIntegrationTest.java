@@ -374,6 +374,15 @@ class OnboardingIntegrationTest {
                 .as("сотрудник видит пояс компании сразу").isEqualTo("Europe/Moscow");
         assertThat(call(alice, "PUT", "/api/v1/orgs/current/location",
                 Map.of("city", "Где-то", "timeZone", "Mars/Olympus")).status()).isEqualTo(400);
+        // пара не из списка: город с чужим поясом или город, которого нет на экране
+        Resp mismatched = call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Омск", "timeZone", "Europe/Moscow"));
+        assertThat(mismatched.status()).isEqualTo(400);
+        assertThat(mismatched.code()).isEqualTo("VALIDATION_FAILED");
+        assertThat(call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Атлантида", "timeZone", "Europe/Moscow")).status()).isEqualTo(400);
+        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").path("city").asText())
+                .as("отклонённая правка ничего не меняет").isEqualTo("Казань");
     }
 
     // ---------- Последний администратор и незавершённые шаги ----------

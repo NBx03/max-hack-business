@@ -5,7 +5,7 @@ import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/
 import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
 import { FormatsHelp } from './FormatsHelp';
-import { MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
+import { MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileErrorOf, fileProblem } from './uploadFormats';
 import { ErrorState, Button, FileDrop, formatFileSize } from '../../ui';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import {
@@ -94,7 +94,14 @@ export function NewDocumentVersionScreen() {
       });
       navigate(documentCheckPath(updated.id), { state: { card: updated } });
     } catch (versionError) {
-      setSubmitError(errorMessage(versionError));
+      // Как на первой загрузке: сервер отверг новый файл — ошибка у зоны файла, файл убран (ревью #122, п. 2).
+      const fileError = newMain ? fileErrorOf(versionError) : null;
+      if (fileError) {
+        setNewMain(null);
+        setNewMainError(fileError);
+      } else {
+        setSubmitError(errorMessage(versionError));
+      }
     } finally {
       setSubmitting(false);
     }

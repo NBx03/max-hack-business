@@ -21,6 +21,14 @@ public final class DocumentApiException extends DomainException {
         return new DocumentApiException("FILE_TYPE_NOT_ALLOWED", HttpStatus.BAD_REQUEST, message);
     }
 
+    /**
+     * Содержимое основного файла не читается: пустой, битый PDF, опасный DOCX. Отдельный код, чтобы экран показал ошибку
+     * у зоны файла и убрал его, как у FILE_TYPE_NOT_ALLOWED и FILE_TOO_LARGE (ревью #122, п. 3).
+     */
+    public static DocumentApiException fileInvalid(String message) {
+        return new DocumentApiException("FILE_INVALID", HttpStatus.BAD_REQUEST, message);
+    }
+
     public static DocumentApiException fileTooLarge(String message) {
         return new DocumentApiException("FILE_TOO_LARGE", HttpStatus.PAYLOAD_TOO_LARGE, message);
     }
