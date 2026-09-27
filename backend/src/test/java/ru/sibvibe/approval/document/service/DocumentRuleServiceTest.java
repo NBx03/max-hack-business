@@ -30,6 +30,8 @@ import static org.mockito.Mockito.when;
 
 class DocumentRuleServiceTest {
 
+    private static final ZoneId MOSCOW = ZoneId.of("Europe/Moscow");
+
     @Test
     void passesExplicitBusinessDateAndManualValuesToRuleEngine() {
         RuleEngine engine = mock(RuleEngine.class);
@@ -50,7 +52,7 @@ class DocumentRuleServiceTest {
                 RuleEngine.RuleKind.PRODUCT_RULE, RuleEngine.Severity.BLOCKER,
                 "Правила продукта", null, null, Instant.parse("2026-09-01T00:00:00Z"));
         var prepared = new DocumentRuleService.PreparedCheck(
-                type, List.of(field), Map.of("date", "2026-09-21"), List.of(rule));
+                type, List.of(field), Map.of("date", "2026-09-21"), List.of(rule), Map.of(), MOSCOW);
         when(engine.validate(any(), any(), any())).thenReturn(List.of());
 
         DocumentRuleService.CheckData result = service.execute(prepared);
@@ -130,7 +132,7 @@ class DocumentRuleServiceTest {
         type.setCode("MEMO");
         DocumentTypeField number = new DocumentTypeField();
         number.setFieldName("number");
-        var prepared = new DocumentRuleService.PreparedCheck(type, List.of(number), Map.of("number", "СЗ-7"), List.of())
+        var prepared = new DocumentRuleService.PreparedCheck(type, List.of(number), Map.of("number", "СЗ-7"), List.of(), Map.of(), MOSCOW)
                 .withFileValues(Map.of("number", "СЗ 7"));
         when(engine.validate(any(), any(), any())).thenReturn(List.of());
 
@@ -160,7 +162,7 @@ class DocumentRuleServiceTest {
         DocumentTypeField author = new DocumentTypeField();
         author.setFieldName("author");
         var prepared = new DocumentRuleService.PreparedCheck(
-                type, List.of(date, author), Map.of("author", "Введено вручную"), List.of());
+                type, List.of(date, author), Map.of("author", "Введено вручную"), List.of(), Map.of(), MOSCOW);
         var extraction = new DocumentExtractor.ExtractionResult(Map.of(
                 "date", new DocumentExtractor.ExtractedField("2026-09-22", "Дата: 22.09.2026", 2),
                 "author", new DocumentExtractor.ExtractedField("Из модели", "Автор", 1)),
@@ -197,7 +199,8 @@ class DocumentRuleServiceTest {
         DocumentTypeField author = new DocumentTypeField();
         author.setFieldName("author");
         var prepared = new DocumentRuleService.PreparedCheck(
-                type, List.of(date, author), Map.of("date", "2026-09-22", "author", "Исправлено"), List.of());
+                type, List.of(date, author), Map.of("date", "2026-09-22", "author", "Исправлено"), List.of(),
+                Map.of(), MOSCOW);
         var previous = new DocumentRuleService.CheckData(true, List.of(
                 new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
                 new DocumentCardResponse.FieldValue("author", "Из модели", "MODEL", "Автор", 1)), List.of());
@@ -210,6 +213,35 @@ class DocumentRuleServiceTest {
         assertThat(result.fields()).containsExactly(
                 new DocumentCardResponse.FieldValue("date", "2026-09-22", "MODEL", "22.09.2026", 2),
                 new DocumentCardResponse.FieldValue("author", "Исправлено", "MANUAL", null, null, "Из модели"));
+    }
+
+    /**
+     * «Сохранить и проверить» и «Проверить заново» идут через executeManualUpdate — «сегодня» и там по поясу компании
+     * (ревью #121, п. 1): в 18:40 UTC 26.09 в Новосибирске уже 27.09, в Москве ещё 26.09.
+     */
+    @Test
+    void manualUpdateTakesTodayInTheCompanyTimeZone() {
+        RuleEngine engine = mock(RuleEngine.class);
+        when(engine.validate(any(), any(), any())).thenReturn(List.of());
+        var service = new DocumentRuleService(
+                mock(DocumentTypeRepository.class), mock(DocumentTypeFieldRepository.class),
+                mock(RuleCatalogService.class), engine, zones("Europe/Moscow"),
+                Clock.fixed(Instant.parse("2026-09-26T18:40:00Z"), ZoneOffset.UTC));
+        DocumentType type = new DocumentType();
+        type.setCode("MEMO");
+        DocumentTypeField date = new DocumentTypeField();
+        date.setFieldName("date");
+        var previous = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("date", "27.09.2026", "MODEL", "27.09.2026", 1)), List.of());
+
+        service.executeManualUpdate(new DocumentRuleService.PreparedCheck(
+                type, List.of(date), Map.of("date", "27.09.2026"), List.of(), Map.of(),
+                ZoneId.of("Asia/Novosibirsk")), previous);
+
+        ArgumentCaptor<RuleEngine.ValidationContext> context =
+                ArgumentCaptor.forClass(RuleEngine.ValidationContext.class);
+        verify(engine).validate(any(), any(), context.capture());
+        assertThat(context.getValue().referenceDate()).isEqualTo(LocalDate.of(2026, 9, 27));
     }
 
     private static CompanyZoneService zones(String zone) {
@@ -235,7 +267,7 @@ class DocumentRuleServiceTest {
         addressee.setFieldName("addressee");
         DocumentTypeField date = new DocumentTypeField();
         date.setFieldName("date");
-        return new DocumentRuleService.PreparedCheck(type, List.of(addressee, date), values, List.of());
+        return new DocumentRuleService.PreparedCheck(type, List.of(addressee, date), values, List.of(), Map.of(), MOSCOW);
     }
 
     @Test

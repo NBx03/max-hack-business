@@ -1355,4 +1355,3 @@ button.ds-row:active {
 .ds-field-issue--danger { color: var(--status-danger-fg); }
 .ds-field-issue--warning { color: var(--status-warning-fg); }
 .ds-field-issue--neutral { color: var(--text-secondary); }
-
