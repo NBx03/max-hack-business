@@ -381,6 +381,8 @@ export function DocumentCardScreen() {
       loading={switching}
       onClick={() => {
         setSwitching(true);
+        // Карточку отдельно не перечитываем: смена участника пересоздаёт все экраны (AppRoutes key={actorKey} в App.tsx),
+        // и документ загружается заново — уже с шагами и правами нового участника (ревью #121, п. 2).
         void actAs(demoNext.id).finally(() => setSwitching(false));
       }}
     >

@@ -9,7 +9,6 @@ import ru.sibvibe.approval.document.entity.DocumentType;
 import ru.sibvibe.approval.document.entity.DocumentTypeField;
 import ru.sibvibe.approval.document.repository.DocumentTypeFieldRepository;
 import ru.sibvibe.approval.document.repository.DocumentTypeRepository;
-import ru.sibvibe.approval.organization.service.CompanyTimeZones;
 import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import ru.sibvibe.approval.rules.RuleEngine;
 import ru.sibvibe.approval.rules.service.RuleCatalogService;
@@ -163,8 +162,11 @@ public class DocumentRuleService {
                 manual.put(name, value);
             }
         }
+        // Пояс компании — из prepared: иначе «Сохранить и проверить» сверяло бы дату по Москве (ревью #121, п. 1).
+        // fileValues не переносим: «что в файле» у изменённых полей добавляет withFileValue ниже, из прошлой проверки.
         PreparedCheck merged = new PreparedCheck(
-                prepared.type(), prepared.schema(), Collections.unmodifiableMap(manual), prepared.rules());
+                prepared.type(), prepared.schema(), Collections.unmodifiableMap(manual), prepared.rules(),
+                Map.of(), prepared.zone());
         CheckData result = execute(merged, new DocumentExtractor.ExtractionResult(
                 Map.copyOf(extracted), previous != null && previous.modelAvailable(), "stored"));
         if (result == null) {
@@ -263,15 +265,6 @@ public class DocumentRuleService {
             /* Часовой пояс компании (#56): «сегодня» для правила «не позже сегодняшнего дня». */
             ZoneId zone
     ) {
-        public PreparedCheck(
-                DocumentType type,
-                List<DocumentTypeField> schema,
-                Map<String, String> suppliedFields,
-                List<RuleEngine.RequirementRule> rules
-        ) {
-            this(type, schema, suppliedFields, rules, Map.of(), CompanyTimeZones.zoneOf(null));
-        }
-
         public PreparedCheck withFileValues(Map<String, String> values) {
             return new PreparedCheck(type, schema, suppliedFields, rules, Map.copyOf(values), zone);
         }

@@ -104,6 +104,10 @@ public class CompanyService {
         if (city == null || city.isBlank()) {
             throw OrganizationErrors.validation("Укажите город компании");
         }
+        // Только город из списка и его пояс: по поясу считается «сегодня», а город видят сотрудники (ревью #121, п. 4).
+        if (!CompanyTimeZones.isKnownPlace(city.trim(), timeZone)) {
+            throw OrganizationErrors.validation("Выберите город из списка");
+        }
         org.setCity(city.trim());
         org.setTimeZone(timeZone);
     }
