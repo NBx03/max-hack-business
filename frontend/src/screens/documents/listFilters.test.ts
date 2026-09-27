@@ -11,7 +11,7 @@ describe('фильтры списков (NAV-3, ревью #110)', () => {
 
   it('«ждёт» — с сегодня или N дней', () => {
     const now = new Date('2026-09-26T12:00:00Z').getTime();
-    expect(waitingText('2026-09-26T08:00:00Z', now)).toBe('ждёт с сегодня');
+    expect(waitingText('2026-09-26T08:00:00Z', now)).toBe('пришёл сегодня');
     expect(waitingText('2026-09-23T08:00:00Z', now)).toBe('ждёт 3 дня');
   });
 

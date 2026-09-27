@@ -13,10 +13,10 @@ export function pluralDays(n: number): string {
   return 'дней';
 }
 
-/** «ждёт 3 дня» — для раздела «На моём согласовании». */
+/** «ждёт 3 дня», меньше суток — «пришёл сегодня» — для раздела «На моём согласовании». */
 export function waitingText(iso: string, now: number = Date.now()): string {
   const days = Math.max(0, Math.floor((now - new Date(iso).getTime()) / (24 * 60 * 60 * 1000)));
-  return days === 0 ? 'ждёт с сегодня' : `ждёт ${days} ${pluralDays(days)}`;
+  return days === 0 ? 'пришёл сегодня' : `ждёт ${days} ${pluralDays(days)}`;
 }
 
 /**

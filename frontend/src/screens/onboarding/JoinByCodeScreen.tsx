@@ -6,6 +6,7 @@ import { previewInviteCode, submitJoinRequest } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
 import { CODE_LENGTH, codeProblem, normalizeCode } from './joinCode';
 import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
+import { orgInText } from '../../lib/orgName';
 
 /** «Слишком много попыток» — с подсказкой, когда пробовать снова. */
 function attemptMessage(err: unknown): string {
@@ -147,7 +148,7 @@ export function JoinByCodeScreen({ initialCode, onBack }: { initialCode?: string
 
       {orgName && (
         <Typography.Body variant="large-strong">
-          {sending ? `Отправляем заявку в „${orgName}“…` : `Вы вступаете в „${orgName}“`}
+          {sending ? `Отправляем заявку в компанию ${orgInText(orgName)}…` : `Вы вступаете в компанию ${orgInText(orgName)}`}
         </Typography.Body>
       )}
       {orgName && (

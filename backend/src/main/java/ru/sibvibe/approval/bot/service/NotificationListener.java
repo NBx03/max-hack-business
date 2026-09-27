@@ -89,7 +89,7 @@ public class NotificationListener {
             String memberName = directory.find(event.userId())
                     .map(Recipient::displayName)
                     .orElse("Новый участник");
-            String text = "По вашей личной ссылке в компанию вступил(а): " + memberName + ".";
+            String text = "По вашей личной ссылке в компании новый сотрудник: " + memberName + ".";
             notifier.send(admin.maxUserId(), text, OPEN, links.appLink());
         });
     }
