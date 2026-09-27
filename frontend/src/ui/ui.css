@@ -1340,6 +1340,24 @@ button.ds-row:active {
   font-size: var(--ds-text-xs);
 }
 
+/* ---------- Приложения к документу (#69) ---------- */
+
+.ds-attachment__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--ds-accent);
+}
+
+.ds-filedrop__pick:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ds-attachment--removed {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
 /* ---------- Поле с замечанием при правке (#56) ---------- */
 
 /* Обводка цвета важности: у поля видно, что с ним не так, не листая к списку замечаний. У Input из max-ui рамку

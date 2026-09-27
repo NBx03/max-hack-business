@@ -1,12 +1,23 @@
 import { Switch, Typography } from '@maxhub/max-ui';
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createDocumentVersion, getDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentCard, DocumentType } from '../../api/types';
 import { FormatsHelp } from './FormatsHelp';
-import { MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileErrorOf, fileProblem } from './uploadFormats';
-import { ErrorState, Button, FileDrop, formatFileSize } from '../../ui';
+import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_CAPTION,
+  MAIN_FILE_ACCEPT,
+  MAIN_FILE_CAPTION,
+  MAX_ATTACHMENTS,
+  attachmentErrorOf,
+  fileErrorOf,
+  fileProblem,
+  pickAttachments,
+  versionSizeProblem,
+} from './uploadFormats';
+import { AttachmentsField, ErrorState, Button, FileDrop, InlineError, formatFileSize, type AttachmentItem } from '../../ui';
 import { documentCardPath, documentCheckPath } from '../../routes/paths';
 import {
   DocumentScreen,
@@ -31,6 +42,9 @@ export function NewDocumentVersionScreen() {
   const [newMain, setNewMain] = useState<File | null>(null);
   const [newMainError, setNewMainError] = useState<string | null>(null);
   const [keptAttachments, setKeptAttachments] = useState<Set<number>>(new Set());
+  const [newAttachments, setNewAttachments] = useState<{ key: string; file: File }[]>([]);
+  const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
+  const nextAttachmentKey = useRef(0);
   const [containsSensitive, setContainsSensitive] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -69,13 +83,55 @@ export function NewDocumentVersionScreen() {
   );
   const currentMain = currentVersion?.files.find((file) => file.kind === 'MAIN');
   const attachments = currentVersion?.files.filter((file) => file.kind === 'ATTACHMENT') ?? [];
-  const attachmentsChanged = attachments.some((file) => !keptAttachments.has(file.id));
+  const attachmentsChanged = newAttachments.length > 0 || attachments.some((file) => !keptAttachments.has(file.id));
+  const attachmentCount = keptAttachments.size + newAttachments.length;
+  const keptKey = (fileId: number) => `kept-${fileId}`;
+  // Приложения прежней версии — ключом «kept-<id>», новые — «new-<n>»: одна кнопка на строку, «Убрать» или «Оставить».
+  const attachmentItems: AttachmentItem[] = [
+    ...attachments.map((file) => ({
+      key: keptKey(file.id),
+      name: file.fileName,
+      size: file.size,
+      removed: !keptAttachments.has(file.id),
+    })),
+    ...newAttachments.map(({ key, file }) => ({ key, name: file.name, size: file.size, note: 'новое' })),
+  ];
+  // Размер новой версии: основной файл (новый или прежний), оставленные и новые приложения.
+  const sizeProblem = versionSizeProblem(
+    (newMain?.size ?? currentMain?.size ?? 0)
+      + attachments.filter((file) => keptAttachments.has(file.id)).reduce((total, file) => total + file.size, 0)
+      + newAttachments.reduce((total, item) => total + item.file.size, 0),
+  );
   const isReturned = card?.status === 'RETURNED';
   // Без нового файла версия переносит поля прежней (бэкенд их не перечитывает, ревью #88): так можно
   // убрать приложение, не меняя основной файл, а у возвращённого документа — перейти к правке полей.
   // С «чувствительными данными» файл в модель не уходит вовсе: поля этой формы и есть данные версии.
   // У документов демо-песочницы файла нет: тогда без нового файла отправлять нечего.
-  const canSubmit = Boolean(newMain) || (Boolean(currentMain) && (containsSensitive || attachmentsChanged || isReturned));
+  const canSubmit = !sizeProblem
+    && (Boolean(newMain) || (Boolean(currentMain) && (containsSensitive || attachmentsChanged || isReturned)));
+
+  function addAttachments(selected: File[]) {
+    const { accepted, problems } = pickAttachments(selected, attachmentCount, newAttachments.map((item) => item.file));
+    setAttachmentsError(problems.length > 0 ? problems.join(' ') : null);
+    setSubmitError(null);
+    setNewAttachments((current) => [
+      ...current,
+      ...accepted.map((file) => ({ key: `new-${nextAttachmentKey.current++}`, file })),
+    ]);
+  }
+
+  /** key — приложение прежней версии: оставить его в новой или убрать. Иначе — ничего. */
+  function setKept(key: string, kept: boolean): boolean {
+    const file = attachments.find((item) => keptKey(item.id) === key);
+    if (!file) return false;
+    setSubmitError(null);
+    setKeptAttachments((current) => {
+      const next = new Set(current);
+      if (kept) next.add(file.id); else next.delete(file.id);
+      return next;
+    });
+    return true;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -90,15 +146,21 @@ export function NewDocumentVersionScreen() {
           ...Array.from(keptAttachments),
         ],
         main: newMain ?? undefined,
+        attachments: newAttachments.map((item) => item.file),
         fields: containsSensitive ? fields : undefined,
       });
       navigate(documentCheckPath(updated.id), { state: { card: updated } });
     } catch (versionError) {
       // Как на первой загрузке: сервер отверг новый файл — ошибка у зоны файла, файл убран (ревью #122, п. 2).
+      // Не подошло новое приложение (#69) — у списка приложений, убираем именно его.
       const fileError = newMain ? fileErrorOf(versionError) : null;
+      const attachmentError = attachmentErrorOf(versionError);
       if (fileError) {
         setNewMain(null);
         setNewMainError(fileError);
+      } else if (attachmentError) {
+        setNewAttachments((current) => current.filter((item) => item.file.name !== attachmentError.fileName));
+        setAttachmentsError(attachmentError.message);
       } else {
         setSubmitError(errorMessage(versionError));
       }
@@ -121,6 +183,9 @@ export function NewDocumentVersionScreen() {
       title="Замена файла"
       footer={
         <div style={{ ...stackStyle, gap: 8 }}>
+          {/* 30 МБ на все файлы версии — проверка до отправки; ошибки сервера (лимиты, тип файла) — здесь же, у кнопки. */}
+          {sizeProblem && <InlineError>{sizeProblem}</InlineError>}
+          {submitError && <InlineError>{submitError}</InlineError>}
           <SubmitButton form={FORM_ID} busy={submitting} disabled={!canSubmit}>
             Загрузить и проверить
           </SubmitButton>
@@ -148,6 +213,7 @@ export function NewDocumentVersionScreen() {
           caption={MAIN_FILE_CAPTION}
           error={newMainError}
           help={<FormatsHelp />}
+          disabled={submitting}
           onSelect={(file) => {
             const problem = fileProblem(file);
             setNewMainError(problem);
@@ -159,24 +225,29 @@ export function NewDocumentVersionScreen() {
           }}
         />
 
-        {attachments.length > 0 && (
-          <div style={{ ...sectionStyle, gap: 12 }}>
-            <strong>Оставить приложения</strong>
-            {attachments.map((file) => (
-              <label key={file.id} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                {/* Switch из max-ui, а не нативный checkbox — как у остальных переключателей (ревью #65). */}
-                <Switch
-                  checked={keptAttachments.has(file.id)}
-                  onChange={(event) => setKeptAttachments((current) => {
-                    const next = new Set(current);
-                    if (event.target.checked) next.add(file.id); else next.delete(file.id);
-                    return next;
-                  })}
-                />
-                <span style={{ overflowWrap: 'anywhere' }}>{file.fileName} · {formatFileSize(file.size)}</span>
-              </label>
-            ))}
-          </div>
+        {/* У документа без файла (демо-песочница) приложения появятся вместе с основным файлом. */}
+        {(currentMain || newMain) && (
+          <AttachmentsField
+            items={attachmentItems}
+            accept={ATTACHMENT_ACCEPT}
+            caption={ATTACHMENT_CAPTION}
+            error={attachmentsError}
+            canAdd={attachmentCount < MAX_ATTACHMENTS}
+            disabled={submitting}
+            onAdd={addAttachments}
+            onRemove={(key) => {
+              setAttachmentsError(null);
+              setSubmitError(null);
+              if (!setKept(key, false)) setNewAttachments((current) => current.filter((item) => item.key !== key));
+            }}
+            onKeep={(key) => {
+              if (attachmentCount >= MAX_ATTACHMENTS) {
+                setAttachmentsError(`Не больше ${MAX_ATTACHMENTS} приложений — сначала уберите одно из новых.`);
+                return;
+              }
+              setKept(key, true);
+            }}
+          />
         )}
 
         <label style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center' }}>
@@ -194,7 +265,6 @@ export function NewDocumentVersionScreen() {
           </section>
         )}
 
-        {submitError && <Notice tone="danger">{submitError}</Notice>}
         {submitting && (
           <Notice>
             {newMain && !containsSensitive

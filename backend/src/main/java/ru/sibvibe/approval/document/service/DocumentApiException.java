@@ -3,10 +3,29 @@ package ru.sibvibe.approval.document.service;
 import org.springframework.http.HttpStatus;
 import ru.sibvibe.approval.common.api.DomainException;
 
+import java.util.Map;
+
 public final class DocumentApiException extends DomainException {
 
     private DocumentApiException(String code, HttpStatus status, String message) {
         super(code, status, message);
+    }
+
+    private DocumentApiException(String code, HttpStatus status, String message, Map<String, Object> details) {
+        super(code, status, message, details);
+    }
+
+    /**
+     * Та же ошибка, но про приложение (#69): {@code details.file = ATTACHMENT} и имя файла. Коды FILE_* у основного
+     * файла экран показывает у его зоны и убирает файл — ошибку приложения он покажет у списка приложений.
+     */
+    public DocumentApiException aboutAttachment(String fileName) {
+        return new DocumentApiException(code(), httpStatus(), getMessage(), Map.of("file", "ATTACHMENT", "fileName", fileName));
+    }
+
+    /** Та же ошибка, но про все файлы версии вместе (#69, 30 МБ): {@code details.file = VERSION} — основной файл не виноват. */
+    public DocumentApiException aboutVersion() {
+        return new DocumentApiException(code(), httpStatus(), getMessage(), Map.of("file", "VERSION"));
     }
 
     public static DocumentApiException validation(String message) {

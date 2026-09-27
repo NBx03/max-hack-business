@@ -9,7 +9,7 @@ export { BottomSheet, ConfirmSheet, SelectSheet, SelectField, type SelectOption 
 export { EmptyState, ErrorState, AccessErrorState, Loading, InlineError, Notice, Toast } from './State';
 export { SearchField, SEARCH_MAX_LENGTH, Chips, Chip } from './Controls';
 export { Timeline, TimelinePerson, type TimelineItem, type TimelineState } from './Timeline';
-export { FileDrop, Stepper, formatFileSize } from './FileDrop';
+export { FileDrop, AttachmentsField, Stepper, formatFileSize, type AttachmentItem } from './FileDrop';
 export { ThemeSync } from './ThemeSync';
 export { StatusBadge, DocumentStatusBadge, StepDecisionBadge, AiMark, AiLegend } from './Badge';
 export {

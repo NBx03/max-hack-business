@@ -76,7 +76,7 @@ class DocumentPersistenceServiceTest {
     @Test
     void createsNewVersionByReusingCurrentMainWithoutChangingOldVersion() {
         var created = service.createVersion(
-                1, 10, 7, 1, false, List.of(201L), prepared(), null);
+                1, 10, 7, 1, false, List.of(201L), prepared(), null, List.of());
 
         assertThat(created.versionNo()).isEqualTo(2);
         assertThat(document.getCurrentVersionNo()).isEqualTo(2);
@@ -94,12 +94,102 @@ class DocumentPersistenceServiceTest {
         });
     }
 
+    /** #69: оставленное приложение сохраняет позицию, новые — после него; убранное в новую версию не попадает. */
+    @Test
+    void newVersionKeepsChosenAttachmentsAndAddsNewOnesAfterThem() {
+        DocumentFile budget = attachment(202L, 1, "budget-key", 1_000);
+        DocumentFile plan = attachment(203L, 2, "plan-key", 1_000);
+        when(files.findByVersionIdOrderByPosition(101L)).thenReturn(List.of(main, budget, plan));
+
+        service.createVersion(1, 10, 7, 1, false, List.of(201L, 203L), prepared(), null,
+                List.of(new DocumentPersistenceService.NewFile("new-key", "Смета v2.xlsx", "application/xlsx", 500)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<DocumentFile>> captor = ArgumentCaptor.forClass(List.class);
+        verify(files).saveAll(captor.capture());
+        assertThat(captor.getValue())
+                .extracting(DocumentFile::getStorageKey, DocumentFile::getKind, DocumentFile::getPosition)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("old-key", DocumentFile.Kind.MAIN, 0),
+                        org.assertj.core.groups.Tuple.tuple("plan-key", DocumentFile.Kind.ATTACHMENT, 2),
+                        org.assertj.core.groups.Tuple.tuple("new-key", DocumentFile.Kind.ATTACHMENT, 3));
+    }
+
+    /** #69: первая версия — основной файл на позиции 0, приложения по порядку с 1. */
+    @Test
+    void newDocumentStoresAttachmentsAfterMainFile() {
+        when(documents.save(any())).thenAnswer(invocation -> {
+            Document saved = invocation.getArgument(0);
+            saved.setId(1L);
+            return saved;
+        });
+
+        service.create(10L, 7L, "Записка", Document.Visibility.PRIVATE, false, false, prepared(),
+                new DocumentPersistenceService.NewFile("main-key", "memo.docx", "application/docx", 100),
+                List.of(new DocumentPersistenceService.NewFile("a-key", "a.xlsx", "application/xlsx", 10),
+                        new DocumentPersistenceService.NewFile("b-key", "b.png", "image/png", 10)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<DocumentFile>> captor = ArgumentCaptor.forClass(List.class);
+        verify(files).saveAll(captor.capture());
+        assertThat(captor.getValue())
+                .extracting(DocumentFile::getStorageKey, DocumentFile::getKind, DocumentFile::getPosition)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("main-key", DocumentFile.Kind.MAIN, 0),
+                        org.assertj.core.groups.Tuple.tuple("a-key", DocumentFile.Kind.ATTACHMENT, 1),
+                        org.assertj.core.groups.Tuple.tuple("b-key", DocumentFile.Kind.ATTACHMENT, 2));
+    }
+
+    @Test
+    void newDocumentRespectsVersionLimits() {
+        var main = new DocumentPersistenceService.NewFile("main-key", "memo.pdf", "application/pdf", 100);
+        var small = new DocumentPersistenceService.NewFile("key", "a.png", "image/png", 10);
+        var large = new DocumentPersistenceService.NewFile("large", "large.pdf", "application/pdf", 10L * 1024 * 1024);
+
+        assertThatThrownBy(() -> service.create(10L, 7L, "Записка", Document.Visibility.PRIVATE, false, false,
+                prepared(), main, java.util.Collections.nCopies(11, small)))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessage("В версии может быть не более 10 приложений");
+        assertThatThrownBy(() -> service.create(10L, 7L, "Записка", Document.Visibility.PRIVATE, false, false,
+                prepared(), main, List.of(large, large, large)))
+                .isInstanceOfSatisfying(DocumentApiException.class,
+                        exception -> {
+                            assertThat(exception.code()).isEqualTo("FILE_TOO_LARGE");
+                            assertThat(exception.details()).containsEntry("file", "VERSION");
+                        });
+        verify(documents, never()).save(any());
+    }
+
+    @Test
+    void attachmentLimitsCountKeptAndNewFilesTogether() {
+        List<DocumentFile> current = new java.util.ArrayList<>(List.of(main));
+        for (int index = 1; index <= 10; index++) {
+            current.add(attachment(300L + index, index, "key-" + index, 1_000));
+        }
+        when(files.findByVersionIdOrderByPosition(101L)).thenReturn(current);
+        List<Long> keepAll = current.stream().map(DocumentFile::getId).toList();
+        var extra = new DocumentPersistenceService.NewFile("extra", "extra.png", "image/png", 10);
+
+        assertThatThrownBy(() -> service.createVersion(1, 10, 7, 1, false, keepAll, prepared(), null, List.of(extra)))
+                .isInstanceOf(DocumentApiException.class)
+                .hasMessage("В версии может быть не более 10 приложений");
+
+        var large = new DocumentPersistenceService.NewFile("large", "large.pdf", "application/pdf", 10L * 1024 * 1024);
+        assertThatThrownBy(() -> service.createVersion(1, 10, 7, 1, false, List.of(201L), prepared(), null,
+                List.of(large, large, large)))
+                .isInstanceOfSatisfying(DocumentApiException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FILE_TOO_LARGE");
+                    assertThat(exception.details()).containsEntry("file", "VERSION");
+                })
+                .hasMessage("Размер файлов версии превышает 30 МБ");
+    }
+
     @Test
     void returnedDocumentBecomesDraftWithNextVersion() {
         document.setStatus(Document.Status.RETURNED);
         document.setCurrentStage(2);
 
-        service.createVersion(1, 10, 7, 1, false, List.of(201L), prepared(), null);
+        service.createVersion(1, 10, 7, 1, false, List.of(201L), prepared(), null, List.of());
 
         assertThat(document.getStatus()).isEqualTo(Document.Status.DRAFT);
         assertThat(document.getCurrentStage()).isNull();
@@ -112,7 +202,7 @@ class DocumentPersistenceServiceTest {
         document.setStatus(status);
 
         assertThatThrownBy(() -> service.createVersion(
-                1, 10, 7, 1, false, List.of(201L), prepared(), null))
+                1, 10, 7, 1, false, List.of(201L), prepared(), null, List.of()))
                 .isInstanceOf(DocumentApiException.class)
                 .hasMessageContaining("нельзя создать");
     }
@@ -120,7 +210,7 @@ class DocumentPersistenceServiceTest {
     @Test
     void rejectsForeignOrNonCurrentKeepFileWithoutRevealingIt() {
         assertThatThrownBy(() -> service.createVersion(
-                1, 10, 7, 1, false, List.of(999L), prepared(), null))
+                1, 10, 7, 1, false, List.of(999L), prepared(), null, List.of()))
                 .isInstanceOf(DocumentApiException.class)
                 .hasMessage("Некорректный список сохраняемых файлов");
     }
@@ -298,7 +388,7 @@ class DocumentPersistenceServiceTest {
         when(files.findByVersionIdOrderByPosition(101L)).thenReturn(List.of());
         current.setContent(new ObjectMapper().createObjectNode().put("subject", "О закупке").put("body", "Текст"));
 
-        service.createVersion(1L, 10L, 7L, 1, false, List.of(), prepared(Map.of("subject", "О закупке ноутбуков")), null);
+        service.createVersion(1L, 10L, 7L, 1, false, List.of(), prepared(Map.of("subject", "О закупке ноутбуков")), null, List.of());
 
         ArgumentCaptor<DocumentVersion> captor = ArgumentCaptor.forClass(DocumentVersion.class);
         verify(versions).save(captor.capture());
@@ -346,6 +436,19 @@ class DocumentPersistenceServiceTest {
         value.setCreatedAt(clock.instant());
         value.setUpdatedAt(clock.instant());
         return value;
+    }
+
+    private DocumentFile attachment(long id, int position, String storageKey, long size) {
+        DocumentFile file = new DocumentFile();
+        file.setId(id);
+        file.setVersionId(101L);
+        file.setKind(DocumentFile.Kind.ATTACHMENT);
+        file.setPosition(position);
+        file.setStorageKey(storageKey);
+        file.setFileName(storageKey + ".xlsx");
+        file.setMimeType("application/xlsx");
+        file.setFileSize(size);
+        return file;
     }
 
     private DocumentRuleService.PreparedCheck prepared() {
