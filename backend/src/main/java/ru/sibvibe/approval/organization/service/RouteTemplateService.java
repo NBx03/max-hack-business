@@ -6,6 +6,7 @@ import ru.sibvibe.approval.organization.DocumentTypeDirectory;
 import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.dto.RouteOverview;
+import ru.sibvibe.approval.organization.dto.RouteTemplateRequest;
 import ru.sibvibe.approval.organization.entity.ApprovalRoute;
 import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.Role;
@@ -15,6 +16,7 @@ import ru.sibvibe.approval.organization.repository.RoleRepository;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +124,55 @@ public class RouteTemplateService {
 
     /** Строка шаблона: роль на этапе; {@code mandatory = false} — пропускается, если носителей роли нет. */
     public record TemplateRow(int stageOrder, long roleId, boolean mandatory) {
+    }
+
+    /**
+     * Состав шаблона — этапы, роли на этапах и их порядок (#98). В отличие от конструктора маршрута документа,
+     * здесь администратор компании может убрать и переместить кого угодно, включая обязательных: это и есть смысл
+     * задачи — обязательность автору не даёт снять, а администратору шаблона это доступно. Замена полная: позиция
+     * этапа в списке становится {@code stage_order} (нумеруется подряд с 1), прежние строки шаблона удаляются
+     * и создаются заново в одной транзакции.
+     */
+    @Transactional
+    public List<RouteOverview> replaceTemplate(CurrentUser actor, long documentTypeId, List<RouteTemplateRequest.StageInput> stages) {
+        long orgId = OrganizationAccess.requireAdminOrg(actor);
+        DocumentTypeDirectory.TypeInfo type = typeDirectory.find(documentTypeId).orElseThrow(OrganizationErrors::notFound);
+        // D3: у «Другого документа» маршрут составляет автор — шаблона у него нет, редактировать нечего.
+        if (type.generic()) {
+            throw OrganizationErrors.validation("У «Другого документа» шаблон не редактируется: маршрут составляет автор");
+        }
+        Map<Long, Role> orgRoles = new HashMap<>();
+        for (Role role : roleRepository.findByOrgIdOrderById(orgId)) {
+            orgRoles.put(role.getId(), role);
+        }
+        Set<Long> seenRoles = new HashSet<>();
+        List<ApprovalRoute> rows = new ArrayList<>();
+        int stageOrder = 0;
+        for (RouteTemplateRequest.StageInput stage : stages) {
+            stageOrder++;
+            if (stage.participants().isEmpty()) {
+                throw OrganizationErrors.validation("Этап " + stageOrder + " без ролей — убрать пустой этап целиком");
+            }
+            for (RouteTemplateRequest.RoleInput participant : stage.participants()) {
+                Role role = orgRoles.get(participant.roleId());
+                if (role == null) {
+                    throw OrganizationErrors.notFound();
+                }
+                if (!seenRoles.add(participant.roleId())) {
+                    throw OrganizationErrors.validation("Роль «" + role.getName() + "» в маршруте только один раз");
+                }
+                ApprovalRoute row = new ApprovalRoute();
+                row.setOrgId(orgId);
+                row.setDocumentTypeId(documentTypeId);
+                row.setStageOrder(stageOrder);
+                row.setRoleId(role.getId());
+                row.setMandatory(participant.mandatory());
+                rows.add(row);
+            }
+        }
+        routeRepository.deleteByOrgIdAndDocumentTypeId(orgId, documentTypeId);
+        routeRepository.saveAll(rows);
+        return overview(actor);
     }
 
     /**

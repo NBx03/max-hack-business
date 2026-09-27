@@ -34,4 +34,12 @@ public interface ApprovalRouteRepository extends JpaRepository<ApprovalRoute, Lo
             @Param("roleId") long roleId,
             @Param("mandatory") boolean mandatory
     );
+
+    /**
+     * Удаляет весь шаблон вида документа перед пересозданием (#98, {@code replaceTemplate}): проще и надёжнее
+     * пересчитать состав целиком, чем сравнивать старые и новые строки построчно.
+     */
+    @Modifying
+    @Query("delete from ApprovalRoute route where route.orgId = :orgId and route.documentTypeId = :documentTypeId")
+    void deleteByOrgIdAndDocumentTypeId(@Param("orgId") long orgId, @Param("documentTypeId") long documentTypeId);
 }

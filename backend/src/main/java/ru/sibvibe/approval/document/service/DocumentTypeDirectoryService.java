@@ -9,6 +9,7 @@ import ru.sibvibe.approval.organization.DocumentTypeDirectory;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /** Отдаёт organization id типов документов по кодам, не раскрывая сущности document. */
 @Service
@@ -28,5 +29,11 @@ public class DocumentTypeDirectoryService implements DocumentTypeDirectory {
             result.put(type.getCode(), type.getId());
         }
         return Map.copyOf(result);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TypeInfo> find(long id) {
+        return typeRepository.findById(id).map(type -> new TypeInfo(type.getId(), type.getCode(), type.isGeneric()));
     }
 }

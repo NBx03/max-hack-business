@@ -26,6 +26,7 @@ import ru.sibvibe.approval.organization.service.RoleService;
 import ru.sibvibe.approval.organization.service.RouteTemplateService;
 import ru.sibvibe.approval.organization.dto.RouteMandatoryRequest;
 import ru.sibvibe.approval.organization.dto.RouteOverview;
+import ru.sibvibe.approval.organization.dto.RouteTemplateRequest;
 
 import java.util.List;
 
@@ -113,6 +114,16 @@ public class CompanyController {
             @Valid @RequestBody RouteMandatoryRequest request
     ) {
         return routeTemplates.setMandatory(currentUser, documentTypeId, roleId, request.mandatory());
+    }
+
+    /** #98: администратор меняет состав шаблона — этапы, роли на этапах, их порядок. Замена полная. */
+    @PutMapping("/orgs/current/routes/{documentTypeId}")
+    public List<RouteOverview> replaceRouteTemplate(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable long documentTypeId,
+            @Valid @RequestBody RouteTemplateRequest request
+    ) {
+        return routeTemplates.replaceTemplate(currentUser, documentTypeId, request.stages());
     }
 
     @GetMapping("/orgs/current/roles/{id}/members")

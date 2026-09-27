@@ -549,6 +549,77 @@ class ApprovalIntegrationTest {
     }
 
     @Test
+    void adminEditsTheCompositionOfTheRouteTemplate() throws Exception {
+        long memoType = jdbc.queryForObject("select id from document_type where code = 'OFFICIAL_MEMO'", Long.class);
+        long lawyer = company.roles.get("LAWYER");
+        long accountant = company.roles.get("ACCOUNTANT");
+        long director = company.roles.get("DIRECTOR");
+        long head = company.roles.get("DEPARTMENT_HEAD");
+        String url = "/api/v1/orgs/current/routes/" + memoType;
+
+        // #98: только администратор
+        assertThat(call(company.frank, "PUT", url, Map.of("stages", List.of())).status()).isEqualTo(403);
+
+        // «Другой документ» — шаблона нет, редактировать нечего
+        long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);
+        assertThat(call(company.alice, "PUT", "/api/v1/orgs/current/routes/" + genericType, Map.of("stages", List.of()))
+                .status()).as("D3: у «Другого документа» шаблона нет").isEqualTo(400);
+
+        // пустой этап отвергается
+        assertThat(call(company.alice, "PUT", url,
+                Map.of("stages", List.of(Map.of("participants", List.of())))).status()).isEqualTo(400);
+
+        // одна и та же роль дважды отвергается
+        assertThat(call(company.alice, "PUT", url, Map.of("stages", List.of(
+                Map.of("participants", List.of(Map.of("roleId", director, "mandatory", true))),
+                Map.of("participants", List.of(Map.of("roleId", director, "mandatory", false))))))
+                .status()).isEqualTo(400);
+
+        // роль другой компании — 404
+        long foreignRoleId = newCompany("Вторая").roles.get("DIRECTOR");
+        assertThat(call(company.alice, "PUT", url, Map.of("stages", List.of(
+                Map.of("participants", List.of(Map.of("roleId", foreignRoleId, "mandatory", false))))))
+                .status()).isEqualTo(404);
+
+        // администратор меняет состав: раньше «Руководитель отдела (необязательно) → Директор (обязательно)»,
+        // теперь «Бухгалтер (обязательно) → Юрист и Директор параллельно (оба не обязательны)» — руководитель
+        // убран целиком, чего автор в своём конструкторе сделать не может (#98 отличается от #109 именно этим)
+        JsonNode routes = ok(call(company.alice, "PUT", url, Map.of("stages", List.of(
+                Map.of("participants", List.of(Map.of("roleId", accountant, "mandatory", true))),
+                Map.of("participants", List.of(
+                        Map.of("roleId", lawyer, "mandatory", false),
+                        Map.of("roleId", director, "mandatory", false)))))));
+        JsonNode memoRoute = null;
+        for (JsonNode route : routes) {
+            if (route.path("documentTypeId").asLong() == memoType) memoRoute = route;
+        }
+        assertThat(memoRoute).isNotNull();
+        assertThat(memoRoute.path("stages")).hasSize(2);
+        assertThat(memoRoute.path("stages").get(0).path("participants").get(0).path("role").path("id").asLong())
+                .isEqualTo(accountant);
+        assertThat(memoRoute.path("stages").get(0).path("participants").get(0).path("mandatory").asBoolean()).isTrue();
+        assertThat(memoRoute.path("stages").get(1).path("participants")).hasSize(2);
+
+        // новый документ этого вида предзаполняется уже изменённым шаблоном, руководителя отдела в нём больше нет
+        long memo = createDocument(company.frank, "OFFICIAL_MEMO");
+        JsonNode preview = ok(call(company.frank, "GET", "/api/v1/documents/" + memo + "/route-preview", null));
+        assertThat(preview.path("stages")).hasSize(2);
+        for (JsonNode stage : preview.path("stages")) {
+            for (JsonNode participant : stage.path("participants")) {
+                assertThat(participant.path("role").path("id").asLong()).isNotEqualTo(head);
+            }
+        }
+
+        // пустой шаблон допустим — маршрут полностью составляет автор
+        JsonNode cleared = ok(call(company.alice, "PUT", url, Map.of("stages", List.of())));
+        for (JsonNode route : cleared) {
+            if (route.path("documentTypeId").asLong() == memoType) {
+                assertThat(route.path("stages")).isEmpty();
+            }
+        }
+    }
+
+    @Test
     void returningMemberComesBackWithTheirPreviousRolesPreselected() throws Exception {
         String code = ok(call(company.alice, "GET", "/api/v1/orgs/current/invite-code", null)).path("code").asText();
         ok(call(company.alice, "POST", "/api/v1/orgs/current/members/" + memberId(company.erin) + "/disable", null));

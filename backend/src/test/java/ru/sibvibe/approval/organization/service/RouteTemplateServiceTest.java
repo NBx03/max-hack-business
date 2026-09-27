@@ -2,7 +2,13 @@ package ru.sibvibe.approval.organization.service;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import ru.sibvibe.approval.common.api.DomainException;
+import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.DocumentTypeDirectory;
+import ru.sibvibe.approval.organization.dto.RouteOverview;
+import ru.sibvibe.approval.organization.dto.RouteTemplateRequest;
+import ru.sibvibe.approval.organization.entity.ApprovalRoute;
 import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.Role;
 import ru.sibvibe.approval.organization.repository.ApprovalRouteRepository;
@@ -13,13 +19,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RouteTemplateServiceTest {
@@ -177,6 +187,127 @@ class RouteTemplateServiceTest {
 
         assertThat(service.backfillAllOrganizations()).isZero();
         assertThat(inserted).isEmpty();
+    }
+
+    // ============ #98: состав шаблона (replaceTemplate) ============
+
+    private static final long TYPE = 100L;
+
+    @Test
+    void replaceTemplateRequiresAdmin() {
+        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
+
+        assertThatThrownBy(() -> service.replaceTemplate(nonAdmin(), TYPE, List.of()))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("NOT_ADMIN"));
+    }
+
+    @Test
+    void genericTypeTemplateIsNotEditable() {
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "GENERIC", true)));
+
+        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of()))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void unknownDocumentTypeIsNotFound() {
+        when(directory.find(TYPE)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of()))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("NOT_FOUND"));
+    }
+
+    @Test
+    void roleFromAnotherOrganizationIsNotFound() {
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(role(ORG, 11, DefaultRoles.DIRECTOR)));
+
+        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of(stageOf(role(999, 55, "LAWYER")))))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("NOT_FOUND"));
+    }
+
+    @Test
+    void emptyStageIsRejected() {
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of(new RouteTemplateRequest.StageInput(List.of()))))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void sameRoleTwiceInTheTemplateIsRejected() {
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        Role director = role(ORG, 11, DefaultRoles.DIRECTOR);
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(director));
+
+        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of(stageOf(director), stageOf(director))))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void replacesOldRowsAndRenumbersStagesFromOnePositionally() {
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        Role head = role(ORG, 11, DefaultRoles.DEPARTMENT_HEAD);
+        Role director = role(ORG, 22, DefaultRoles.DIRECTOR);
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(head, director));
+        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
+
+        service.replaceTemplate(admin(), TYPE, List.of(
+                new RouteTemplateRequest.StageInput(List.of(new RouteTemplateRequest.RoleInput(head.getId(), false))),
+                new RouteTemplateRequest.StageInput(List.of(new RouteTemplateRequest.RoleInput(director.getId(), true)))));
+
+        verify(routeRepository).deleteByOrgIdAndDocumentTypeId(ORG, TYPE);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ApprovalRoute>> captor = ArgumentCaptor.forClass(List.class);
+        verify(routeRepository).saveAll(captor.capture());
+        List<ApprovalRoute> saved = captor.getValue();
+        assertThat(saved).hasSize(2);
+        assertThat(saved.get(0).getStageOrder()).isEqualTo(1);
+        assertThat(saved.get(0).getRoleId()).isEqualTo(head.getId());
+        assertThat(saved.get(0).isMandatory()).isFalse();
+        assertThat(saved.get(1).getStageOrder()).isEqualTo(2);
+        assertThat(saved.get(1).getRoleId()).isEqualTo(director.getId());
+        assertThat(saved.get(1).isMandatory()).isTrue();
+    }
+
+    @Test
+    void emptyTemplateIsAllowedAndMeansTheAuthorBuildsTheRoute() {
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of());
+        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
+
+        List<RouteOverview> result = service.replaceTemplate(admin(), TYPE, List.of());
+
+        verify(routeRepository).deleteByOrgIdAndDocumentTypeId(ORG, TYPE);
+        verify(routeRepository).saveAll(List.of());
+        assertThat(result).isEmpty();
+    }
+
+    private RouteTemplateRequest.StageInput stageOf(Role role) {
+        return new RouteTemplateRequest.StageInput(List.of(new RouteTemplateRequest.RoleInput(role.getId(), false)));
+    }
+
+    private CurrentUser admin() {
+        return currentUser(true);
+    }
+
+    private CurrentUser nonAdmin() {
+        return currentUser(false);
+    }
+
+    private CurrentUser currentUser(boolean admin) {
+        var identity = new CurrentUser.UserIdentity(1L, "Админ");
+        return new CurrentUser(identity, identity, 900L, ORG, Set.of(), admin, null);
     }
 
     private Organization org(long id) {
