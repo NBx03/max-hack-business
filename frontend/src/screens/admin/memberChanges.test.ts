@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { removedRoleIds, returnedDocumentsText } from './memberChanges';
+import { removedRoleIds, returnedDocumentsText, onlyAdminLeft } from './memberChanges';
 
 describe('returnedDocumentsText', () => {
   it('ничего не вернулось — ничего не пишем', () => {
@@ -19,5 +19,15 @@ describe('removedRoleIds', () => {
   it('только снятые роли, добавленные не считаются', () => {
     expect(removedRoleIds([1, 2, 3], [2, 4])).toEqual([1, 3]);
     expect(removedRoleIds([1], [1, 2])).toEqual([]);
+  });
+});
+
+describe('в компании пока только администратор (ревью #122, п. 5)', () => {
+  it('исключённые сотрудники не считаются', () => {
+    expect(onlyAdminLeft([{ status: 'ACTIVE' }, { status: 'DISABLED' }, { status: 'DISABLED' }])).toBe(true);
+  });
+
+  it('есть второй активный — уже не один', () => {
+    expect(onlyAdminLeft([{ status: 'ACTIVE' }, { status: 'ACTIVE' }])).toBe(false);
   });
 });

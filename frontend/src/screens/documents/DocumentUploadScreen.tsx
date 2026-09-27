@@ -21,7 +21,7 @@ import {
 } from '../../ui';
 import { FieldInputs, fieldStyle, labelStyle, sectionStyle, stackStyle } from './DocumentFormParts';
 import { FormatsHelp } from './FormatsHelp';
-import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
+import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileErrorOf, fileProblem } from './uploadFormats';
 
 const FORM_ID = 'document-upload-form';
 const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
@@ -108,7 +108,15 @@ export function DocumentUploadScreen() {
       });
       navigate(documentCheckPath(card.id), { state: { card } });
     } catch (error) {
-      setSubmitError(errorMessage(error));
+      // Файл не подошёл по содержимому (переименован, повреждён, слишком большой) — ошибка у зоны файла, где его и
+      // меняют, а не внизу у кнопки; сам файл убираем: он и есть причина (#56, аудит 27.09).
+      const fileError = fileErrorOf(error);
+      if (fileError) {
+        setMainFile(null);
+        setFileError(fileError);
+      } else {
+        setSubmitError(errorMessage(error));
+      }
     } finally {
       setSubmitting(false);
     }

@@ -408,6 +408,13 @@ export function DocumentCheckScreen() {
       <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>Далее: выбрать согласующих</Button>
       <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
     </div>
+  ) : (isDraft || isReturned) && canEdit && (mustFix || isReturned) ? (
+    // Отправить нельзя — главное действие здесь исправить (#56, аудит 27.09): раньше главной внизу была
+    // «Сохранить черновик», а нужная «Изменить» пряталась в тексте ниже.
+    <div style={{ ...stackStyle, gap: 8 }}>
+      <Button stretched variant="primary" onClick={startEditing}>{isForm ? 'Исправить записку' : 'Исправить'}</Button>
+      {isDraft && <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>}
+    </div>
   ) : isDraft && canEdit ? (
     <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
   ) : null;
@@ -492,9 +499,8 @@ export function DocumentCheckScreen() {
       )}
       {mustFix && check?.status !== 'FAILED' && (
         <Notice tone="danger">
-          {isForm
-            ? 'Есть критичные замечания — отправить пока нельзя. Исправьте записку кнопкой «Изменить» ниже.'
-            : 'Есть критичные замечания — отправить пока нельзя. Исправьте поля кнопкой «Изменить» ниже или замените файл кнопкой вверху.'}
+          {/* Как исправить — показывает кнопка «Исправить» внизу, текстом не повторяем. */}
+          Есть критичные замечания — отправить пока нельзя.
         </Notice>
       )}
       {manualCount > 0 && !editing && (

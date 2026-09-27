@@ -5,6 +5,7 @@ import { useSession } from '../../app/SessionContext';
 import { useAsync } from '../../hooks/useAsync';
 import { DOCUMENT_LISTS, ROUTE_PATTERNS, documentCardPath, documentListPath } from '../../routes/paths';
 import { DocumentRow } from '../documents/DocumentListScreen';
+import { waitingForYou } from './homeToDo';
 import { Button, IconButton, List, Muted, Page, PageHeader, Section, Tile, Tiles } from '../../ui';
 
 const RECENT_COUNT = 3;
@@ -28,9 +29,16 @@ export function HomeScreen() {
   const isAdmin = Boolean(actor?.isAdmin);
 
   // Счётчики — второстепенны: сбой запроса не мешает навигации, плитка просто без числа.
-  const waiting = useAsync(() => getDocuments(DOCUMENT_LISTS.waiting.tab, { size: 1 }), []);
+  const waiting = useAsync(() => getDocuments(DOCUMENT_LISTS.waiting.tab, { size: RECENT_COUNT }), []);
+  // Возвращённые автору — тоже «от вас ждут действия» (#56, аудит 27.09): счётчик на «Моих документах» и в «Ждут вас».
+  const returned = useAsync(() => getDocuments(DOCUMENT_LISTS.mine.tab, { status: 'RETURNED', size: RECENT_COUNT }), []);
   const requests = useAsync(() => (isAdmin ? getPendingJoinRequestsCount() : Promise.resolve(0)), [isAdmin]);
   const waitingCount = waiting.status === 'ready' ? waiting.data.total : undefined;
+  const returnedCount = returned.status === 'ready' ? returned.data.total : undefined;
+  const waitingItems = waiting.status === 'ready' ? waiting.data.items : [];
+  const returnedItems = returned.status === 'ready' ? returned.data.items : [];
+  const toDo = waitingForYou(waitingItems, returnedItems);
+  const hasToDo = toDo.length > 0;
   const requestsCount = requests.status === 'ready' ? requests.data : undefined;
   // Недавние — под плитками, чтобы не было пустого места до «Нового документа» (замечание Ильи, #56).
   const recent = useAsync(() => getDocuments(DOCUMENT_LISTS.mine.tab, { size: RECENT_COUNT }), []);
@@ -65,6 +73,9 @@ export function HomeScreen() {
           icon="myDocs"
           title={DOCUMENT_LISTS.mine.title}
           hint={DOCUMENT_LISTS.mine.hint}
+          count={returnedCount}
+          countHint={returnedCount ? `Вернули на доработку: ${returnedCount}` : undefined}
+          attention
           onClick={() => navigate(documentListPath('mine'))}
         />
         <Tile
@@ -84,8 +95,20 @@ export function HomeScreen() {
         />
       </Tiles>
 
+      {/* Сначала то, что ждёт действия: решение по чужому документу или исправление своего возвращённого (#56).
+          Раньше здесь были только «Мои», и у согласующего с двумя документами на решении — «Нажмите „Новый документ“». */}
+      {hasToDo && (
+        <Section title="Ждут вас">
+          <List label="Ждут вас">
+            {toDo.map(({ item, list }) => (
+              <DocumentRow key={`${list}${item.id}`} item={item} list={list} onOpen={() => navigate(documentCardPath(item.id))} />
+            ))}
+          </List>
+        </Section>
+      )}
+
       {/* Второстепенный блок: при ошибке просто не показываем, главная не должна выглядеть сломанной. */}
-      {recent.status === 'ready' && (
+      {!hasToDo && recent.status === 'ready' && (
         <Section title="Недавние документы">
           {recent.data.items.length === 0 ? (
             <Muted>Здесь появятся ваши документы. Нажмите «Новый документ» — сервис проверит оформление и предложит маршрут.</Muted>

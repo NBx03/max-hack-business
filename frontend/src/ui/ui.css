@@ -58,6 +58,11 @@
   gap: var(--ds-space-s);
 }
 
+.ds-header__title.ds-header__title--long {
+  font-size: var(--ds-text-l);
+  line-height: 26px;
+}
+
 .ds-header__title {
   flex: 1;
   min-width: 0;

@@ -59,3 +59,17 @@ export function fileProblem(file: { name: string; type: string; size: number }):
   }
   return null;
 }
+
+/** Коды сервера про сам основной файл: формат, битое содержимое, размер (API_CONTRACTS.md, «Ошибки»). */
+const FILE_ERROR_CODES: ReadonlySet<string> = new Set(['FILE_TYPE_NOT_ALLOWED', 'FILE_INVALID', 'FILE_TOO_LARGE']);
+
+/**
+ * Текст ошибки, если сервер отверг сам основной файл, иначе null. Такую ошибку экран показывает у зоны файла и убирает
+ * файл — он и есть причина; на первой загрузке и при замене файла одинаково (ревью #122, пп. 2–3). 413 без нашего
+ * кода — это nginx: файл больше его лимита.
+ */
+export function fileErrorOf(error: unknown): string | null {
+  if (!(error instanceof Error) || !('status' in error) || !('code' in error)) return null;
+  const { status, code } = error as Error & { status: number; code: string };
+  return FILE_ERROR_CODES.has(code) || status === 413 ? error.message : null;
+}

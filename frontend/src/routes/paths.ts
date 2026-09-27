@@ -95,7 +95,8 @@ export type DocumentListKey = 'waiting' | 'mine' | 'shared';
 export const DOCUMENT_LISTS: Record<DocumentListKey, { title: string; hint: string; tab: 'WAITING_ME' | 'MINE' | 'AVAILABLE' }> = {
   waiting: { title: 'На моём согласовании', hint: 'Ждут вашего решения', tab: 'WAITING_ME' },
   mine: { title: 'Мои документы', hint: 'Созданные вами, включая черновики', tab: 'MINE' },
-  shared: { title: 'Общие документы', hint: 'Открытые для вас в компании', tab: 'AVAILABLE' },
+  // «С вашим решением» — согласующий ищет здесь то, что уже решил (#56, аудит 27.09).
+  shared: { title: 'Общие документы', hint: 'С вашим решением и открытые всем', tab: 'AVAILABLE' },
 };
 
 export function isDocumentListKey(value: string | undefined): value is DocumentListKey {

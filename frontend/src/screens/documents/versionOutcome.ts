@@ -1,4 +1,4 @@
-import type { DocumentCard, DocumentVersion, RouteView, StepView } from '../../api/types';
+import type { DocumentCard, DocumentVersion, FileRef, RouteView, StepView } from '../../api/types';
 import { documentStatusMeta, stepDecisionMeta, type StatusMeta } from '../../ui';
 
 /** Шаги маршрута этой версии: у текущей — этапы маршрута, у прошлых — история. */
@@ -82,4 +82,28 @@ export function pendingReturn(doc: Pick<DocumentCard, 'status' | 'route'>): Step
   const later = [...doc.route.stages.flatMap((stage) => stage.steps), ...doc.route.history]
     .some((other) => other.versionNo > step.versionNo);
   return later ? null : step;
+}
+
+/**
+ * Показывать ли «Изменения с версии N» (#56, аудит 27.09). Разница нужна тем, кто прошлую версию видел: если её не
+ * отправляли (версия 1 до «Исправить в файле»), сравнивать не с чем. У завершённого документа пустое «не менялся» —
+ * шум; на согласовании оно полезно: согласующий знает, что перечитывать не нужно.
+ */
+export function showVersionChanges(doc: Pick<DocumentCard, 'status' | 'changes' | 'route' | 'currentVersionNo'>): boolean {
+  const changes = doc.changes;
+  if (!changes || doc.status === 'DRAFT') return false;
+  if (versionSteps(doc, changes.comparedToVersionNo).length === 0) return false;
+  const empty = changes.files.length === 0 && changes.fields.length === 0 && !changes.contentChanged;
+  return !(empty && (doc.status === 'APPROVED' || doc.status === 'REJECTED'));
+}
+
+/**
+ * Итоговый файл — главное действие утверждённого или согласованного документа (#56). У записки, заполненной в
+ * приложении (#59), файла нет по замыслу: её текст целиком на карточке, выгрузка в файл — WON'T (CLAUDE.md) — тогда null,
+ * и карточка без закреплённого действия (ревью #122, п. 1).
+ */
+export function finalFile(doc: Pick<DocumentCard, 'status' | 'versions' | 'currentVersionNo'>): FileRef | null {
+  if (doc.status !== 'APPROVED') return null;
+  const current = doc.versions.find((version) => version.versionNo === doc.currentVersionNo);
+  return current?.files.find((file) => file.kind === 'MAIN') ?? null;
 }
