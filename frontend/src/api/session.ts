@@ -12,6 +12,7 @@ export function getDemoSandbox(): Promise<DemoSandboxResponse> {
 }
 
 /** Создаёт личную песочницу вызывающего или пересоздаёт её ("Начать заново"). */
-export function createDemoSandbox(): Promise<DemoSandboxResponse> {
-  return apiRequest<DemoSandboxResponse>('/demo/sandbox', { method: 'POST' });
+/** timeZone — пояс устройства (#56): «сегодня» в демо-компании по часам проверяющего; null — Москва. */
+export function createDemoSandbox(timeZone: string | null): Promise<DemoSandboxResponse> {
+  return apiRequest<DemoSandboxResponse>('/demo/sandbox', { method: 'POST', body: { timeZone } });
 }

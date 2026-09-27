@@ -3,6 +3,9 @@ package ru.sibvibe.approval.security.controller;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import jakarta.validation.Valid;
+import ru.sibvibe.approval.security.dto.SandboxRequest;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import ru.sibvibe.approval.common.api.NotFoundException;
@@ -27,9 +30,13 @@ public class DemoSandboxController {
     }
 
     @PostMapping
-    public SandboxResponse reset(@AuthenticationPrincipal CurrentUser currentUser) {
+    public SandboxResponse reset(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @Valid @RequestBody(required = false) SandboxRequest request
+    ) {
         requireDemoMode();
-        return sessionViewService.resetSandbox(currentUser.authenticatedUser().id());
+        // Пояс устройства проверяющего (#56): «сегодня» в демо-компании — по его часам. Нет тела — Москва.
+        return sessionViewService.resetSandbox(currentUser.authenticatedUser().id(), request == null ? null : request.timeZone());
     }
 
     private void requireDemoMode() {

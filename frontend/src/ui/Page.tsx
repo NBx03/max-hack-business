@@ -58,6 +58,9 @@ export function scrollScreenToTop(): void {
  * Шапка экрана: «‹ Куда» (логический родитель, routes/backNavigation.ts — та же цель, что у системной кнопки
  * MAX), заголовок, подзаголовок и то, что справа от заголовка (метка статуса, меню).
  */
+/** С какой длины заголовок уменьшается: 40 символов — около трёх строк крупного шрифта на 360 px. */
+const LONG_TITLE = 40;
+
 export function PageHeader({
   title,
   subtitle,
@@ -73,7 +76,8 @@ export function PageHeader({
     <header className="ds-header">
       {back && <BackLink to={back.to} label={back.label} />}
       <div className="ds-header__row">
-        <h1 className="ds-header__title">{title}</h1>
+        {/* Длинное название — на ступень меньше, но целиком (#56: название компании занимало полэкрана). */}
+        <h1 className={`ds-header__title ${typeof title === 'string' && title.length > LONG_TITLE ? 'ds-header__title--long' : ''}`}>{title}</h1>
         {aside}
       </div>
       {subtitle && <p className="ds-header__subtitle">{subtitle}</p>}

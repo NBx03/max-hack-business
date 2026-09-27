@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DocumentCard, StepView } from '../../api/types';
-import { versionOutcome, versionSteps } from './versionOutcome';
+import type { DocumentCard, FileRef, StepView } from '../../api/types';
+import { finalFile, showVersionChanges, versionOutcome, versionSteps } from './versionOutcome';
 
 // История версий (#56): у каждой версии — чем она закончилась.
 
@@ -56,5 +56,52 @@ describe('versionOutcome', () => {
     expect(versionSteps(card, 3)).toHaveLength(1);
     expect(versionSteps(card, 1)).toHaveLength(2);
     expect(versionSteps({ currentVersionNo: 1, route: null }, 1)).toEqual([]);
+  });
+});
+
+describe('showVersionChanges — разница с прошлой версией (#56)', () => {
+  const changed = { comparedToVersionNo: 1, files: [], fields: [{ name: 'x', label: 'X', before: 'a', after: 'b' }], contentChanged: false };
+  const same = { comparedToVersionNo: 1, files: [], fields: [], contentChanged: false };
+  const sent = (status: DocumentCard['status'], changes: DocumentCard['changes']) => ({
+    status, changes, currentVersionNo: 2,
+    route: { versionNo: 2, stages: [], history: [step(1, 'RETURNED')] },
+  });
+
+  it('прошлую версию видели согласующие — разницу показываем, и пустую на согласовании', () => {
+    expect(showVersionChanges(sent('IN_APPROVAL', changed))).toBe(true);
+    expect(showVersionChanges(sent('IN_APPROVAL', same))).toBe(true);
+  });
+
+  it('прошлую версию не отправляли — сравнивать не с чем', () => {
+    expect(showVersionChanges({ status: 'IN_APPROVAL', changes: changed, currentVersionNo: 2, route: { versionNo: 2, stages: [], history: [] } })).toBe(false);
+  });
+
+  it('завершённый документ без изменений — без пустого «не менялся»', () => {
+    expect(showVersionChanges(sent('APPROVED', same))).toBe(false);
+    expect(showVersionChanges(sent('APPROVED', changed))).toBe(true);
+  });
+});
+
+describe('итоговый файл завершённого документа (ревью #122, п. 1)', () => {
+  const main: FileRef = { id: 5, kind: 'MAIN', fileName: 'Записка.docx', mimeType: '', size: 1, downloadUrl: '/f/5', downloadExpiresAt: '' };
+  const attachment: FileRef = { ...main, id: 6, kind: 'ATTACHMENT', fileName: 'Смета.xlsx' };
+  const version = (versionNo: number, files: FileRef[], content: Record<string, string> | null = null) => ({
+    versionNo, containsSensitive: false, createdAt: '', createdBy: { id: 1, fullName: 'Автор' }, files, content,
+  });
+
+  it('у утверждённого документа с файлом — основной файл текущей версии', () => {
+    expect(finalFile({
+      status: 'APPROVED', currentVersionNo: 2,
+      versions: [version(1, [{ ...main, id: 1 }]), version(2, [attachment, main])],
+    })).toEqual(main);
+  });
+
+  it('у записки, заполненной в приложении, файла нет — и кнопки нет', () => {
+    expect(finalFile({ status: 'APPROVED', currentVersionNo: 1, versions: [version(1, [], { subject: 'О закупке' })] })).toBeNull();
+  });
+
+  it('пока документ не завершён, итогового файла нет', () => {
+    expect(finalFile({ status: 'IN_APPROVAL', currentVersionNo: 1, versions: [version(1, [main])] })).toBeNull();
+    expect(finalFile({ status: 'REJECTED', currentVersionNo: 1, versions: [version(1, [main])] })).toBeNull();
   });
 });

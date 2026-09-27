@@ -50,14 +50,19 @@
 
 | HTTP | Когда |
 |---|---|
-| 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED` |
+| 400 | Неверный ввод: `VALIDATION_FAILED`, `COMMENT_REQUIRED`, `FILE_TYPE_NOT_ALLOWED` (формат основного файла не PDF и не DOCX), `FILE_INVALID` (содержимое основного файла не читается: пустой, повреждённый PDF, опасный DOCX). Оба файловых кода экран показывает у зоны файла и убирает файл — если в `details` нет `file` (см. ниже) |
 | 415 | Неподдерживаемый формат тела или multipart-части: `VALIDATION_FAILED` |
-| 413 | `FILE_TOO_LARGE`. Бэкенд переводит `MaxUploadSizeExceededException` в этот формат; nginx при превышении 32 МБ отвечает своей страницей 413 |
+| 413 | `FILE_TOO_LARGE`. Файл больше 10 МБ и версия больше 30 МБ — текстом `DocumentFileValidator` / сохранения версии (у приложения — с именем файла): лимит Spring на файл — 11 МБ, чтобы до него доходило. Больше 11 МБ на файл или 32 МБ на запрос — `MaxUploadSizeExceededException` в этом же формате; nginx при превышении 32 МБ отвечает своей страницей 413 |
 | 401 | Личность не подтверждена: `INIT_DATA_INVALID`, `INIT_DATA_EXPIRED` (данные запуска старше 24 часов — фронтенд показывает «Откройте приложение заново») |
 | 403 | Нет прав: `FORBIDDEN`, `NOT_ADMIN`, `DEMO_ACT_AS_FORBIDDEN` |
 | 404 | Нет такого или не видно вам: `NOT_FOUND`, `INVITE_NOT_FOUND` |
 | 409 | Нельзя в текущем состоянии: `INVALID_STATE`, `STEP_NOT_ACTIVE`, `ALREADY_MEMBER`, `JOIN_REQUEST_EXISTS`, `LAST_ADMIN`, `ROUTE_ROLE_EMPTY`, `SELECTION_REQUIRED`, `BLOCKING_ISSUES`, `INVITE_USED`, `INVITE_EXPIRED`, `INVITE_REVOKED` |
 | 429 | Слишком много попыток ввода кода: `TOO_MANY_ATTEMPTS`, `details.retryAfterSeconds` — через сколько можно снова |
+
+**К какому файлу ошибка (#69).** Коды `FILE_TYPE_NOT_ALLOWED`, `FILE_INVALID`, `FILE_TOO_LARGE` бывают не только у
+основного файла. Ошибка про приложение несёт `details: { file: "ATTACHMENT", fileName }` — экран показывает её у списка
+приложений и убирает это приложение; про все файлы версии вместе (больше 30 МБ) — `details: { file: "VERSION" }`, текст
+у кнопки отправки. Без `details.file` — ошибка про основной файл.
 | 405 | Метод не поддерживается для этого адреса: `METHOD_NOT_ALLOWED` |
 | Прочие 4xx | Ошибка запроса, которую отдаёт сам Spring (например, 406): `BAD_REQUEST`, HTTP-статус сохраняется |
 | 500 | `INTERNAL_ERROR` — непредвиденная ошибка; HTTP-статус исходной ошибки сохраняется |
@@ -122,11 +127,12 @@ type MemberView = {               // участник компании: отве
 ```ts
 {
   user: UserRef;                 // всегда сам пользователь, даже с X-Demo-Act-As
-  membership: null | { orgId: number; orgName: string; roles: RoleRef[]; isAdmin: boolean };
+  membership: null | { orgId: number; orgName: string; roles: RoleRef[]; isAdmin: boolean;
+                      city: string; timeZone: string };   // город и часовой пояс компании (#56)
                                  // только реальная компания; roles — предметные роли, права администратора — isAdmin
   pendingJoinRequest: null | { id: number; orgName: string; createdAt: string };
   demoMode: boolean;             // показывать ли «Открыть демо-компанию» и переключатель
-  sandbox: null | { orgId: number; orgName: string };   // личная песочница, если создана
+  sandbox: null | { orgId: number; orgName: string; city: string; timeZone: string };   // личная песочница, если создана
   actingAs: null | { user: UserRef; roles: RoleRef[]; isAdmin: boolean };
                                  // только при X-Demo-Act-As: для плашки «Демо: действую как …»
   startParam: string | null;     // из проверенной initData: c_<код>, p_<токен> или d_<id документа>
@@ -141,7 +147,7 @@ type MemberView = {               // участник компании: отве
 
 | Метод и путь | Ответ |
 |---|---|
-| `POST /demo/sandbox` | Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
+| `POST /demo/sandbox` | `{ timeZone? }` — пояс устройства (#56; не из России или нет — Москва). Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
 | `GET /demo/sandbox` | Та же песочница; 404, если ещё не создана |
 
 `X-Demo-Act-As` принимает id из `users` своей песочницы. Сам вызывающий в `users` не входит.
@@ -152,8 +158,9 @@ type MemberView = {               // участник компании: отве
 
 | Метод и путь | Кто | Тело → ответ |
 |---|---|---|
-| `POST /orgs` | Не состоит в реальной компании | `{ name, inn? }` → 201 `{ id, name }`. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
+| `POST /orgs` | Не состоит в реальной компании | `{ name, inn?, city?, timeZone? }` → 201 `{ id, name }`. Город и часовой пояс (#56): только город из списка экрана (`COMPANY_CITIES`) вместе со своим поясом, иначе 400 `VALIDATION_FAILED`; не переданы — Москва. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
 | `GET /orgs/current/roles` | Участник | → `RoleRef[]` — только предметные роли |
+| `PUT /orgs/current/location` | ADMIN | `{ city, timeZone }` → `{ city, timeZone }`. Город и часовой пояс компании (#56): по ним «сегодня» в правилах, периоды списков и показатели. Город не из списка или пояс не его — 400 `VALIDATION_FAILED`; у демо-песочницы — 403 |
 | *SHOULD* `POST /orgs/current/roles` | ADMIN | `{ name }` → 201 `RoleRef` |
 | *SHOULD* `PATCH /orgs/current/roles/{id}` | ADMIN | `{ name }` → `RoleRef` |
 | `GET /orgs/current/invite-code` | ADMIN | → `{ code, link, createdAt }`, `link` = `https://max.ru/t354_hakaton_max_bot?startapp=c_<code>` |
@@ -233,7 +240,7 @@ MAX пропускает в параметре только `A-Z a-z 0-9 _ -`). 
 |---|---|
 | `meta` | JSON `{ documentTypeId?, title?, visibility, containsSensitive, fields?: Record<string,string> }` — принимается и без `Content-Type` у multipart-части; `containsSensitive` относится к этой версии |
 | `main` | Основной файл: PDF или DOCX. Обязателен, если это не документ-форма |
-| `attachments` | *SHOULD.* До 10 файлов: PDF, DOCX, XLSX, PNG, JPG |
+| `attachments` | До 10 файлов: PDF, DOCX, XLSX, PNG, JPG — тип по содержимому (#69). Не подошло одно — не сохраняется ни одно: 400 `FILE_TYPE_NOT_ALLOWED` / `FILE_INVALID` (пустое) / 413 `FILE_TOO_LARGE`, с именем файла в `message` и `details: { file: "ATTACHMENT", fileName }`. Хранятся и скачиваются, но не анализируются |
 
 **Документ-форма (#59)** — тот же адрес JSON-телом (`Content-Type: application/json`) с `content`
 вместо файлов. Служебную записку заполняют прямо в приложении; модель не вызывается — поля уже
@@ -257,7 +264,7 @@ MAX пропускает в параметре только `A-Z a-z 0-9 _ -`). 
 
 `fields` — поля, введённые вручную: при `containsSensitive = true` или когда модель
 недоступна. Заголовок — до 255 символов; не более 100 полей и 10 000 символов в значении.
-Ограничения файлов: 10 МБ на файл, 30 МБ на запрос, тип — по содержимому.
+Ограничения файлов: 10 МБ на файл, 30 МБ на все файлы версии, до 10 приложений, тип — по содержимому.
 
 **Без `documentTypeId` — «Определить автоматически» (#86).** Модель по началу текста
 выбирает один из типов с подробной проверкой; не уверена или недоступна — «Другой документ»
@@ -273,7 +280,8 @@ MAX пропускает в параметре только `A-Z a-z 0-9 _ -`). 
 `AVAILABLE` — остальные документы, которые я вижу по правилу «Кто видит документ»; `status` — показываемый статус
 (`DisplayStatus`, в том числе `IN_ENDORSEMENT` и `ENDORSED`), `q` — поиск по названию, автору, номеру документа
 (`id`) и регистрационному номеру из полей (NAV-3; регистр не важен, `%` и `_` — обычные символы), `typeId`, `authorId`,
-`from`, `to` (даты создания), `page`, `size`. Черновик в `AVAILABLE` не попадает никогда: видимость «вся компания» действует после отправки (DOC-5).
+`from`, `to` (даты создания включительно, в часовом поясе текущей компании — `/me.membership.timeZone` или
+`/me.sandbox.timeZone`, #56), `page`, `size`. Черновик в `AVAILABLE` не попадает никогда: видимость «вся компания» действует после отправки (DOC-5).
 
 ```ts
 type DocumentListItem = {
@@ -366,6 +374,8 @@ type DocumentCard = {
 - **Каждый id из `keepFileIds` обязан быть файлом текущей версии этого документа.**
   Любой другой — 400 `VALIDATION_FAILED` без уточнения, чей это файл.
 - Без нового основного файла в `main` основной файл должен быть в `keepFileIds`.
+- Приложения прежней версии, которых нет в `keepFileIds`, в новую не попадают; новые из `attachments` встают после
+  оставленных. Лимиты (10 приложений, 30 МБ) считаются по итоговой версии — оставленным и новым вместе.
 
 **Документ-форма (#59)** — тот же адрес JSON-телом `{ content: Record<string,string>, containsSensitive }`:
 новая версия с исправленной формой целиком, проверяется правилами сразу, без модели. Те же статусы
@@ -645,7 +655,8 @@ type StepView = {
 
 - Доступен любому активному участнику и учитывает только документы его текущей компании
   (для `X-Demo-Act-As` — личной демо-песочницы).
-- Период задаётся датами включительно в часовом поясе `Europe/Moscow` и применяется к
+- Период задаётся датами включительно в часовом поясе текущей компании (для песочницы — её пояс; тот же, что
+  `/me.membership.timeZone` или `/me.sandbox.timeZone`, #56) и применяется к
   моменту первой отправки; без параметров считается вся история. Не входят документы, ни разу не
   отправленные на согласование. Документ, который вернули и он снова стал черновиком, входит: у него
   уже есть первая отправка (ревью #81).

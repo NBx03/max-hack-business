@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.document.service;
 
+import ru.sibvibe.approval.organization.service.CompanyZoneService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.common.security.CurrentUser;
@@ -13,12 +14,13 @@ import java.time.ZoneId;
 @Service
 public class DocumentMetricsService {
 
-    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Europe/Moscow");
 
     private final DocumentReadRepository repository;
+    private final CompanyZoneService companyZones;
 
-    public DocumentMetricsService(DocumentReadRepository repository) {
+    public DocumentMetricsService(DocumentReadRepository repository, CompanyZoneService companyZones) {
         this.repository = repository;
+        this.companyZones = companyZones;
     }
 
     @Transactional(readOnly = true)
@@ -30,8 +32,10 @@ public class DocumentMetricsService {
             throw DocumentApiException.validation("Дата начала периода не может быть позже даты окончания");
         }
 
-        Instant fromInstant = from == null ? null : from.atStartOfDay(BUSINESS_ZONE).toInstant();
-        Instant toExclusive = to == null ? null : to.plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant();
+        // Границы периода — по часовому поясу компании (#56): «день» у компании в Новосибирске начинается раньше.
+        ZoneId zone = companyZones.zoneOf(user.orgId());
+        Instant fromInstant = from == null ? null : from.atStartOfDay(zone).toInstant();
+        Instant toExclusive = to == null ? null : to.plusDays(1).atStartOfDay(zone).toInstant();
         DocumentReadRepository.MetricsRow row = repository.metrics(user.orgId(), fromInstant, toExclusive);
         return new OrganizationMetricsResponse(
                 row.medianApprovalHours(), row.returnRate(), row.documentsCount());

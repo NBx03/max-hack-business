@@ -50,3 +50,8 @@ export function setRouteRoleMandatory(documentTypeId: number, roleId: number, ma
     body: { mandatory },
   });
 }
+
+/** Город и часовой пояс компании (#56) — только администратор. */
+export function updateCompanyLocation(city: string, timeZone: string): Promise<{ city: string; timeZone: string }> {
+  return apiRequest<{ city: string; timeZone: string }>('/orgs/current/location', { method: 'PUT', body: { city, timeZone } });
+}

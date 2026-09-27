@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
+import ru.sibvibe.approval.organization.dto.CompanyLocationRequest;
 import ru.sibvibe.approval.organization.dto.CreateOrganizationRequest;
 import ru.sibvibe.approval.organization.dto.OrganizationCreatedResponse;
 import ru.sibvibe.approval.organization.dto.RoleNameRequest;
@@ -56,6 +58,15 @@ public class CompanyController {
             @Valid @RequestBody CreateOrganizationRequest request
     ) {
         return companyService.create(currentUser.authenticatedUser().id(), request);
+    }
+
+    /** Город и часовой пояс компании (#56) — только администратор. */
+    @PutMapping("/orgs/current/location")
+    public CompanyService.CompanyLocationView updateLocation(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @Valid @RequestBody CompanyLocationRequest request
+    ) {
+        return companyService.updateLocation(currentUser, request);
     }
 
     @GetMapping("/orgs/current/roles")

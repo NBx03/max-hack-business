@@ -8,8 +8,8 @@ import type {
 } from './types';
 
 /** Создатель получает права администратора и роль «Директор»; роли и маршруты создаются сразу. */
-export function createCompany(name: string, inn: string | null): Promise<OrganizationCreated> {
-  return apiRequest<OrganizationCreated>('/orgs', { method: 'POST', body: { name, inn } });
+export function createCompany(name: string, inn: string | null, city: string, timeZone: string): Promise<OrganizationCreated> {
+  return apiRequest<OrganizationCreated>('/orgs', { method: 'POST', body: { name, inn, city, timeZone } });
 }
 
 /** Название компании по коду. Неверные попытки ограничены бэкендом (429 TOO_MANY_ATTEMPTS). */

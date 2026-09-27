@@ -6,6 +6,7 @@ import { cancelJoinRequest } from '../../api/onboarding';
 import { ApiError, errorMessage } from '../../api/errors';
 import type { PendingJoinRequestRef } from '../../api/types';
 import { ErrorText, Hint, OnboardingLayout } from './OnboardingLayout';
+import { orgInText } from '../../lib/orgName';
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
@@ -56,11 +57,11 @@ export function PendingRequestScreen({ request }: { request: PendingJoinRequestR
   return (
     <OnboardingLayout
       title="Заявка отправлена"
-      subtitle={`Заявка в „${request.orgName}“ ждёт решения администратора. Мы сообщим в чате с ботом, когда её рассмотрят.`}
+      subtitle={`Заявка в компанию ${orgInText(request.orgName)} ждёт решения администратора. Мы сообщим в чате с ботом, когда её рассмотрят.`}
       footer={
         confirming ? (
           <>
-            <Typography.Body variant="medium-strong">Отменить заявку в „{request.orgName}“?</Typography.Body>
+            <Typography.Body variant="medium-strong">Отменить заявку в компанию {orgInText(request.orgName)}?</Typography.Body>
             <Button variant="danger" stretched loading={busy} onClick={() => void cancel()}>
               Да, отменить
             </Button>

@@ -1,11 +1,12 @@
 import { Input, Radio, Switch } from '@maxhub/max-ui';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
+  AttachmentsField,
   Button,
   ErrorState,
   FileDrop,
@@ -21,7 +22,19 @@ import {
 } from '../../ui';
 import { FieldInputs, fieldStyle, labelStyle, sectionStyle, stackStyle } from './DocumentFormParts';
 import { FormatsHelp } from './FormatsHelp';
-import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
+import {
+  ATTACHMENT_ACCEPT,
+  ATTACHMENT_CAPTION,
+  CREATE_STEPS,
+  MAIN_FILE_ACCEPT,
+  MAIN_FILE_CAPTION,
+  MAX_ATTACHMENTS,
+  attachmentErrorOf,
+  fileErrorOf,
+  fileProblem,
+  pickAttachments,
+  versionSizeProblem,
+} from './uploadFormats';
 
 const FORM_ID = 'document-upload-form';
 const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
@@ -54,6 +67,9 @@ export function DocumentUploadScreen() {
   const [title, setTitle] = useState('');
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<{ key: string; file: File }[]>([]);
+  const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
+  const nextAttachmentKey = useRef(0);
   const [visibility, setVisibility] = useState<Visibility>('PRIVATE');
   const [containsSensitive, setContainsSensitive] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -88,13 +104,27 @@ export function DocumentUploadScreen() {
     if (!problem) setMainFile(file);
   }
 
+  function addAttachments(selected: File[]) {
+    const { accepted, problems } = pickAttachments(selected, attachments.length, attachments.map((item) => item.file));
+    setAttachmentsError(problems.length > 0 ? problems.join(' ') : null);
+    setSubmitError(null);
+    setAttachments((current) => [
+      ...current,
+      ...accepted.map((file) => ({ key: String(nextAttachmentKey.current++), file })),
+    ]);
+  }
+
+  const sizeProblem = versionSizeProblem(
+    (mainFile?.size ?? 0) + attachments.reduce((total, item) => total + item.file.size, 0),
+  );
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!mainFile) {
       setFileError('Сначала выберите файл документа.');
       return;
     }
-    if (needsExplicitType) return;
+    if (needsExplicitType || sizeProblem) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -105,10 +135,24 @@ export function DocumentUploadScreen() {
         containsSensitive,
         fields: containsSensitive ? fields : undefined,
         main: mainFile,
+        attachments: attachments.map((item) => item.file),
       });
       navigate(documentCheckPath(card.id), { state: { card } });
     } catch (error) {
-      setSubmitError(errorMessage(error));
+      // Файл не подошёл по содержимому (переименован, повреждён, слишком большой) — ошибка у зоны файла, где его и
+      // меняют, а не внизу у кнопки; сам файл убираем: он и есть причина (#56, аудит 27.09).
+      // Не подошло приложение (#69) — так же, но у списка приложений: убираем именно его.
+      const fileError = fileErrorOf(error);
+      const attachmentError = attachmentErrorOf(error);
+      if (fileError) {
+        setMainFile(null);
+        setFileError(fileError);
+      } else if (attachmentError) {
+        setAttachments((current) => current.filter((item) => item.file.name !== attachmentError.fileName));
+        setAttachmentsError(attachmentError.message);
+      } else {
+        setSubmitError(errorMessage(error));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -147,9 +191,10 @@ export function DocumentUploadScreen() {
       }
       footer={
         <>
+          {sizeProblem && <InlineError>{sizeProblem}</InlineError>}
           {submitError && <InlineError>{submitError}</InlineError>}
           {submitting && <p className="ds-section__hint" style={{ margin: 0 }}>{containsSensitive ? 'Проверяем документ…' : 'Распознаём и проверяем документ — до минуты.'}</p>}
-          <Button type="submit" form={FORM_ID} variant="primary" stretched loading={submitting} disabled={needsExplicitType}>
+          <Button type="submit" form={FORM_ID} variant="primary" stretched loading={submitting} disabled={needsExplicitType || Boolean(sizeProblem)}>
             Далее: проверить документ
           </Button>
         </>
@@ -163,6 +208,7 @@ export function DocumentUploadScreen() {
           caption={MAIN_FILE_CAPTION}
           error={fileError}
           help={<FormatsHelp />}
+          disabled={submitting}
           onSelect={selectFile}
           onRemove={() => {
             setMainFile(null);
@@ -170,7 +216,23 @@ export function DocumentUploadScreen() {
           }}
         />
 
-        {types.some((type) => type.code === 'OFFICIAL_MEMO') && !mainFile && (
+        <AttachmentsField
+          items={attachments.map(({ key, file }) => ({ key, name: file.name, size: file.size }))}
+          accept={ATTACHMENT_ACCEPT}
+          caption={ATTACHMENT_CAPTION}
+          error={attachmentsError}
+          canAdd={attachments.length < MAX_ATTACHMENTS}
+          disabled={submitting}
+          onAdd={addAttachments}
+          onRemove={(key) => {
+            setAttachments((current) => current.filter((item) => item.key !== key));
+            setAttachmentsError(null);
+            setSubmitError(null);
+          }}
+        />
+
+        {/* Записка-форма — без файлов, поэтому и без приложений: выбранные приложения пропали бы молча. */}
+        {types.some((type) => type.code === 'OFFICIAL_MEMO') && !mainFile && attachments.length === 0 && (
           <div style={{ ...sectionStyle, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <span style={{ ...stackStyle, gap: 4 }}>
               <strong>Нет файла?</strong>

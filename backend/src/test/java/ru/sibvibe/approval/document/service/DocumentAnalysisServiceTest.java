@@ -25,7 +25,7 @@ class DocumentAnalysisServiceTest {
         DocumentRuleService rules = mock(DocumentRuleService.class);
         DocumentType type = new DocumentType();
         type.setCode("MEMO");
-        var prepared = new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of());
+        var prepared = new DocumentRuleService.PreparedCheck(type, List.of(), Map.of(), List.of(), Map.of(), java.time.ZoneId.of("Europe/Moscow"));
         var expected = new DocumentRuleService.CheckData(false, List.of(), List.of());
         when(rules.execute(prepared)).thenReturn(expected);
         var service = new DocumentAnalysisService(files, storage, extraction, rules);
