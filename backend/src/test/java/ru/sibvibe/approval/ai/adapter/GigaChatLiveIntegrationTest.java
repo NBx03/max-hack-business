@@ -139,8 +139,9 @@ class GigaChatLiveIntegrationTest {
             document.path("issues").forEach(issue -> expectedIssues.add(issue.asText()));
             boolean matches = actualIssues.equals(expectedIssues);
             issueMismatch |= !matches;
+            // Сводка — не обязательный результат: проверка фактов (#92) намеренно отбрасывает её целиком, если
+            // модель что-то досочинила, и это не регрессия. В отчёте видна, но не проваливает извлечение полей.
             boolean hasSummary = result.summary() != null && !result.summary().isBlank();
-            issueMismatch |= !hasSummary;
             reports.add(new DocumentReport(
                     file.getFileName().toString(),
                     String.join(" ", expectedIssues) + " → " + String.join(" ", actualIssues),

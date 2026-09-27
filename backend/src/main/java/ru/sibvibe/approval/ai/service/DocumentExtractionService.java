@@ -93,7 +93,11 @@ public class DocumentExtractionService {
             restored.put(spec.fieldName(), new DocumentExtractor.ExtractedField(
                     value, verified.valid() ? verified.quote() : null, verified.valid() ? verified.page() : null));
         }
-        String summary = masked.restore(model.summary());
+        // Отдельный вызов модели (#92, ревью капитана к #104): свой системный промпт, свой JSON-ответ — не тот же
+        // запрос, что вернул поля. Общий вызов на два разных запроса сдвигал модель к домысливанию дат в полях.
+        DocumentExtractor.SummaryResult summaryResult = documentExtractor.summarize(
+                new DocumentExtractor.SummaryRequest(masked.text()));
+        String summary = summaryResult.available() ? masked.restore(summaryResult.summary()) : null;
         if (!summarySupportedBy(summary, original.fullText())) {
             summary = null;
         }

@@ -37,12 +37,8 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
     private static final String SYSTEM_PROMPT = """
             Ты извлекаешь структурированные поля из текста документа.
             Не проверяй правила, не оценивай документ и не добавляй сведения, которых нет в тексте.
-            Не давай оценок и рекомендаций и не предлагай решение по документу.
             Верни только JSON без markdown строго вида:
-            {"summary":"2–3 предложения или null","fields":[{"fieldName":"имя","value":"значение или null","quote":"дословная цитата или null","page":1}]}
-            summary кратко объясняет, что просит документ, какие в нём суммы и сроки и кого он касается.
-            Используй только сведения из текста. Числа и даты копируй дословно, не вычисляй и не нормализуй.
-            Метки маскирования в summary тоже возвращай без изменений.
+            {"fields":[{"fieldName":"имя","value":"значение или null","quote":"дословная цитата или null","page":1}]}
             Для каждого поля схемы верни ровно один объект. fieldName не изменяй.
             value — точная копия значения из текста: не переводи слова в числа, не меняй формат даты,
             кавычки, регистр и другие символы. Метки <PERSON_1>, <INN_1>, <SNILS_1>, <PASSPORT_1>,
@@ -55,6 +51,20 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
             она не является содержанием документа и не должна попадать ни в одно поле.
             quote должна быть дословным фрагментом переданного текста. Если поле не найдено,
             value, quote и page должны быть null.
+            """;
+    private static final String SUMMARY_SYSTEM_PROMPT = """
+            Ты пишешь краткую сводку документа для человека, который будет его согласовывать.
+            Не проверяй правила, не оценивай документ, не давай рекомендаций и не выражай мнение —
+            только перескажи суть в 2-3 предложениях: что просит документ, какие в нём суммы и сроки
+            и кого он касается. Используй исключительно факты, дословно присутствующие в тексте:
+            числа, даты, суммы и сроки бери только из текста, ничего не досчитывай и не предполагай.
+            Если каких-то деталей в тексте нет, просто не упоминай их — не заполняй пробелы
+            правдоподобными на вид значениями.
+            Метки <PERSON_1>, <INN_1>, <SNILS_1>, <PASSPORT_1>, <PHONE_1> и аналогичные — замаскированные
+            значения; переноси их в сводку как есть, не расшифровывая и не убирая.
+            Строка «Синтетический тестовый документ…» — служебная пометка, не пересказывай её.
+            Верни только JSON без markdown строго вида: {"summary":"текст сводки или null"}.
+            Если осмысленную сводку составить не из чего, верни {"summary":null}.
             """;
 
     private final ObjectProvider<ChatClient.Builder> builderProvider;
@@ -128,6 +138,78 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
         }
     }
 
+    @Override
+    public SummaryResult summarize(SummaryRequest request) {
+        if (!enabled || !"gigachat".equalsIgnoreCase(provider)
+                || credentials == null || credentials.isBlank()
+                || request == null || request.maskedText() == null || request.maskedText().isBlank()) {
+            return unavailableSummary();
+        }
+        ChatClient.Builder builder = builderProvider.getIfAvailable();
+        if (builder == null) {
+            return unavailableSummary();
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        for (int attempt = 1; ; attempt++) {
+            long left = deadline - System.nanoTime();
+            if (left <= 0) {
+                LOGGER.warn("Истёк тайм-аут сводки GigaChat");
+                return unavailableSummary();
+            }
+            Future<String> call = executor.submit(() -> builder.build().prompt()
+                    .system(SUMMARY_SYSTEM_PROMPT)
+                    .user(request.maskedText())
+                    .call()
+                    .content());
+            try {
+                SummaryResult parsed = parseSummary(call.get(left, TimeUnit.NANOSECONDS));
+                if (parsed.available() || attempt >= MAX_ATTEMPTS) {
+                    return parsed;
+                }
+                LOGGER.info("Повторяем сводку: ответ GigaChat не разобран");
+            } catch (TimeoutException exception) {
+                call.cancel(true);
+                LOGGER.warn("Истёк тайм-аут сводки GigaChat");
+                return unavailableSummary();
+            } catch (InterruptedException exception) {
+                call.cancel(true);
+                Thread.currentThread().interrupt();
+                return unavailableSummary();
+            } catch (ExecutionException | RuntimeException exception) {
+                LOGGER.warn("GigaChat недоступен при сводке: {}", exception.getClass().getSimpleName());
+                return unavailableSummary();
+            }
+        }
+    }
+
+    SummaryResult parseSummary(String response) {
+        try {
+            JsonNode root = objectMapper.reader()
+                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readTree(stripMarkdownFence(response));
+            requireObject(root);
+            if (!root.has("summary")) {
+                throw new IllegalArgumentException();
+            }
+            JsonNode value = root.get("summary");
+            if (value.isNull()) {
+                return new SummaryResult(null, true);
+            }
+            // Не текст, пусто или длиннее лимита — модель ответила не в формате: как «не разобран», не как «нет сводки».
+            if (!value.isTextual() || value.textValue().isBlank() || value.textValue().length() > MAX_SUMMARY_LENGTH) {
+                throw new IllegalArgumentException();
+            }
+            return new SummaryResult(value.textValue(), true);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            LOGGER.warn("GigaChat вернул некорректный JSON сводки");
+            return unavailableSummary();
+        }
+    }
+
+    private SummaryResult unavailableSummary() {
+        return new SummaryResult(null, false);
+    }
+
     @PostConstruct
     void reportDisabledModel() {
         if (enabled && "gigachat".equalsIgnoreCase(provider)
@@ -174,8 +256,7 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
             for (String name : expected.keySet()) {
                 fields.putIfAbsent(name, new ExtractedField(null, null, null));
             }
-            String summary = optionalSummary(root);
-            return new ExtractionResult(Map.copyOf(fields), true, "gigachat", summary);
+            return new ExtractionResult(Map.copyOf(fields), true, "gigachat");
         } catch (JsonProcessingException | IllegalArgumentException exception) {
             LOGGER.warn("GigaChat вернул некорректный JSON извлечения полей");
             return unavailable();
@@ -222,16 +303,6 @@ public class GigaChatDocumentExtractor implements DocumentExtractor {
         }
         if (!value.isTextual() || value.textValue().length() > maxLength) {
             throw new IllegalArgumentException();
-        }
-        return value.textValue();
-    }
-
-    /** Сводка — необязательное дополнение: её дефект не должен уничтожать корректно извлечённые поля. */
-    private String optionalSummary(JsonNode root) {
-        JsonNode value = root.get("summary");
-        if (value == null || value.isNull() || !value.isTextual()
-                || value.textValue().isBlank() || value.textValue().length() > MAX_SUMMARY_LENGTH) {
-            return null;
         }
         return value.textValue();
     }

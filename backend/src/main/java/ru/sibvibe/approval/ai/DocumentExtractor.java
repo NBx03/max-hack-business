@@ -25,11 +25,35 @@ public interface DocumentExtractor {
     ExtractionResult extract(ExtractionRequest request);
 
     /**
+     * Сводка — отдельный вызов модели (#92, ревью капитана к #104), намеренно не часть {@link #extract}: общий
+     * системный промпт на два непохожих запроса («верни поля» и «перескажи своими словами») сдвигал модель к
+     * домысливанию дат и там, где раньше она честно возвращала null — обнаружено живым прогоном GigaChat
+     * (testdata/09_vacation_missing.docx, 16_trip_missing.docx). Разные системные промпты — разные вызовы.
+     *
+     * Никогда не выбрасывает исключение при недоступности модели: возвращает результат с
+     * {@code available = false}, сводки в этом случае просто нет.
+     */
+    SummaryResult summarize(SummaryRequest request);
+
+    /**
      * @param maskedText текст документа, уже прошедший минимизацию и маскирование.
      *                   Сырой текст в этот порт не передаётся никогда
      * @param schema     какие поля ожидаются у этого типа документа
      */
     record ExtractionRequest(String maskedText, String documentTypeCode, List<FieldSpec> schema) {}
+
+    /**
+     * @param maskedText тот же маскированный текст, что уходил в {@link #extract} — повторно
+     *                   минимизировать и маскировать не нужно
+     */
+    record SummaryRequest(String maskedText) {}
+
+    /**
+     * @param summary   2-3 предложения о сути документа; числа и даты — только дословно из текста. {@code null},
+     *                  если модель не дала сводки
+     * @param available false - модель была недоступна
+     */
+    record SummaryResult(String summary, boolean available) {}
 
     /**
      * @param fieldName имя поля в схеме типа документа
