@@ -1,4 +1,4 @@
-import type { DocumentCard, DocumentVersion, StepView } from '../../api/types';
+import type { DocumentCard, DocumentVersion, RouteView, StepView } from '../../api/types';
 import { documentStatusMeta, stepDecisionMeta, type StatusMeta } from '../../ui';
 
 /** Шаги маршрута этой версии: у текущей — этапы маршрута, у прошлых — история. */
@@ -56,4 +56,30 @@ export function personMeta(step: StepView): StatusMeta {
     return { text: 'Ждёт утверждения', tone: 'endorse', icon: 'clock' };
   }
   return stepDecisionMeta(step.decision, step.autoReason);
+}
+
+/** Последнее решение RETURNED - в текущем маршруте или в истории прошлых версий. */
+export function findReturnReason(route: RouteView | null): StepView | null {
+  if (!route) {
+    return null;
+  }
+  const steps = [...route.stages.flatMap((stage) => stage.steps), ...route.history];
+  const returned = steps.filter((step) => step.decision === 'RETURNED');
+  return returned.reduce<StepView | null>((latest, step) => {
+    if (!latest) return step;
+    return (step.decidedAt ?? '') > (latest.decidedAt ?? '') ? step : latest;
+  }, null);
+}
+
+/**
+ * Возврат, по которому автор сейчас исправляет документ: возвращён, или уже черновик следующей версии, но ещё не
+ * отправлен заново. Экран исправления показывает его комментарий — раньше автору приходилось помнить, что просили (#56).
+ */
+export function pendingReturn(doc: Pick<DocumentCard, 'status' | 'route'>): StepView | null {
+  if (doc.status !== 'RETURNED' && doc.status !== 'DRAFT') return null;
+  const step = findReturnReason(doc.route);
+  if (!step || !doc.route) return null;
+  const later = [...doc.route.stages.flatMap((stage) => stage.steps), ...doc.route.history]
+    .some((other) => other.versionNo > step.versionNo);
+  return later ? null : step;
 }

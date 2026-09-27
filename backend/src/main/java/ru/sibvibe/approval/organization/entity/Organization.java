@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.organization.entity;
 
+import ru.sibvibe.approval.organization.service.CompanyTimeZones;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -35,4 +36,12 @@ public class Organization {
 
     @Column(name = "demo_owner_id")
     private Long demoOwnerId;
+
+    /** Город компании — показывается в «Компании»; по нему выбран часовой пояс (#56). */
+    @Column(name = "city", nullable = false)
+    private String city = CompanyTimeZones.DEFAULT_CITY;
+
+    /** Часовой пояс компании (IANA, только пояса России): «сегодня» для правил, периодов и показателей (#56). */
+    @Column(name = "time_zone", nullable = false)
+    private String timeZone = CompanyTimeZones.DEFAULT_ZONE;
 }

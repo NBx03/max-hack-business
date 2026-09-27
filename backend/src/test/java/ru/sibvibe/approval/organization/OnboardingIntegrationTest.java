@@ -333,6 +333,58 @@ class OnboardingIntegrationTest {
                 .containsExactly("LAWYER");
     }
 
+    // ---------- Город и часовой пояс компании (#56) ----------
+
+    @Test
+    void companyKeepsItsCityAndTimeZoneAndOnlyAnAdministratorChangesThem() {
+        long alice = newUser();
+        long bob = newUser();
+        long charlie = newUser();
+
+        // пояс не из России (и не из списка) не принимается: «сегодня» считалось бы непонятно как
+        Resp foreign = call(charlie, "POST", "/api/v1/orgs",
+                Map.of("name", "Чужой пояс", "city", "Лондон", "timeZone", "Europe/London"));
+        assertThat(foreign.status()).isEqualTo(400);
+
+        Resp created = call(alice, "POST", "/api/v1/orgs",
+                Map.of("name", "Ромашка", "city", "Новосибирск", "timeZone", "Asia/Novosibirsk"));
+        assertThat(created.status()).as(created.body()).isEqualTo(201);
+        JsonNode membership = ok(call(alice, "GET", "/api/v1/me", null)).path("membership");
+        assertThat(membership.path("city").asText()).isEqualTo("Новосибирск");
+        assertThat(membership.path("timeZone").asText()).isEqualTo("Asia/Novosibirsk");
+
+        // без города (старый клиент) — Москва
+        createCompany(charlie, "Без города");
+        assertThat(ok(call(charlie, "GET", "/api/v1/me", null)).path("membership").path("timeZone").asText())
+                .isEqualTo("Europe/Moscow");
+
+        // меняет только администратор
+        long bobRequest = submit(bob, inviteCode(alice));
+        ok(call(alice, "POST", "/api/v1/orgs/current/join-requests/" + bobRequest + "/approve",
+                Map.of("roleIds", List.of(roleIds(alice).get("LAWYER")))));
+        Resp byMember = call(bob, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Омск", "timeZone", "Asia/Omsk"));
+        assertThat(byMember.status()).isEqualTo(403);
+        assertThat(byMember.code()).isEqualTo("NOT_ADMIN");
+
+        JsonNode changed = ok(call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Казань", "timeZone", "Europe/Moscow")));
+        assertThat(changed.path("city").asText()).isEqualTo("Казань");
+        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").path("timeZone").asText())
+                .as("сотрудник видит пояс компании сразу").isEqualTo("Europe/Moscow");
+        assertThat(call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Где-то", "timeZone", "Mars/Olympus")).status()).isEqualTo(400);
+        // пара не из списка: город с чужим поясом или город, которого нет на экране
+        Resp mismatched = call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Омск", "timeZone", "Europe/Moscow"));
+        assertThat(mismatched.status()).isEqualTo(400);
+        assertThat(mismatched.code()).isEqualTo("VALIDATION_FAILED");
+        assertThat(call(alice, "PUT", "/api/v1/orgs/current/location",
+                Map.of("city", "Атлантида", "timeZone", "Europe/Moscow")).status()).isEqualTo(400);
+        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").path("city").asText())
+                .as("отклонённая правка ничего не меняет").isEqualTo("Казань");
+    }
+
     // ---------- Последний администратор и незавершённые шаги ----------
 
     @Test

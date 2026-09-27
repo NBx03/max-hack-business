@@ -6,6 +6,8 @@ import { getCompanyRules, resetCompanyRule, updateCompanyRule } from '../../api/
 import type { CompanyRule, CompanyRules, RuleSettingInput, Severity } from '../../api/types';
 import { BottomSheet, Button, ErrorState, Icon, List, Row, Section, Toast, SelectField } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
+import { useSession } from '../../app/SessionContext';
+import { mskLabel } from '../../app/companyTime';
 import { DocumentScreen, LoadingState, Notice, stackStyle } from '../documents/DocumentFormParts';
 import { KIND_LABELS, SEVERITY_HINTS, SEVERITY_LABELS, ruleBasis, ruleTitle } from './ruleText';
 
@@ -181,6 +183,21 @@ function ruleMarks(rule: CompanyRule): string {
   return [KIND_LABELS[rule.kind], rule.customized ? 'изменено компанией' : null].filter(Boolean).join(' · ');
 }
 
+/**
+ * У правила «не позже сегодняшнего дня» — чьё это «сегодня»: по городу компании (#56). Администратор видит, где его
+ * поменять: «Компания» → «Город компании».
+ */
+function TodayZone({ rule }: { rule: CompanyRule }) {
+  const { me } = useSession();
+  const company = me?.actingAs ? me.sandbox : me?.membership;
+  if (rule.check !== 'DATE_NOT_FUTURE' || !company) return null;
+  return (
+    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+      «Сегодня» — по времени компании: {company.city}, {mskLabel(company.timeZone)}
+    </span>
+  );
+}
+
 /** Для сотрудника без прав администратора: что проверяется и на каком основании — без формы. */
 function RuleDetails({ rule, onClose }: { rule: CompanyRule | null; onClose: () => void }) {
   return (
@@ -192,6 +209,7 @@ function RuleDetails({ rule, onClose }: { rule: CompanyRule | null; onClose: () 
           </span>
           <span style={{ fontSize: 15 }}>{rule.description}</span>
           <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{ruleBasis(rule)}</span>
+          <TodayZone rule={rule} />
           {rule.locked && <Notice>🔒 Требование закона одинаково для всех компаний.</Notice>}
           <Button stretched variant="secondary" onClick={onClose}>Понятно</Button>
         </div>
@@ -305,6 +323,7 @@ function RuleEditor({
         </div>
       ) : (
         <div style={{ ...stackStyle, gap: 14 }}>
+          <TodayZone rule={rule} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch checked={draft.enabled} disabled={busy !== null} onChange={(event) => update({ enabled: event.target.checked })} />
             <span>Проверять это правило</span>

@@ -37,14 +37,14 @@ public class SessionViewService {
         long authenticatedId = currentUser.authenticatedUser().id();
         MeResponse.Membership membership = organizationService.findRealMembership(authenticatedId)
                 .map(value -> new MeResponse.Membership(
-                        value.orgId(), value.orgName(), roles(value.roles()), value.admin()))
+                        value.orgId(), value.orgName(), roles(value.roles()), value.admin(), value.city(), value.timeZone()))
                 .orElse(null);
         MeResponse.PendingJoinRequest pending = organizationService.findPendingJoin(authenticatedId)
                 .map(value -> new MeResponse.PendingJoinRequest(value.id(), value.orgName(), value.createdAt()))
                 .orElse(null);
         MeResponse.Sandbox sandbox = demoMode
                 ? organizationService.findSandbox(authenticatedId)
-                        .map(value -> new MeResponse.Sandbox(value.orgId(), value.orgName()))
+                        .map(value -> new MeResponse.Sandbox(value.orgId(), value.orgName(), value.city(), value.timeZone()))
                         .orElse(null)
                 : null;
         MeResponse.ActingAs actingAs = actingAs(currentUser);
@@ -72,8 +72,8 @@ public class SessionViewService {
     }
 
     @Transactional
-    public SandboxResponse resetSandbox(long ownerId) {
-        return sandbox(organizationService.resetSandbox(ownerId));
+    public SandboxResponse resetSandbox(long ownerId, String timeZone) {
+        return sandbox(organizationService.resetSandbox(ownerId, timeZone));
     }
 
     public boolean demoMode() {

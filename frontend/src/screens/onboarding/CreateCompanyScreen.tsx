@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Button } from '../../ui';
+import { Button, SelectField } from '../../ui';
+import { cityByName, cityOptions, defaultCity } from '../../app/companyTime';
 import { Input, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { createCompany } from '../../api/onboarding';
@@ -15,6 +16,8 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
   const { refresh } = useSession();
   const [name, setName] = useState('');
   const [inn, setInn] = useState('');
+  // Город — сразу по часовому поясу телефона (#56): «сегодня» у компании считается по нему.
+  const [city, setCity] = useState(() => defaultCity().city);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +33,8 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await createCompany(trimmedName, trimmedInn === '' ? null : trimmedInn);
+      const location = cityByName(city) ?? defaultCity(null);
+      await createCompany(trimmedName, trimmedInn === '' ? null : trimmedInn, location.city, location.timeZone);
       // После создания человек — администратор своей компании: роутер по свежему /me
       // сразу откроет «3. Приглашение» (AppRoutes, guardTarget).
       await refresh();
@@ -66,6 +70,18 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
             onChange={(event) => setName(event.target.value)}
           />
         </label>
+        {/* Подпись — как у соседних полей: SelectField со своей подписью выглядел бы другим шрифтом. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <Typography.Label variant="medium-strong">Город</Typography.Label>
+          <SelectField
+          placeholder="Выберите город"
+          sheetTitle="Город компании"
+          searchable
+          options={cityOptions()}
+          value={city}
+          onChange={setCity}
+          />
+        </div>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <Typography.Label variant="medium-strong">ИНН</Typography.Label>
           <Input

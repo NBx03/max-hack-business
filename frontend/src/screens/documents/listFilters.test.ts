@@ -16,14 +16,21 @@ describe('фильтры списков (NAV-3, ревью #110)', () => {
   });
 
   it('период — дата начала включительно, в формате сервера', () => {
-    const now = new Date(2026, 8, 26, 15, 0);
+    const now = new Date('2026-09-26T12:00:00Z');
     expect(periodFrom('week', now)).toBe('2026-09-20');
     expect(periodFrom('month', now)).toBe('2026-08-28');
     expect(periodFrom('year', now)).toBe('2025-09-27');
   });
 
+  it('«сегодня» периода — по поясу компании, а не по часам телефона (#56)', () => {
+    // 18:40 UTC: в Москве ещё 26-е, в Новосибирске уже 27-е
+    const now = new Date('2026-09-26T18:40:00Z');
+    expect(periodFrom('week', now, 'Europe/Moscow')).toBe('2026-09-20');
+    expect(periodFrom('week', now, 'Asia/Novosibirsk')).toBe('2026-09-21');
+  });
+
   it('запрос: период превращается в from, страница и размер — как попросили', () => {
-    const now = new Date(2026, 8, 26);
+    const now = new Date('2026-09-26T09:00:00Z');
     expect(toQuery({ status: 'DRAFT', q: 'акт', period: 'week' }, 2, 30, now)).toEqual({
       status: 'DRAFT', q: 'акт', from: '2026-09-20', page: 2, size: 30,
     });

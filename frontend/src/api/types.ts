@@ -19,6 +19,9 @@ export interface MembershipRef {
   orgName: string;
   roles: RoleRef[];
   isAdmin: boolean;
+  /** Город и часовой пояс компании (#56): «сегодня» — по нему, а не по часам телефона. */
+  city: string;
+  timeZone: string;
 }
 
 export interface PendingJoinRequestRef {
@@ -30,6 +33,9 @@ export interface PendingJoinRequestRef {
 export interface SandboxRef {
   orgId: number;
   orgName: string;
+  /** Город и часовой пояс демо-компании (#56) — по поясу устройства при создании. */
+  city: string;
+  timeZone: string;
 }
 
 export interface ActingAsRef {

@@ -122,11 +122,12 @@ type MemberView = {               // участник компании: отве
 ```ts
 {
   user: UserRef;                 // всегда сам пользователь, даже с X-Demo-Act-As
-  membership: null | { orgId: number; orgName: string; roles: RoleRef[]; isAdmin: boolean };
+  membership: null | { orgId: number; orgName: string; roles: RoleRef[]; isAdmin: boolean;
+                      city: string; timeZone: string };   // город и часовой пояс компании (#56)
                                  // только реальная компания; roles — предметные роли, права администратора — isAdmin
   pendingJoinRequest: null | { id: number; orgName: string; createdAt: string };
   demoMode: boolean;             // показывать ли «Открыть демо-компанию» и переключатель
-  sandbox: null | { orgId: number; orgName: string };   // личная песочница, если создана
+  sandbox: null | { orgId: number; orgName: string; city: string; timeZone: string };   // личная песочница, если создана
   actingAs: null | { user: UserRef; roles: RoleRef[]; isAdmin: boolean };
                                  // только при X-Demo-Act-As: для плашки «Демо: действую как …»
   startParam: string | null;     // из проверенной initData: c_<код>, p_<токен> или d_<id документа>
@@ -141,7 +142,7 @@ type MemberView = {               // участник компании: отве
 
 | Метод и путь | Ответ |
 |---|---|
-| `POST /demo/sandbox` | Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
+| `POST /demo/sandbox` | `{ timeZone? }` — пояс устройства (#56; не из России или нет — Москва). Создаёт личную песочницу вызывающего или пересоздаёт её («Начать заново») → `{ orgId, orgName, users: [{ user: UserRef, roles: RoleRef[], isAdmin: boolean }] }` |
 | `GET /demo/sandbox` | Та же песочница; 404, если ещё не создана |
 
 `X-Demo-Act-As` принимает id из `users` своей песочницы. Сам вызывающий в `users` не входит.
@@ -152,8 +153,9 @@ type MemberView = {               // участник компании: отве
 
 | Метод и путь | Кто | Тело → ответ |
 |---|---|---|
-| `POST /orgs` | Не состоит в реальной компании | `{ name, inn? }` → 201 `{ id, name }`. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
+| `POST /orgs` | Не состоит в реальной компании | `{ name, inn?, city?, timeZone? }` → 201 `{ id, name }`. Город и часовой пояс (#56): только город из списка экрана (`COMPANY_CITIES`) вместе со своим поясом, иначе 400 `VALIDATION_FAILED`; не переданы — Москва. Создатель получает права администратора и роль «Директор»; роли и маршруты по умолчанию создаются сразу. 409 `ALREADY_MEMBER` |
 | `GET /orgs/current/roles` | Участник | → `RoleRef[]` — только предметные роли |
+| `PUT /orgs/current/location` | ADMIN | `{ city, timeZone }` → `{ city, timeZone }`. Город и часовой пояс компании (#56): по ним «сегодня» в правилах, периоды списков и показатели. Город не из списка или пояс не его — 400 `VALIDATION_FAILED`; у демо-песочницы — 403 |
 | *SHOULD* `POST /orgs/current/roles` | ADMIN | `{ name }` → 201 `RoleRef` |
 | *SHOULD* `PATCH /orgs/current/roles/{id}` | ADMIN | `{ name }` → `RoleRef` |
 | `GET /orgs/current/invite-code` | ADMIN | → `{ code, link, createdAt }`, `link` = `https://max.ru/t354_hakaton_max_bot?startapp=c_<code>` |
@@ -273,7 +275,8 @@ MAX пропускает в параметре только `A-Z a-z 0-9 _ -`). 
 `AVAILABLE` — остальные документы, которые я вижу по правилу «Кто видит документ»; `status` — показываемый статус
 (`DisplayStatus`, в том числе `IN_ENDORSEMENT` и `ENDORSED`), `q` — поиск по названию, автору, номеру документа
 (`id`) и регистрационному номеру из полей (NAV-3; регистр не важен, `%` и `_` — обычные символы), `typeId`, `authorId`,
-`from`, `to` (даты создания), `page`, `size`. Черновик в `AVAILABLE` не попадает никогда: видимость «вся компания» действует после отправки (DOC-5).
+`from`, `to` (даты создания включительно, в часовом поясе текущей компании — `/me.membership.timeZone` или
+`/me.sandbox.timeZone`, #56), `page`, `size`. Черновик в `AVAILABLE` не попадает никогда: видимость «вся компания» действует после отправки (DOC-5).
 
 ```ts
 type DocumentListItem = {
@@ -635,7 +638,8 @@ type StepView = {
 
 - Доступен любому активному участнику и учитывает только документы его текущей компании
   (для `X-Demo-Act-As` — личной демо-песочницы).
-- Период задаётся датами включительно в часовом поясе `Europe/Moscow` и применяется к
+- Период задаётся датами включительно в часовом поясе текущей компании (для песочницы — её пояс; тот же, что
+  `/me.membership.timeZone` или `/me.sandbox.timeZone`, #56) и применяется к
   моменту первой отправки; без параметров считается вся история. Не входят документы, ни разу не
   отправленные на согласование. Документ, который вернули и он снова стал черновиком, входит: у него
   уже есть первая отправка (ревью #81).

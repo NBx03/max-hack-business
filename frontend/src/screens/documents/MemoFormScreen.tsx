@@ -1,4 +1,5 @@
 import { Input, Radio, Typography } from '@maxhub/max-ui';
+import { companyZoneOf, todayIn } from '../../app/companyTime';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createFormDocument, getDocumentTypes } from '../../api/documents';
@@ -23,9 +24,14 @@ const FORM_ID = 'memo-form';
 const MEMO_BACK = { to: ROUTE_PATTERNS.documentUpload, label: 'Новый документ' };
 const MEMO_TYPE_CODE = 'OFFICIAL_MEMO';
 
-/** Сегодня в принятом в компании виде — ДД.ММ.ГГГГ: дату записки чаще всего ставят сегодняшнюю. */
-function today(): string {
-  return new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+/**
+ * Сегодня компании в виде ДД.ММ.ГГГГ: дату записки чаще всего ставят сегодняшнюю. По поясу компании, а не телефона —
+ * тот же день, что у правила «не позже сегодняшнего дня» на сервере (#56).
+ */
+function today(zone: string): string {
+  const { year, month, day } = todayIn(zone);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(day)}.${pad(month)}.${year}`;
 }
 
 /**
@@ -42,7 +48,7 @@ export function MemoFormScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [visibility, setVisibility] = useState<Visibility>('PRIVATE');
-  const [content, setContent] = useState<Record<string, string>>(() => ({ author_name: authorName, doc_date: today() }));
+  const [content, setContent] = useState<Record<string, string>>(() => ({ author_name: authorName, doc_date: today(companyZoneOf(me)) }));
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
