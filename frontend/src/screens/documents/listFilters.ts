@@ -13,10 +13,21 @@ export function pluralDays(n: number): string {
   return 'дней';
 }
 
-/** «ждёт 3 дня», меньше суток — «пришёл сегодня» — для раздела «На моём согласовании». */
-export function waitingText(iso: string, now: number = Date.now()): string {
-  const days = Math.max(0, Math.floor((now - new Date(iso).getTime()) / (24 * 60 * 60 * 1000)));
-  return days === 0 ? 'пришёл сегодня' : `ждёт ${days} ${pluralDays(days)}`;
+/** Номер календарного дня в поясе компании — чтобы считать «сегодня» и «вчера» по её часам. */
+function dayNumber(zone: string, at: Date): number {
+  const { year, month, day } = todayIn(zone, at);
+  return Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000);
+}
+
+/**
+ * «пришёл сегодня», «пришёл вчера», «ждёт 3 дня» — для раздела «На моём согласовании». Считаются календарные дни
+ * в поясе компании, а не прошедшие сутки: шаг, пришедший в 23:50, в 00:10 — уже вчерашний (ревью #123, п. 1).
+ */
+export function waitingText(iso: string, zone: string = DEFAULT_ZONE, now: number = Date.now()): string {
+  const days = Math.max(0, dayNumber(zone, new Date(now)) - dayNumber(zone, new Date(iso)));
+  if (days === 0) return 'пришёл сегодня';
+  if (days === 1) return 'пришёл вчера';
+  return `ждёт ${days} ${pluralDays(days)}`;
 }
 
 /**

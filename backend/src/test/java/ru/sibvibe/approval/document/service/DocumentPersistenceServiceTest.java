@@ -358,6 +358,6 @@ class DocumentPersistenceServiceTest {
         type.setCode("MEMO");
         type.setName("Записка");
         type.setGeneric(false);
-        return new DocumentRuleService.PreparedCheck(type, List.of(), fields, List.of());
+        return new DocumentRuleService.PreparedCheck(type, List.of(), fields, List.of(), Map.of(), java.time.ZoneId.of("Europe/Moscow"));
     }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MeResponse } from '../api/types';
-import { demoActorToResume } from './demo';
+import { actorKey, demoActorToResume } from './demo';
 
 // Возврат в демонстрацию при открытии приложения (приёмка 24.09, п. 11; ревью #95, п. 2).
 
@@ -39,5 +39,18 @@ describe('demoActorToResume', () => {
   it('без запомненного участника или без песочницы — не возвращает', () => {
     expect(demoActorToResume(withoutCompany, null)).toBeNull();
     expect(demoActorToResume({ ...withoutCompany, sandbox: null }, 42)).toBeNull();
+  });
+});
+
+describe('actorKey', () => {
+  const lawyer = { user: { id: 7, fullName: 'Демо Юрист' }, roles: [], isAdmin: false };
+  const author = { user: { id: 6, fullName: 'Демо Автор' }, roles: [], isAdmin: false };
+
+  it('меняется при смене участника демо — экраны перечитывают данные для нового участника', () => {
+    expect(actorKey({ ...withoutCompany, actingAs: author })).not.toBe(actorKey({ ...withoutCompany, actingAs: lawyer }));
+  });
+
+  it('различает работу от своего имени и от имени участника демо', () => {
+    expect(actorKey(withoutCompany)).not.toBe(actorKey({ ...withoutCompany, actingAs: author }));
   });
 });

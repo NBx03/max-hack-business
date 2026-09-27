@@ -2,7 +2,7 @@ import { Input, Radio, Switch } from '@maxhub/max-ui';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
-import { ApiError, errorMessage } from '../../api/errors';
+import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
@@ -21,7 +21,7 @@ import {
 } from '../../ui';
 import { FieldInputs, fieldStyle, labelStyle, sectionStyle, stackStyle } from './DocumentFormParts';
 import { FormatsHelp } from './FormatsHelp';
-import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileProblem } from './uploadFormats';
+import { CREATE_STEPS, MAIN_FILE_ACCEPT, MAIN_FILE_CAPTION, fileErrorOf, fileProblem } from './uploadFormats';
 
 const FORM_ID = 'document-upload-form';
 const UPLOAD_BACK = { to: ROUTE_PATTERNS.home, label: 'Главная' };
@@ -46,9 +46,6 @@ function sortTypes(types: DocumentType[]): DocumentType[] {
 }
 
 /** 9. Новый документ — шаг 1 «Файл» (UPL-1…UPL-3, UPL-6). */
-/** Ошибки сервера про сам файл — показываются у зоны выбора файла. */
-const FILE_ERRORS: ReadonlySet<string> = new Set(['FILE_TYPE_NOT_ALLOWED', 'FILE_TOO_LARGE']);
-
 export function DocumentUploadScreen() {
   const navigate = useNavigate();
   const [types, setTypes] = useState<DocumentType[] | null>(null);
@@ -113,9 +110,10 @@ export function DocumentUploadScreen() {
     } catch (error) {
       // Файл не подошёл по содержимому (переименован, повреждён, слишком большой) — ошибка у зоны файла, где его и
       // меняют, а не внизу у кнопки; сам файл убираем: он и есть причина (#56, аудит 27.09).
-      if (error instanceof ApiError && FILE_ERRORS.has(error.code)) {
+      const fileError = fileErrorOf(error);
+      if (fileError) {
         setMainFile(null);
-        setFileError(errorMessage(error));
+        setFileError(fileError);
       } else {
         setSubmitError(errorMessage(error));
       }

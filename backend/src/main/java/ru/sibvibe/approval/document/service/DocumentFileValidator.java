@@ -27,7 +27,7 @@ public class DocumentFileValidator {
 
     public ValidatedFile validateMain(MultipartFile file) {
         if (file == null || file.isEmpty() || file.getSize() <= 0) {
-            throw DocumentApiException.validation("Основной файл не должен быть пустым");
+            throw DocumentApiException.fileInvalid("Файл пустой. Выберите файл документа ещё раз");
         }
         if (file.getSize() > MAX_FILE_SIZE) {
             throw DocumentApiException.fileTooLarge("Размер файла превышает 10 МБ");
@@ -37,10 +37,10 @@ public class DocumentFileValidator {
         try {
             content = file.getBytes();
         } catch (IOException exception) {
-            throw DocumentApiException.validation("Не удалось прочитать загруженный файл");
+            throw DocumentApiException.fileInvalid("Не удалось прочитать файл. Выберите его ещё раз");
         }
         if (content.length == 0) {
-            throw DocumentApiException.validation("Основной файл не должен быть пустым");
+            throw DocumentApiException.fileInvalid("Файл пустой. Выберите файл документа ещё раз");
         }
         String mimeType = detectMainType(content, fileName);
         return new ValidatedFile(content, fileName, mimeType);
@@ -105,13 +105,13 @@ public class DocumentFileValidator {
     private void validatePdf(byte[] content) {
         try (var document = Loader.loadPDF(content)) {
             if (document.getNumberOfPages() < 1) {
-                throw DocumentApiException.validation("PDF не содержит страниц");
+                throw DocumentApiException.fileInvalid("В PDF нет ни одной страницы. Сохраните документ в PDF заново");
             }
         } catch (IOException | RuntimeException exception) {
             if (exception instanceof DocumentApiException apiException) {
                 throw apiException;
             }
-            throw DocumentApiException.validation("PDF повреждён или имеет неподдерживаемую структуру");
+            throw DocumentApiException.fileInvalid("PDF повреждён и не открывается. Откройте исходный документ и сохраните его в PDF заново");
         }
     }
 
@@ -127,14 +127,14 @@ public class DocumentFileValidator {
             byte[] buffer = new byte[8192];
             while ((entry = zip.getNextEntry()) != null) {
                 if (++entries > MAX_DOCX_ENTRIES) {
-                    throw DocumentApiException.validation("DOCX содержит слишком много записей");
+                    throw DocumentApiException.fileInvalid("DOCX устроен необычно и не может быть проверен. Сохраните его в Word заново");
                 }
                 required.remove(entry.getName());
                 int read;
                 while ((read = zip.read(buffer)) != -1) {
                     uncompressedSize += read;
                     if (uncompressedSize > MAX_DOCX_UNCOMPRESSED_SIZE) {
-                        throw DocumentApiException.validation("Распакованный DOCX слишком большой");
+                        throw DocumentApiException.fileInvalid("DOCX слишком большой после распаковки. Сохраните его в Word заново без лишних вложений");
                     }
                 }
             }

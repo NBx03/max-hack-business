@@ -77,10 +77,15 @@ class DocumentFileValidatorTest {
                 });
         assertThat(DocumentFileValidator.mismatchMessage("отчёт.DOCX")).startsWith("Файл повреждён или это не DOCX");
         assertThat(DocumentFileValidator.mismatchMessage("таблица.xlsx")).isEqualTo("Основной файл должен быть PDF или DOCX");
+        // Сигнатура PDF на месте, но файл битый — тот же «файловый» код, что и у подмены: ошибка у зоны файла (ревью #122, п. 3)
         assertThatThrownBy(() -> validator.validateMain(file("broken.pdf", "application/pdf", "%PDF-broken".getBytes())))
-                .isInstanceOf(DocumentApiException.class);
+                .isInstanceOfSatisfying(DocumentApiException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FILE_INVALID");
+                    assertThat(exception.getMessage()).startsWith("PDF повреждён и не открывается");
+                });
         assertThatThrownBy(() -> validator.validateMain(file("empty.pdf", "application/pdf", new byte[0])))
-                .isInstanceOf(DocumentApiException.class);
+                .isInstanceOfSatisfying(DocumentApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("FILE_INVALID"));
         assertThatThrownBy(() -> validator.validateMain(file(
                 "large.pdf", "application/pdf", new byte[(int) DocumentFileValidator.MAX_FILE_SIZE + 1])))
                 .isInstanceOfSatisfying(DocumentApiException.class,
@@ -119,8 +124,9 @@ class DocumentFileValidatorTest {
 
         assertThatThrownBy(() -> validator.validateMain(file(
                 "bomb.docx", "application/octet-stream", output.toByteArray())))
-                .isInstanceOf(DocumentApiException.class)
-                .hasMessageContaining("слишком много записей");
+                .isInstanceOfSatisfying(DocumentApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("FILE_INVALID"))
+                .hasMessageContaining("не может быть проверен");
     }
 
     @Test
@@ -140,7 +146,8 @@ class DocumentFileValidatorTest {
 
         assertThatThrownBy(() -> validator.validateMain(file(
                 "bomb.docx", "application/octet-stream", output.toByteArray())))
-                .isInstanceOf(DocumentApiException.class)
+                .isInstanceOfSatisfying(DocumentApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("FILE_INVALID"))
                 .hasMessageContaining("слишком большой");
     }
 
