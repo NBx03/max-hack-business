@@ -1,10 +1,8 @@
-# syntax=docker/dockerfile:1.7
-
 # ---------- Этап 1: зависимости ----------
 # Отдельный слой только под pom.xml. Пока зависимости не менялись, этот слой
 # берётся из кэша и повторная сборка укладывается в секунды - это то, что
 # держит нас в лимите 5 минут из требований кейса.
-FROM maven:3.9-eclipse-temurin-21 AS deps
+FROM public.ecr.aws/docker/library/maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320 AS deps
 WORKDIR /build
 COPY pom.xml .
 # dependency:resolve, а не go-offline: go-offline дополнительно тянет плагины
@@ -23,7 +21,7 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 # ---------- Этап 3: рантайм ----------
 # Только JRE, без Maven и исходников - образ меньше, поверхность атаки меньше.
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre-alpine@sha256:51ab5e3302e7141ce665ca3ea85e8b5cd648eafbc3c0c90dd79d6537684e4555 AS runtime
 
 RUN addgroup -S app && adduser -S -G app app && \
     apk add --no-cache curl
