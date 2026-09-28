@@ -50,3 +50,9 @@ databaseChangeLog:
   - include:
       file: 017-organization-time-zone.sql
       relativeToChangelogFile: true
+  - include:
+      file: 018-document-title-auto.sql
+      relativeToChangelogFile: true
+  - include:
+      file: 019-document-ai-type.sql
+      relativeToChangelogFile: true

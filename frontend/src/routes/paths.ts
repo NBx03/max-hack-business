@@ -21,6 +21,8 @@ export const ROUTE_PATTERNS = {
   company: '/company',
   /** «Правила проверки» (#91): внутри раздела «Компания». */
   companyRules: '/company/rules',
+  /** Редактор состава шаблона маршрута вида документа (#98): внутри раздела «Компания». */
+  companyRouteTemplate: '/company/routes/:typeId',
   documentUpload: '/documents/new',
   /** Служебная записка, заполненная прямо в приложении, без файла (#59). */
   memoForm: '/documents/new/memo',
@@ -87,6 +89,10 @@ export function companyRulesPath(ruleId?: number): string {
 
 export function routePreviewPath(id: number | string): string {
   return ROUTE_PATTERNS.routePreview.replace(':id', String(id));
+}
+
+export function companyRouteTemplatePath(typeId: number | string): string {
+  return ROUTE_PATTERNS.companyRouteTemplate.replace(':typeId', String(typeId));
 }
 
 /** Разделы документов (NAV-1, NAV-2) — одни и те же названия на плитках, в заголовках списков и в текстах бота. */

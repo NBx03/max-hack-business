@@ -48,7 +48,7 @@ function stageId(): string {
 }
 
 export function roleNames(roles: { name: string }[]): string {
-  return roles.map((role) => role.name).join(' · ');
+  return roles.map((role) => role.name).join(', ');
 }
 
 function personSlot(user: UserRef, role: RoleRef, roles: string): Slot {

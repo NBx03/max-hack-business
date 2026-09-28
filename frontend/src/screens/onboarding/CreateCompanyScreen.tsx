@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Button, SelectField } from '../../ui';
-import { cityByName, cityOptions, defaultCity } from '../../app/companyTime';
+import { defaultCity, locationOf, zoneChoice, zoneOptions } from '../../app/companyTime';
 import { Input, Typography } from '@maxhub/max-ui';
 import { useSession } from '../../app/SessionContext';
 import { createCompany } from '../../api/onboarding';
@@ -16,8 +16,9 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
   const { refresh } = useSession();
   const [name, setName] = useState('');
   const [inn, setInn] = useState('');
-  // Город — сразу по часовому поясу телефона (#56): «сегодня» у компании считается по нему.
-  const [city, setCity] = useState(() => defaultCity().city);
+  // Часовой пояс — сразу по телефону (#56): «сегодня» у компании считается по нему. Выбирается пояс, а не город
+  // (решение Булата 28.09): города компании может не быть в списке, а пояс есть у любого.
+  const [zone, setZone] = useState(() => zoneChoice(defaultCity().timeZone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +34,7 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const location = cityByName(city) ?? defaultCity(null);
+      const location = locationOf(zone);
       await createCompany(trimmedName, trimmedInn === '' ? null : trimmedInn, location.city, location.timeZone);
       // После создания человек — администратор своей компании: роутер по свежему /me
       // сразу откроет «3. Приглашение» (AppRoutes, guardTarget).
@@ -72,14 +73,13 @@ export function CreateCompanyScreen({ onBack }: { onBack: () => void }) {
         </label>
         {/* Подпись — как у соседних полей: SelectField со своей подписью выглядел бы другим шрифтом. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <Typography.Label variant="medium-strong">Город</Typography.Label>
+          <Typography.Label variant="medium-strong">Часовой пояс</Typography.Label>
           <SelectField
-          placeholder="Выберите город"
-          sheetTitle="Город компании"
-          searchable
-          options={cityOptions()}
-          value={city}
-          onChange={setCity}
+          placeholder="Выберите часовой пояс"
+          sheetTitle="Часовой пояс компании"
+          options={zoneOptions()}
+          value={zone}
+          onChange={setZone}
           />
         </div>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

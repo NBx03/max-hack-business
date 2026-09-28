@@ -156,6 +156,10 @@ public class DocumentViewService {
         }
         Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
         var type = typeRepository.findById(document.getDocumentTypeId()).orElseThrow();
+        // Вид, который определил ИИ, — только если он не совпадает с выбранным (решение Булата 28.09).
+        var aiType = document.getAiTypeId() == null || document.getAiTypeId().equals(document.getDocumentTypeId())
+                ? null
+                : typeRepository.findById(document.getAiTypeId()).orElse(null);
         List<DocumentVersion> versions = versionRepository.findByDocumentIdOrderByVersionNoAsc(documentId);
         Map<Long, List<DocumentFile>> files = fileRepository
                 .findByVersionIdInOrderByVersionIdAscPositionAsc(
@@ -224,7 +228,8 @@ public class DocumentViewService {
                 document.getId(),
                 document.getTitle(),
                 new DocumentCardResponse.TypeRef(
-                        type.getId(), type.getCode(), type.getName(), type.isGeneric(), document.isTypeAutoDetected()),
+                        type.getId(), type.getCode(), type.getName(), type.isGeneric(), document.isTypeAutoDetected(),
+                        aiType == null ? null : aiType.getId(), aiType == null ? null : aiType.getName()),
                 document.getStatus(),
                 readRepository.displayStatus(documentId),
                 document.getVisibility(),

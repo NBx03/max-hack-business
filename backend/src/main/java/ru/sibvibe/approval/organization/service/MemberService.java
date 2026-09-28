@@ -1,5 +1,6 @@
 package ru.sibvibe.approval.organization.service;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.common.security.CurrentUser;
@@ -10,6 +11,7 @@ import ru.sibvibe.approval.organization.entity.JoinRequest;
 import ru.sibvibe.approval.organization.entity.MemberRole;
 import ru.sibvibe.approval.organization.entity.Organization;
 import ru.sibvibe.approval.organization.entity.OrganizationMember;
+import ru.sibvibe.approval.organization.event.AdminChangedEvent;
 import ru.sibvibe.approval.organization.repository.JoinRequestRepository;
 import ru.sibvibe.approval.organization.repository.MemberRoleRepository;
 import ru.sibvibe.approval.organization.repository.OrganizationMemberRepository;
@@ -36,6 +38,7 @@ public class MemberService {
     private final PendingStepsGuard pendingStepsGuard;
     private final MemberViewAssembler assembler;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     public MemberService(
             OrganizationMemberRepository memberRepository,
@@ -45,7 +48,8 @@ public class MemberService {
             JoinRequestRepository joinRequestRepository,
             PendingStepsGuard pendingStepsGuard,
             MemberViewAssembler assembler,
-            Clock clock
+            Clock clock,
+            ApplicationEventPublisher events
     ) {
         this.memberRepository = memberRepository;
         this.memberRoleRepository = memberRoleRepository;
@@ -55,6 +59,7 @@ public class MemberService {
         this.pendingStepsGuard = pendingStepsGuard;
         this.assembler = assembler;
         this.clock = clock;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -86,10 +91,9 @@ public class MemberService {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
         OrganizationMember member = memberRepository.findByIdAndOrgIdForUpdate(memberId, orgId)
                 .orElseThrow(OrganizationErrors::notFound);
-        if (member.getUserId() == actor.userId()) {
-            // «Роль себе назначить нельзя» (CLAUDE.md): роли назначает другой администратор.
-            throw OrganizationErrors.forbidden("Нельзя менять собственные роли: попросите другого администратора");
-        }
+        // Свои роли администратор тоже меняет (решение Булата 28.09): роли — не привилегии (права администратора — отдельный
+        // флаг), и назначить любую роль любому он может и так. Раньше единственный администратор не мог взять себе
+        // даже вторую роль. Сотрудник без прав себе ничего не назначит — менять роли может только администратор.
         if (member.getStatus() != OrganizationMember.Status.ACTIVE) {
             throw OrganizationErrors.invalidState("Участник отключён");
         }
@@ -117,7 +121,7 @@ public class MemberService {
     @Transactional
     public MemberView setAdmin(CurrentUser actor, long memberId, boolean admin) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
-        organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
+        Organization org = organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
         OrganizationMember member = memberRepository.findByIdAndOrgId(memberId, orgId)
                 .orElseThrow(OrganizationErrors::notFound);
         if (member.getStatus() != OrganizationMember.Status.ACTIVE) {
@@ -131,6 +135,8 @@ public class MemberService {
                     "Нельзя снять права администратора с последнего администратора");
         }
         member.setAdmin(admin);
+        publishAdminChange(org, actor, member.getUserId(),
+                admin ? AdminChangedEvent.Kind.GRANTED : AdminChangedEvent.Kind.REVOKED);
         return assembler.assemble(member);
     }
 
@@ -142,7 +148,7 @@ public class MemberService {
     @Transactional
     public MemberChangeView disable(CurrentUser actor, long memberId) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
-        organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
+        Organization org = organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
         OrganizationMember member = memberRepository.findByIdAndOrgIdForUpdate(memberId, orgId)
                 .orElseThrow(OrganizationErrors::notFound);
         if (member.getStatus() == OrganizationMember.Status.DISABLED) {
@@ -152,6 +158,9 @@ public class MemberService {
             throw OrganizationErrors.lastAdmin("Нельзя отключить последнего администратора");
         }
         member.setStatus(OrganizationMember.Status.DISABLED);
+        if (member.isAdmin()) {
+            publishAdminChange(org, actor, member.getUserId(), AdminChangedEvent.Kind.EXCLUDED);
+        }
         int returned = pendingStepsGuard.releaseSteps(orgId, member.getUserId(), null);
         return new MemberChangeView(assembler.assemble(member), returned);
     }
@@ -226,5 +235,12 @@ public class MemberService {
 
     private long activeAdmins(long orgId) {
         return memberRepository.countByOrgIdAndStatusAndAdminTrue(orgId, OrganizationMember.Status.ACTIVE);
+    }
+
+    /** Уведомление об изменении прав администратора — только у настоящей компании: в демо уведомлять некого. */
+    private void publishAdminChange(Organization org, CurrentUser actor, long targetUserId, AdminChangedEvent.Kind kind) {
+        if (!org.isDemo()) {
+            events.publishEvent(new AdminChangedEvent(org.getId(), actor.userId(), targetUserId, kind));
+        }
     }
 }

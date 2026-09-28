@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { errorMessage } from '../../api/errors';
 import { getDocumentTypes } from '../../api/documents';
-import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount, getRoutes, updateCompanyLocation } from '../../api/organization';
+import { getColleagues, getOrganizationMetrics, getPendingJoinRequestsCount, getRoutes, renameCompany, updateCompanyLocation } from '../../api/organization';
 import type { MemberView } from '../../api/types';
 import { useSession } from '../../app/SessionContext';
 import { useOpenDemo } from '../../app/useOpenDemo';
 import { demoEntryUser } from '../../app/demo';
 import { useAsync } from '../../hooks/useAsync';
 import { ROUTE_PATTERNS } from '../../routes/paths';
-import { Button, ConfirmSheet, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section, SelectSheet } from '../../ui';
-import { cityByName, cityOptions, mskLabel } from '../../app/companyTime';
+import { Input } from '@maxhub/max-ui';
+import { BottomSheet, Button, ConfirmSheet, Count, Icon, InlineError, Initials, List, Muted, Page, PageHeader, Row, Section, SelectSheet } from '../../ui';
+import { locationOf, zoneChoice, zoneLabel, zoneOptions } from '../../app/companyTime';
 import { MetricsCard } from './MetricsCard';
 import { RoutesCard } from './RoutesCard';
 
@@ -25,22 +26,49 @@ export function CompanyScreen() {
   const inDemo = Boolean(me?.actingAs);
   const actor = me?.actingAs ?? (me?.membership ? { user: me.user, roles: me.membership.roles, isAdmin: me.membership.isAdmin } : null);
   const orgName = inDemo ? me?.sandbox?.orgName : me?.membership?.orgName;
-  // Город компании (#56): по его часовому поясу считается «сегодня» — дата в документах, периоды, показатели.
+  // Часовой пояс компании (#56): по нему считается «сегодня» — дата в документах, периоды, показатели. Выбирается
+  // пояс, а не город (решение Булата 28.09).
   const company = inDemo ? me?.sandbox : me?.membership;
-  const place = company ? `${company.city} · ${mskLabel(company.timeZone)}` : null;
-  const [cityOpen, setCityOpen] = useState(false);
-  const [cityError, setCityError] = useState<string | null>(null);
+  const zone = company ? zoneLabel(company.timeZone) : null;
+  const [zoneOpen, setZoneOpen] = useState(false);
+  const [zoneError, setZoneError] = useState<string | null>(null);
 
-  async function changeCity(city: string) {
-    const next = cityByName(city);
-    if (!next) return;
-    setCityError(null);
+  async function changeZone(next: string) {
+    const location = locationOf(next);
+    setZoneError(null);
     try {
-      await updateCompanyLocation(next.city, next.timeZone);
-      setCityOpen(false);
+      await updateCompanyLocation(location.city, location.timeZone);
+      setZoneOpen(false);
       await refreshQuietly();
     } catch (err) {
-      setCityError(errorMessage(err));
+      setZoneError(errorMessage(err));
+    }
+  }
+
+  // Название компании меняет администратор (решение Булата 28.09): ошиблись при создании или компания переименовалась.
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
+  function openRename() {
+    setNewName(orgName ?? '');
+    setRenameError(null);
+    setRenameOpen(true);
+  }
+
+  async function saveName() {
+    if (renaming) return;
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      await renameCompany(newName.trim());
+      await refreshQuietly();
+      setRenameOpen(false);
+    } catch (err) {
+      setRenameError(errorMessage(err));
+    } finally {
+      setRenaming(false);
     }
   }
   const isAdmin = Boolean(actor?.isAdmin);
@@ -81,11 +109,11 @@ export function CompanyScreen() {
         <PageHeader
           back={{ to: ROUTE_PATTERNS.home, label: 'Главная' }}
           title={orgName ?? 'Компания'}
-          subtitle={inDemo ? 'Демонстрационная компания с вымышленными сотрудниками' : place ?? undefined}
+          subtitle={inDemo ? 'Демонстрационная компания с вымышленными сотрудниками' : zone ? `Часовой пояс ${zone}` : undefined}
         />
       }
     >
-      {/* Сначала люди — вы в том же списке, первым: раньше «Вы» стояли отдельно, а «Сотрудники · 4» показывали троих (#56). */}
+      {/* Сначала люди — вы в том же списке, первым: раньше «Вы» стояли отдельно, а «Сотрудники: 4» показывали троих (#56). */}
       <ColleaguesSection
         status={colleaguesQuery.status}
         colleagues={colleaguesQuery.status === 'ready' ? colleaguesQuery.data : []}
@@ -103,19 +131,32 @@ export function CompanyScreen() {
               onClick={() => navigate(ROUTE_PATTERNS.adminRequests)}
             />
             <Row title="Участники и роли" subtitle="Роли, права администратора, исключение" onClick={() => navigate(ROUTE_PATTERNS.adminMembers)} />
-            {/* В демо город задан устройством проверяющего и не меняется (сервер тоже не даст). */}
-            {!inDemo && place && <Row title="Город компании" subtitle={place} onClick={() => setCityOpen(true)} />}
+            {/* В демо название и пояс заданы заготовкой и устройством проверяющего и не меняются (сервер тоже не даст). */}
+            {!inDemo && orgName && <Row title="Название компании" subtitle={orgName} onClick={openRename} />}
+            {!inDemo && zone && <Row title="Часовой пояс" subtitle={zone} onClick={() => setZoneOpen(true)} />}
           </List>
-          {cityError && <InlineError>{cityError}</InlineError>}
+          {zoneError && <InlineError>{zoneError}</InlineError>}
           <SelectSheet
-            open={cityOpen}
-            onClose={() => setCityOpen(false)}
-            title="Город компании"
-            searchable
-            options={cityOptions()}
-            value={company?.city ?? null}
-            onSelect={(city) => void changeCity(city)}
+            open={zoneOpen}
+            onClose={() => setZoneOpen(false)}
+            title="Часовой пояс компании"
+            options={zoneOptions()}
+            value={company ? zoneChoice(company.timeZone) : null}
+            onSelect={(next) => void changeZone(next)}
           />
+          <BottomSheet open={renameOpen} onClose={() => setRenameOpen(false)} title="Название компании" dismissible={!renaming}>
+            <Input value={newName} maxLength={255} autoFocus onChange={(event) => setNewName(event.target.value)} />
+            {renameError && <InlineError>{renameError}</InlineError>}
+            <Button
+              variant="primary"
+              stretched
+              loading={renaming}
+              disabled={renaming || newName.trim() === '' || newName.trim() === orgName}
+              onClick={() => void saveName()}
+            >
+              Сохранить
+            </Button>
+          </BottomSheet>
         </Section>
       )}
 
@@ -205,7 +246,7 @@ const COLLEAGUES_PREVIEW = 5;
 type Me = { user: { id: number; fullName: string }; roles: { name: string }[]; isAdmin: boolean } | null;
 
 /**
- * Сотрудники: вы — первым, в том же списке, остальные — по порядку (#56: «Сотрудники · 4» над тремя строками читалось
+ * Сотрудники: вы — первым, в том же списке, остальные — по порядку (#56: «Сотрудники: 4» над тремя строками читалось
  * как ошибка). У каждого — инициалы, имя и роли одной строкой.
  */
 function ColleaguesSection({
@@ -233,7 +274,7 @@ function ColleaguesSection({
   ];
   const visible = showAll ? people : people.slice(0, COLLEAGUES_PREVIEW);
   return (
-    <Section title={`Сотрудники${status === 'ready' ? ` · ${people.length}` : ''}`}>
+    <Section title={`Сотрудники${status === 'ready' ? ` (${people.length})` : ''}`}>
       {status === 'loading' ? (
         <Muted>Загружаем список сотрудников…</Muted>
       ) : (
@@ -269,5 +310,5 @@ function ColleaguesSection({
 function shortRoleLine(roles: { name: string }[], isAdmin: boolean): string {
   const names = roles.map((role) => role.name);
   if (isAdmin) names.push('администратор');
-  return names.length > 0 ? names.join(' · ') : 'Роли не назначены';
+  return names.length > 0 ? names.join(', ') : 'Роли не назначены';
 }

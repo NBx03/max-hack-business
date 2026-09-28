@@ -33,7 +33,12 @@ public record DocumentCardResponse(
 ) {
     /** autoDetected — тип выбрала модель по тексту при загрузке («Определить автоматически»). */
     /** code — по нему экран узнаёт «Другой документ» (GENERIC): вид вне шаблонов компании (DOC-7). */
-    public record TypeRef(long id, String code, String name, boolean isGeneric, boolean autoDetected) {}
+    /**
+     * aiTypeId, aiTypeName — вид, который определил ИИ, если он не совпадает с выбранным (решение Булата 28.09): автор
+     * видит подсказку, согласующие — «Вид выбран автором · ИИ определил: …». null — совпадает или ИИ вид не определял.
+     */
+    public record TypeRef(long id, String code, String name, boolean isGeneric, boolean autoDetected,
+                          Long aiTypeId, String aiTypeName) {}
 
     /**
      * withdrawnAt — автор отозвал эту версию с согласования; {@code null} — не отзывалась.

@@ -511,4 +511,26 @@ class DocumentPersistenceServiceTest {
         type.setGeneric(false);
         return new DocumentRuleService.PreparedCheck(type, List.of(), fields, List.of(), Map.of(), java.time.ZoneId.of("Europe/Moscow"));
     }
+
+    /** Название следует за заголовком документа, если автор не вводил его сам (замечание Булата 28.09). */
+    @Test
+    void autoTitleFollowsTheSubjectButTypedTitleStays() {
+        var fixed = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("subject", " О закупке ноутбуков ", "MANUAL", null, null)), List.of());
+        Document auto = new Document();
+        auto.setTitle("Закупка ноутбуков");
+        auto.setTitleAuto(true);
+        DocumentPersistenceService.followSubject(auto, fixed);
+        assertThat(auto.getTitle()).isEqualTo("О закупке ноутбуков");
+
+        Document typed = new Document();
+        typed.setTitle("Ноутбуки для продаж");
+        DocumentPersistenceService.followSubject(typed, fixed);
+        assertThat(typed.getTitle()).as("название, введённое автором, не трогаем").isEqualTo("Ноутбуки для продаж");
+
+        var empty = new DocumentRuleService.CheckData(true, List.of(
+                new DocumentCardResponse.FieldValue("subject", "  ", "MODEL", null, null)), List.of());
+        DocumentPersistenceService.followSubject(auto, empty);
+        assertThat(auto.getTitle()).as("пустой заголовок название не стирает").isEqualTo("О закупке ноутбуков");
+    }
 }

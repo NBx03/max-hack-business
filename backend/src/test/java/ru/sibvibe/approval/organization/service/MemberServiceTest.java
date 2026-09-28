@@ -6,6 +6,7 @@ import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.PendingStepsGuard;
 import ru.sibvibe.approval.organization.entity.MemberRole;
 import ru.sibvibe.approval.organization.entity.Organization;
+import ru.sibvibe.approval.organization.event.AdminChangedEvent;
 import ru.sibvibe.approval.organization.entity.OrganizationMember;
 import ru.sibvibe.approval.organization.entity.Role;
 import ru.sibvibe.approval.organization.repository.JoinRequestRepository;
@@ -46,9 +47,11 @@ class MemberServiceTest {
     private final JoinRequestRepository joinRequestRepository = mock(JoinRequestRepository.class);
     private final PendingStepsGuard guard = mock(PendingStepsGuard.class);
     private final MemberViewAssembler assembler = mock(MemberViewAssembler.class);
+    private final org.springframework.context.ApplicationEventPublisher events =
+            mock(org.springframework.context.ApplicationEventPublisher.class);
     private final MemberService service = new MemberService(memberRepository, memberRoleRepository, roleRepository,
             organizationRepository, joinRequestRepository, guard, assembler,
-            Clock.fixed(Instant.parse("2026-09-20T10:00:00Z"), ZoneOffset.UTC));
+            Clock.fixed(Instant.parse("2026-09-20T10:00:00Z"), ZoneOffset.UTC), events);
 
     @Test
     void nonMemberIsForbiddenAndNonAdminGetsNotAdmin() {
@@ -142,12 +145,20 @@ class MemberServiceTest {
     }
 
     @Test
-    void administratorCannotChangeOwnRoles() {
+    void administratorChangesOwnRolesToo() {
         OrganizationMember self = member(ADMIN_USER, true);
         when(memberRepository.findByIdAndOrgIdForUpdate(MEMBER_ID, ORG)).thenReturn(Optional.of(self));
+        when(roleRepository.findByOrgIdAndIdIn(ORG, Set.of(5L))).thenReturn(List.of(role(5L)));
 
-        assertThatThrownBy(() -> service.setRoles(adminActor(), MEMBER_ID, List.of(5L)))
-                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("FORBIDDEN"));
+        service.setRoles(adminActor(), MEMBER_ID, List.of(5L));
+
+        verify(memberRoleRepository).save(org.mockito.ArgumentMatchers.any(MemberRole.class));
+    }
+
+    @Test
+    void ordinaryMemberCannotChangeAnyRoles() {
+        assertThatThrownBy(() -> service.setRoles(user(ORG, false), MEMBER_ID, List.of(5L)))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("NOT_ADMIN"));
     }
 
     @Test
@@ -174,7 +185,48 @@ class MemberServiceTest {
     }
 
     private void givenLockedOrganization() {
-        when(organizationRepository.findByIdForUpdate(ORG)).thenReturn(Optional.of(new Organization()));
+        givenLockedOrganization(false);
+    }
+
+    private void givenLockedOrganization(boolean demo) {
+        Organization org = new Organization();
+        org.setId(ORG);
+        org.setDemo(demo);
+        when(organizationRepository.findByIdForUpdate(ORG)).thenReturn(Optional.of(org));
+    }
+
+    /** Действия над администраторами видят остальные администраторы (решение Булата 28.09); в демо — нет. */
+    @Test
+    void changesOfAdministratorRightsAreAnnouncedOutsideDemo() {
+        givenLockedOrganization();
+        OrganizationMember admin = member(TARGET_USER, true);
+        when(memberRepository.findByIdAndOrgId(MEMBER_ID, ORG)).thenReturn(Optional.of(admin));
+        when(memberRepository.findByIdAndOrgIdForUpdate(MEMBER_ID, ORG)).thenReturn(Optional.of(admin));
+        when(memberRepository.countByOrgIdAndStatusAndAdminTrue(ORG, OrganizationMember.Status.ACTIVE)).thenReturn(2L);
+
+        service.setAdmin(adminActor(), MEMBER_ID, false);
+        service.setAdmin(adminActor(), MEMBER_ID, true);
+        service.disable(adminActor(), MEMBER_ID);
+
+        verify(events).publishEvent(new AdminChangedEvent(ORG, ADMIN_USER, TARGET_USER, AdminChangedEvent.Kind.REVOKED));
+        verify(events).publishEvent(new AdminChangedEvent(ORG, ADMIN_USER, TARGET_USER, AdminChangedEvent.Kind.GRANTED));
+        verify(events).publishEvent(new AdminChangedEvent(ORG, ADMIN_USER, TARGET_USER, AdminChangedEvent.Kind.EXCLUDED));
+    }
+
+    @Test
+    void excludingAnOrdinaryMemberOrActingInDemoIsNotAnnounced() {
+        givenLockedOrganization();
+        OrganizationMember ordinary = member(TARGET_USER, false);
+        when(memberRepository.findByIdAndOrgIdForUpdate(MEMBER_ID, ORG)).thenReturn(Optional.of(ordinary));
+        service.disable(adminActor(), MEMBER_ID);
+
+        givenLockedOrganization(true);
+        OrganizationMember demoAdmin = member(TARGET_USER, true);
+        when(memberRepository.findByIdAndOrgId(MEMBER_ID, ORG)).thenReturn(Optional.of(demoAdmin));
+        when(memberRepository.countByOrgIdAndStatusAndAdminTrue(ORG, OrganizationMember.Status.ACTIVE)).thenReturn(2L);
+        service.setAdmin(adminActor(), MEMBER_ID, false);
+
+        verify(events, org.mockito.Mockito.never()).publishEvent(org.mockito.ArgumentMatchers.any(Object.class));
     }
 
     private void givenMemberWithRole(Long... roleIds) {

@@ -174,8 +174,16 @@ public class DocumentReadRepository {
         if (search != null) {
             // NAV-3: название, автор, номер документа в приложении или регистрационный номер из самого документа.
             // fields бывает JSON null (не SQL NULL) — jsonb_array_elements на нём падал бы и ронял весь список (ревью Никиты).
+            // Ещё — вид документа («записка» находит служебные записки, как бы они ни назывались), вид «Другого документа»,
+            // как его назвал документ («акт»), и заголовок из текста. Плюс русская морфология PostgreSQL: «записки»,
+            // «закупку» находят «записка», «закупка» (замечание Булата 28.09: поиск находил только по названию).
             where.append("""
                      and (d.title ilike :search escape '\\'
+                          or exists (select 1 from document_type search_type
+                                     where search_type.id = d.document_type_id
+                                       and (search_type.name ilike :search escape '\\'
+                                            or to_tsvector('russian', search_type.name || ' ' || d.title)
+                                               @@ plainto_tsquery('russian', :searchWords)))
                           or exists (select 1 from app_user search_author
                                      where search_author.id = d.author_id and search_author.full_name ilike :search escape '\\')
                           or cast(d.id as text) = :searchExact
@@ -184,7 +192,7 @@ public class DocumentReadRepository {
                                        then search_version.extracted_fields -> 'fields' else '[]'::jsonb end) search_field
                                      where search_version.document_id = d.id
                                        and search_version.version_no = d.current_version_no
-                                       and search_field ->> 'name' = 'reg_number'
+                                       and search_field ->> 'name' in ('reg_number', 'doc_kind', 'subject')
                                        and search_field ->> 'value' ilike :search escape '\\'))
                     """);
         }
@@ -420,7 +428,8 @@ public class DocumentReadRepository {
     ) {
         statement = statement.param("orgId", orgId).param("userId", userId);
         if (search != null) {
-            statement = statement.param("search", "%" + escapeLike(search) + "%").param("searchExact", search);
+            statement = statement.param("search", "%" + escapeLike(search) + "%").param("searchExact", search)
+                    .param("searchWords", search);
         }
         if (status != null) {
             statement = statement.param("status", status.name());

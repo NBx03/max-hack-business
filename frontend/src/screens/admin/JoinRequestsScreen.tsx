@@ -136,7 +136,7 @@ export function JoinRequestsScreen() {
                   <span className="ds-row__title">{request.user.fullName}</span>
                   <span className="ds-row__subtitle">
                     {previousRoles.length > 0
-                      ? `Возвращается · прежние роли отмечены`
+                      ? 'Возвращается, прежние роли отмечены'
                       : `Заявка ${formatDateTime(request.createdAt)}`}
                   </span>
                 </span>

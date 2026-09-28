@@ -457,7 +457,8 @@ class OnboardingIntegrationTest {
     }
 
     @Test
-    void administratorCannotChangeOwnRoles() {
+    void administratorChangesOwnRoles() {
+        // решение Булата 28.09: единственный администратор раньше не мог взять себе даже вторую роль
         long alice = newUser();
         createCompany(alice, "Ромашка");
         Map<String, Long> roles = roleIds(alice);
@@ -465,8 +466,25 @@ class OnboardingIntegrationTest {
         Resp response = call(alice, "PUT", "/api/v1/orgs/current/members/" + memberIdOf(alice) + "/roles",
                 Map.of("roleIds", List.of(roles.get("DIRECTOR"), roles.get("LAWYER"))));
 
-        assertThat(response.status()).isEqualTo(403);
-        assertThat(response.code()).isEqualTo("FORBIDDEN");
+        assertThat(response.status()).as(response.body()).isEqualTo(200);
+    }
+
+    /** Название компании меняет только администратор (решение Булата 28.09); пустое — 400. */
+    @Test
+    void administratorRenamesTheCompany() {
+        long alice = newUser();
+        long bob = newUser();
+        createCompany(alice, "Ромашкка");
+        long bobRequest = submit(bob, inviteCode(alice));
+        ok(call(alice, "POST", "/api/v1/orgs/current/join-requests/" + bobRequest + "/approve",
+                Map.of("roleIds", List.of(roleIds(alice).get("LAWYER")))));
+
+        assertThat(call(bob, "PUT", "/api/v1/orgs/current/name", Map.of("name", "Чужое")).status()).isEqualTo(403);
+        assertThat(call(alice, "PUT", "/api/v1/orgs/current/name", Map.of("name", "  ")).status()).isEqualTo(400);
+        assertThat(ok(call(alice, "PUT", "/api/v1/orgs/current/name", Map.of("name", " ООО «Ромашка» "))).path("name").asText())
+                .isEqualTo("ООО «Ромашка»");
+        assertThat(ok(call(bob, "GET", "/api/v1/me", null)).path("membership").path("orgName").asText())
+                .as("сотрудник видит новое название сразу").isEqualTo("ООО «Ромашка»");
     }
 
     // ---------- Код компании ----------

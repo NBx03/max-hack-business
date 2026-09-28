@@ -31,7 +31,7 @@ export function FileDrop({
   accept: string;
   /** «Выберите файл документа». */
   title: string;
-  /** Некликабельная строка под зоной: «PDF или DOCX · до 10 МБ». */
+  /** Некликабельная строка под зоной: «PDF или DOCX, до 10 МБ». */
   caption: string;
   /** Файл не подошёл — текст в зоне, красная обводка. */
   error?: string | null;
@@ -150,7 +150,7 @@ export function AttachmentsField({
               key={item.key}
               before={<span className="ds-attachment__icon"><Icon name="file" size={24} /></span>}
               title={item.removed ? <s className="ds-attachment--removed">{item.name}</s> : item.name}
-              subtitle={item.removed ? 'Не войдёт в новую версию' : [formatFileSize(item.size), item.note].filter(Boolean).join(' · ')}
+              subtitle={item.removed ? 'Не войдёт в новую версию' : [formatFileSize(item.size), item.note].filter(Boolean).join(', ')}
               after={
                 item.removed && onKeep ? (
                   <Button compact disabled={disabled} onClick={() => onKeep(item.key)} aria-label={`Оставить ${item.name}`}>

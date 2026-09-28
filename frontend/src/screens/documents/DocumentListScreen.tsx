@@ -202,7 +202,7 @@ function DocumentListScreen({ list }: { list: DocumentListKey }) {
           </Chip>
         )}
         <Chip selected={moreCount > 0} onClick={() => setMoreOpen(true)}>
-          {moreCount > 0 ? `Фильтры · ${moreCount}` : 'Фильтры'}
+          {moreCount > 0 ? `Фильтры (${moreCount})` : 'Фильтры'}
         </Chip>
       </Chips>
 
@@ -302,11 +302,11 @@ export function DocumentRow({ item, list, onOpen }: { item: DocumentListItem; li
             ) : (
               item.type.name
             )}
-            {' · '}
+            {', '}
             {[
               item.author.fullName,
               list === 'waiting' && item.waitingSince ? waitingText(item.waitingSince, zone) : formatDate(item.updatedAt),
-            ].join(' · ')}
+            ].join(', ')}
           </span>
         </span>
       }

@@ -17,7 +17,7 @@ function sameRoleIds(a: number[], b: number[]): boolean {
 }
 
 export function MembersScreen() {
-  const { me } = useSession();
+  const { me, refreshQuietly } = useSession();
   const [members, setMembers] = useState<MemberView[] | null>(null);
   const [roles, setRoles] = useState<RoleRef[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +29,7 @@ export function MembersScreen() {
   const [saving, setSaving] = useState(false);
   const [disabling, setDisabling] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showExcluded, setShowExcluded] = useState(false);
@@ -80,7 +81,7 @@ export function MembersScreen() {
    * а не то, что мы пытались отправить. Перечитываем список тихо, без общего LoadingState -
    * иначе исчез бы сам открытый лист вместе с текстом ошибки.
    */
-  async function save() {
+  async function save(revokeConfirmed = false) {
     if (!editing) return;
     const rolesChanged = !sameRoleIds(editRoleIds, editing.roles.map((role) => role.id));
     const adminChanged = editIsAdmin !== editing.isAdmin;
@@ -88,6 +89,12 @@ export function MembersScreen() {
       closeEdit();
       return;
     }
+    // Администраторы равноправны: снять права — действие над равным, поэтому сначала подтверждение (решение Булата 28.09).
+    if (editing.isAdmin && !editIsAdmin && !revokeConfirmed) {
+      setConfirmRevoke(true);
+      return;
+    }
+    setConfirmRevoke(false);
     setSaving(true);
     setEditError(null);
     try {
@@ -100,6 +107,8 @@ export function MembersScreen() {
       if (adminChanged) {
         applyUpdate(await setMemberAdmin(editing.memberId, editIsAdmin));
       }
+      // Свои роли видны и на главной, и в «Компании» — сессию обновляем сразу.
+      if (editing.user.id === selfUserId) await refreshQuietly();
       closeEdit();
       setToast(['Изменения сохранены.', returnedDocumentsText(returned)].filter(Boolean).join(' '));
     } catch (error) {
@@ -159,6 +168,8 @@ export function MembersScreen() {
     );
   }
 
+  const editingSelf = editing !== null && editing.user.id === selfUserId;
+
   return (
     <AdminScreen title="Участники" back={ADMIN_BACK}>
       <Muted>Нажмите на сотрудника, чтобы поменять роли или права администратора.</Muted>
@@ -171,16 +182,16 @@ export function MembersScreen() {
               before={<Initials name={member.user.fullName} />}
               title={isSelf ? `${member.user.fullName} (вы)` : member.user.fullName}
               // Права администратора — в строке ролей, как в «Компании»: метка справа сжимала имя в две строки (#56).
-              subtitle={member.isAdmin ? [roleNames(member.roles), 'администратор'].filter(Boolean).join(' · ') : roleNames(member.roles)}
-              // Свои роли и права администратор не меняет (CLAUDE.md) — у своей строки нет стрелки и нажатия.
-              onClick={isSelf ? undefined : () => openEdit(member)}
+              subtitle={member.isAdmin ? [roleNames(member.roles), 'администратор'].filter(Boolean).join(', ') : roleNames(member.roles)}
+              // Свои роли администратор тоже меняет (решение Булата 28.09); свои права и исключение — нет (лист ниже).
+              onClick={() => openEdit(member)}
             />
           );
         })}
       </List>
 
       {excludedMembers.length > 0 && (
-        <Section title={`Исключённые · ${excludedMembers.length}`} hint="Вернуться можно по коду компании — в заявке прежние роли будут уже отмечены — или по личной ссылке.">
+        <Section title={`Исключённые (${excludedMembers.length})`} hint="Вернуться можно по коду компании — в заявке прежние роли будут уже отмечены — или по личной ссылке.">
           {showExcluded ? (
             <List label="Исключённые">
               {excludedMembers.map((member) => (
@@ -208,17 +219,22 @@ export function MembersScreen() {
               Документы, которые ждут решения сотрудника в снятой роли, вернутся авторам — их можно отправить заново.
             </span>
           )}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Switch checked={editIsAdmin} disabled={saving || disabling} onChange={(event) => setEditIsAdmin(event.target.checked)} />
-            <Typography.Text>Права администратора</Typography.Text>
-          </label>
+          {/* У себя — только роли: снять с себя права или исключить себя нельзя (выхода из компании нет, решение 27.09). */}
+          {!editingSelf && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Switch checked={editIsAdmin} disabled={saving || disabling} onChange={(event) => setEditIsAdmin(event.target.checked)} />
+              <Typography.Text>Права администратора</Typography.Text>
+            </label>
+          )}
           {editError && <Notice tone="danger">{editError}</Notice>}
           <Button stretched variant="primary" loading={saving} disabled={saving || disabling} onClick={() => void save()}>
             Сохранить
           </Button>
-          <Button stretched variant="danger" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
-            Исключить из компании
-          </Button>
+          {!editingSelf && (
+            <Button stretched variant="danger" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
+              Исключить из компании
+            </Button>
+          )}
         </div>
       </BottomSheet>
 
@@ -226,11 +242,26 @@ export function MembersScreen() {
         open={confirmDisable}
         onClose={() => setConfirmDisable(false)}
         title={`Исключить «${editing?.user.fullName ?? ''}»?`}
-        description="Доступ к документам компании закроется сразу. Документы, которые ждут решения сотрудника, вернутся авторам — их можно отправить заново."
+        description={
+          editing?.isAdmin
+            ? 'Это администратор: вместе с доступом к документам пропадут и права администратора. Остальные администраторы и сам сотрудник получат сообщение в MAX. Документы, которые ждут решения сотрудника, вернутся авторам.'
+            : 'Доступ к документам компании закроется сразу. Документы, которые ждут решения сотрудника, вернутся авторам — их можно отправить заново.'
+        }
         confirmLabel="Исключить"
         destructive
         busy={disabling}
         onConfirm={() => void disable()}
+      />
+
+      <ConfirmSheet
+        open={confirmRevoke}
+        onClose={() => setConfirmRevoke(false)}
+        title={`Снять права администратора с «${editing?.user.fullName ?? ''}»?`}
+        description="Управлять компанией этот сотрудник больше не сможет. Остальные администраторы и сам сотрудник получат сообщение в MAX."
+        confirmLabel="Снять права"
+        destructive
+        busy={saving}
+        onConfirm={() => void save(true)}
       />
 
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}

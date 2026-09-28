@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { CompanyRules, MemberView, OrganizationMetrics, RouteOverview, RuleSettingInput } from './types';
+import type { CompanyRules, MemberView, OrganizationMetrics, RouteOverview, RouteTemplateRequest, RuleSettingInput } from './types';
 
 export interface MetricsPeriod {
   from?: string;
@@ -51,7 +51,17 @@ export function setRouteRoleMandatory(documentTypeId: number, roleId: number, ma
   });
 }
 
+/** Полная замена состава шаблона — этапы, роли на этапах, их порядок (#98) — только администратор. */
+export function replaceRouteTemplate(documentTypeId: number, request: RouteTemplateRequest): Promise<RouteOverview[]> {
+  return apiRequest<RouteOverview[]>(`/orgs/current/routes/${documentTypeId}`, { method: 'PUT', body: request });
+}
+
 /** Город и часовой пояс компании (#56) — только администратор. */
+/** Название компании (решение Булата 28.09) — только администратор, не у демо-песочницы. */
+export function renameCompany(name: string): Promise<{ name: string }> {
+  return apiRequest<{ name: string }>('/orgs/current/name', { method: 'PUT', body: { name } });
+}
+
 export function updateCompanyLocation(city: string, timeZone: string): Promise<{ city: string; timeZone: string }> {
   return apiRequest<{ city: string; timeZone: string }>('/orgs/current/location', { method: 'PUT', body: { city, timeZone } });
 }

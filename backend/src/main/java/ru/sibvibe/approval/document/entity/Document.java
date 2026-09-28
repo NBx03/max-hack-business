@@ -48,6 +48,14 @@ public class Document {
     @Column(name = "type_auto_detected", nullable = false)
     private boolean typeAutoDetected;
 
+    /** Вид, который определил ИИ, даже если автор выбрал вид сам; null — ИИ вид не определял. */
+    @Column(name = "ai_type_id")
+    private Long aiTypeId;
+
+    /** Название не вводил автор — оно следует за заголовком документа (поле subject) после каждой проверки. */
+    @Column(name = "title_auto", nullable = false)
+    private boolean titleAuto;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -57,4 +65,20 @@ public class Document {
     public enum Status { DRAFT, IN_APPROVAL, APPROVED, RETURNED, REJECTED }
 
     public enum Visibility { PRIVATE, ORG }
+
+    public boolean isTitleAuto() {
+        return titleAuto;
+    }
+
+    public void setTitleAuto(boolean titleAuto) {
+        this.titleAuto = titleAuto;
+    }
+
+    public Long getAiTypeId() {
+        return aiTypeId;
+    }
+
+    public void setAiTypeId(Long aiTypeId) {
+        this.aiTypeId = aiTypeId;
+    }
 }

@@ -560,6 +560,25 @@ class DocumentIntegrationTest {
                         .header("Authorization", AUTHOR_AUTH))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(1));
+        // По виду документа, в других формах слова и по заголовку из текста (замечание Булата 28.09): название
+        // вида в названии документа не встречается — «приказы» находят его по виду «Приказ», «закупку» — по
+        // названию «Закупка…», «инвентаризац» — по заголовку из полей.
+        jdbc.update("update document set title = 'Закупка ноутбуков' where id = ?", documentId);
+        jdbc.update("""
+                update document_version set extracted_fields = '{"fields": [{"name": "subject", "value": "О проведении инвентаризации", "source": "MODEL"}]}'::jsonb
+                where document_id = ?
+                """, documentId);
+        for (String query : new String[]{"приказы", "закупку", "инвентаризац"}) {
+            mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", query)
+                            .header("Authorization", AUTHOR_AUTH))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.total").value(1));
+        }
+        mvc.perform(get("/api/v1/documents").param("tab", "MINE").param("q", "договор")
+                        .header("Authorization", AUTHOR_AUTH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0));
+        jdbc.update("update document set title = 'Приказ № 42' where id = ?", documentId);
 
         JsonNode versioned = json(mvc.perform(multipart("/api/v1/documents/{id}/versions", documentId)
                         .file(jsonPart("meta", Map.of(
