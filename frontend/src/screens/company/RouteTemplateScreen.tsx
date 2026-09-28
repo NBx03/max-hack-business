@@ -1,4 +1,6 @@
-import { useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
+import { useSession } from '../../app/SessionContext';
+import { isOutsideTemplates } from '../documents/documentKind';
 import { useState } from 'react';
 import { getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
@@ -21,6 +23,7 @@ import {
   PageHeader,
   Row,
   SelectSheet,
+  Toast,
 } from '../../ui';
 import type { SelectOption } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
@@ -52,8 +55,12 @@ import {
 export function RouteTemplateScreen() {
   const { typeId } = useParams<{ typeId: string }>();
   const documentTypeId = Number(typeId);
+  const { me } = useSession();
+  const isAdmin = Boolean(me?.actingAs ? me.actingAs.isAdmin : me?.membership?.isAdmin);
   const query = useAsync(() => Promise.all([getRoutes(), getDocumentTypes(), getRoles()]), [documentTypeId]);
-  const goBack = useGoBack();
+
+  // Редактор — только администратору: по прямому адресу сотрудник видел бы редактор, а сохранить не смог бы (403).
+  if (!isAdmin) return <Navigate to={ROUTE_PATTERNS.company} replace />;
 
   if (query.status === 'loading') {
     return (
@@ -72,10 +79,10 @@ export function RouteTemplateScreen() {
   const [routes, types, roles] = query.data;
   const type = types.find((item) => item.id === documentTypeId);
   const route = routes.find((item) => item.documentTypeId === documentTypeId);
-  if (!type || !route) {
-    // Виду нет шаблона (например, только что убрали последнюю роль другим запросом) — некого редактировать.
-    goBack(ROUTE_PATTERNS.company);
-    return null;
+  // Нет вида или шаблона, или это «Другой документ» (его шаблон не редактируется, D3) — назад в «Компанию».
+  // <Navigate>, а не переход прямо во время отрисовки.
+  if (!type || !route || isOutsideTemplates(type.code)) {
+    return <Navigate to={ROUTE_PATTERNS.company} replace />;
   }
   return <RouteTemplateEditor type={type} route={route} allRoles={roles} />;
 }
@@ -99,6 +106,7 @@ function RouteTemplateEditor({
   const [confirmRole, setConfirmRole] = useState<{ slotId: string; name: string } | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [saved, setSaved] = useState(route);
+  const [toast, setToast] = useState<string | null>(null);
 
   const dirty = isDirty(state, saved);
   const colleagues = useAsync(() => getColleagues(), []);
@@ -137,6 +145,8 @@ function RouteTemplateEditor({
         setSaved(next);
         setState(initialState(next));
       }
+      // Кнопка просто стала неактивной — без сообщения непонятно, сохранилось ли.
+      setToast('Маршрут сохранён');
     } catch (saveError) {
       setError(errorMessage(saveError));
     } finally {
@@ -294,6 +304,7 @@ function RouteTemplateEditor({
           goBack(ROUTE_PATTERNS.company);
         }}
       />
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </Page>
   );
 }
