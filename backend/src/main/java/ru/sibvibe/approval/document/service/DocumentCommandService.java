@@ -90,6 +90,7 @@ public class DocumentCommandService {
                     membership.orgId(),
                     currentUser.userId(),
                     choice.title(),
+                    choice.titleAuto(),
                     request.visibility(),
                     request.containsSensitive(),
                     choice.autoDetected(),
@@ -116,6 +117,7 @@ public class DocumentCommandService {
                 membership.orgId(),
                 currentUser.userId(),
                 formTitle(request.title(), prepared),
+                request.title() == null || request.title().isBlank(),
                 request.visibility(),
                 request.containsSensitive(),
                 prepared);
@@ -373,6 +375,8 @@ public class DocumentCommandService {
      */
     private TypeChoice chooseType(CreateDocumentRequest request, DocumentFileValidator.ValidatedFile file) {
         String title = request.title() == null ? "" : request.title().strip();
+        // Название не ввёл автор — оно из документа или имени файла и дальше следует за заголовком документа.
+        boolean titleAuto = title.isEmpty();
         if (request.documentTypeId() != null) {
             if (title.isEmpty()) {
                 String guessed = request.containsSensitive()
@@ -380,7 +384,7 @@ public class DocumentCommandService {
                         : typeGuessService.guess(file.content(), file.mimeType()).title();
                 title = titleOrFileName(guessed, file.fileName());
             }
-            return new TypeChoice(request.documentTypeId(), title, false);
+            return new TypeChoice(request.documentTypeId(), title, false, titleAuto);
         }
         if (request.containsSensitive()) {
             throw DocumentApiException.validation("Выберите тип документа: с чувствительными данными документ "
@@ -388,7 +392,7 @@ public class DocumentCommandService {
         }
         DocumentTypeGuessService.Guess guess = typeGuessService.guess(file.content(), file.mimeType());
         return new TypeChoice(guess.type().getId(),
-                title.isEmpty() ? titleOrFileName(guess.title(), file.fileName()) : title, true);
+                title.isEmpty() ? titleOrFileName(guess.title(), file.fileName()) : title, true, titleAuto);
     }
 
     static String titleOrFileName(String guessed, String fileName) {
@@ -404,11 +408,15 @@ public class DocumentCommandService {
         return name.isEmpty() ? "Документ" : truncate(name);
     }
 
+    static String truncateTitle(String value) {
+        return truncate(value);
+    }
+
     private static String truncate(String value) {
         return value.length() <= MAX_TITLE_LENGTH ? value : value.substring(0, MAX_TITLE_LENGTH).strip();
     }
 
-    private record TypeChoice(long typeId, String title, boolean autoDetected) {}
+    private record TypeChoice(long typeId, String title, boolean autoDetected, boolean titleAuto) {}
 
     private DocumentPersistenceService.NewFile upload(DocumentFileValidator.ValidatedFile file) {
         String key = fileStorage.put(
