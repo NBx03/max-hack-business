@@ -208,15 +208,18 @@ class RouteTemplateServiceTest {
     }
 
     @Test
-    void genericTypeTemplateIsNotEditable() {
-        // ревью #126, п. 1: is_generic у GENERIC давно false (с #86, схема полей «Другого документа») — сервис
-        // должен искать его по коду через idsByCode, как setMandatory, а не по TypeInfo.generic (такого поля больше нет).
+    void genericTypeTemplateIsEditableLikeAnyOther() {
+        // Решение Булата 28.09: «Другой документ» редактируется наравне с остальными — компания может сделать Директора
+        // обязательным, и в обход обязательных не уйти ни выбором «Другого документа», ни сканом.
         when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, DefaultRouteTemplates.GENERIC)));
         when(directory.idsByCode(anyCollection())).thenReturn(Map.of(DefaultRouteTemplates.GENERIC, TYPE));
+        Role director = role(ORG, 11, DefaultRoles.DIRECTOR);
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(director));
+        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of()))
-                .isInstanceOf(DomainException.class)
-                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("VALIDATION_FAILED"));
+        service.replaceTemplate(admin(), TYPE, List.of(stageOf(director)));
+
+        verify(routeRepository).deleteByOrgIdAndDocumentTypeId(ORG, TYPE);
     }
 
     @Test

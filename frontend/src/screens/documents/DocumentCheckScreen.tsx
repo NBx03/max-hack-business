@@ -296,15 +296,15 @@ export function DocumentCheckScreen() {
     }
   }
 
-  async function applyType() {
-    if (!card || nextTypeId === null || nextTypeId === card.type.id) {
+  async function applyType(typeId: number | null = nextTypeId) {
+    if (!card || typeId === null || typeId === card.type.id) {
       setTypeSheetOpen(false);
       return;
     }
     setBusy('type');
     setActionError(null);
     try {
-      const updated = await changeDocumentType(card.id, card.currentVersionNo, nextTypeId);
+      const updated = await changeDocumentType(card.id, card.currentVersionNo, typeId);
       setCard(updated);
       setFields(fieldsToRecord(updated.check));
       setCorrection(null);
@@ -397,7 +397,10 @@ export function DocumentCheckScreen() {
   // и есть шаг «Проверка». Раньше шаги пропадали, пока отправить нельзя (#56, аудит 27.09).
   const inCreateFlow = isDraft && card.route === null && (card.permissions.canSubmit || card.permissions.canUploadVersion);
   const recognized = recognizedKindOf(card.type.code, check ?? null);
-  const showKindNotice = isOutsideTemplates(card.type.code) && isDraft;
+  // ИИ определил другой вид, чем выбран (решение Булата 28.09) — подсказка со сменой вида одним нажатием. Она заменяет
+  // плашку «Другого документа»: иначе рядом стояли бы «такого вида нет в шаблонах» и «ИИ определил: Служебная записка».
+  const aiTypeHint = isDraft && card.type.aiTypeId != null && card.type.aiTypeName ? card.type : null;
+  const showKindNotice = isOutsideTemplates(card.type.code) && isDraft && !aiTypeHint;
   const hasAiFields = check?.fields.some((field) => field.source === 'MODEL' && field.value) ?? false;
   const openTypeSheet = () => {
     setNextTypeId(card.type.id);
@@ -479,6 +482,22 @@ export function DocumentCheckScreen() {
         </Notice>
       )}
 
+      {aiTypeHint && (
+        <Notice tone="warning">
+          <div style={{ ...stackStyle, gap: 8 }}>
+            <span>
+              Выбран вид «{card.type.name}», а ИИ определил «{aiTypeHint.aiTypeName}». Согласующие увидят это расхождение.
+            </span>
+            {canChangeType && (
+              <div>
+                <Button compact variant="secondary" loading={busy === 'type'} onClick={() => void applyType(aiTypeHint.aiTypeId ?? null)}>
+                  Сменить на «{aiTypeHint.aiTypeName}»
+                </Button>
+              </div>
+            )}
+          </div>
+        </Notice>
+      )}
       {showKindNotice && (
         <GenericKindNotice kind={recognized} textMissing={Boolean(check?.textMissing)} canChangeType={canChangeType} onChangeType={openTypeSheet} />
       )}

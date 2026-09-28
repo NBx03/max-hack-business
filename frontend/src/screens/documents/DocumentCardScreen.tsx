@@ -507,6 +507,13 @@ export function DocumentCardScreen() {
       }
       footer={footer}
     >
+      {doc.type.aiTypeName && (
+        // Вид выбран автором и расходится с тем, что определил ИИ (решение Булата 28.09): не блокирует, а показывает —
+        // решают люди. Так в обход обязательных не уйти незаметно, выбрав «Другой документ».
+        <Notice tone="warning">
+          Вид «{doc.type.name}» выбран автором. ИИ определил: «{doc.type.aiTypeName}».
+        </Notice>
+      )}
       {returnReason && (
         <Notice tone="warning" icon="return">
           <strong>Вернули на доработку</strong> — {returnReason.approver.fullName}

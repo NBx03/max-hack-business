@@ -1,6 +1,5 @@
 import { Navigate, useParams } from 'react-router-dom';
 import { useSession } from '../../app/SessionContext';
-import { isOutsideTemplates } from '../documents/documentKind';
 import { useState } from 'react';
 import { getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
@@ -79,9 +78,9 @@ export function RouteTemplateScreen() {
   const [routes, types, roles] = query.data;
   const type = types.find((item) => item.id === documentTypeId);
   const route = routes.find((item) => item.documentTypeId === documentTypeId);
-  // Нет вида или шаблона, или это «Другой документ» (его шаблон не редактируется, D3) — назад в «Компанию».
-  // <Navigate>, а не переход прямо во время отрисовки.
-  if (!type || !route || isOutsideTemplates(type.code)) {
+  // Нет вида или шаблона — назад в «Компанию». <Navigate>, а не переход прямо во время отрисовки. «Другой документ»
+  // редактируется наравне с остальными (решение Булата 28.09).
+  if (!type || !route) {
     return <Navigate to={ROUTE_PATTERNS.company} replace />;
   }
   return <RouteTemplateEditor type={type} route={route} allRoles={roles} />;

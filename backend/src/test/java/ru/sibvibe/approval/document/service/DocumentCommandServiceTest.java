@@ -210,6 +210,32 @@ class DocumentCommandServiceTest {
                 prepared, new DocumentPersistenceService.NewFile("new-key", "scan_17.pdf", "application/pdf", 1), List.of());
     }
 
+    /**
+     * Автор выбрал вид сам (например, «Другой документ» вместо записки) — ИИ всё равно определяет свой, и он
+     * сохраняется: расхождение увидят автор и согласующие (решение Булата 28.09).
+     */
+    @Test
+    void explicitTypeStillRecordsTheTypeTheModelSees() {
+        MockMultipartFile multipart = new MockMultipartFile("main", "memo.pdf", "application/pdf", new byte[]{1});
+        var validated = new DocumentFileValidator.ValidatedFile(new byte[]{1}, "memo.pdf", "application/pdf");
+        var prepared = prepared();
+        DocumentType memo = new DocumentType();
+        memo.setId(9L);
+        when(fileValidator.validateMain(multipart)).thenReturn(validated);
+        when(typeGuess.guess(validated.content(), "application/pdf"))
+                .thenReturn(new DocumentTypeGuessService.Guess(memo, "О закупке"));
+        when(rules.prepare(anyLong(), eq(5L), any())).thenReturn(prepared);
+        when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
+        when(persistence.create(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
+                .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
+        when(analysis.analyze(2, false, prepared)).thenReturn(new DocumentAnalysisService.AnalysisResult(
+                new DocumentRuleService.CheckData(true, List.of(), List.of()), null));
+
+        service.create(user(), request(), multipart, List.of());
+
+        verify(persistence).recordAiType(1L, 9L);
+    }
+
     @Test
     void sensitiveDocumentNeedsExplicitTypeBecauseTextNeverReachesModel() {
         MockMultipartFile multipart = new MockMultipartFile("main", "memo.pdf", "application/pdf", new byte[]{1});
