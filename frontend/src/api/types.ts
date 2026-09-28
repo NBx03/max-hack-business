@@ -380,6 +380,11 @@ export interface RouteOverview {
   stages: { stageOrder: number; participants: { role: RoleRef; mandatory: boolean }[] }[];
 }
 
+/** Новый состав шаблона (#98) — тело PUT /orgs/current/routes/{documentTypeId}. Позиция этапа в списке — его номер. */
+export interface RouteTemplateRequest {
+  stages: { participants: { roleId: number; mandatory: boolean }[] }[];
+}
+
 /** Итог «Исправить в файле»: новая версия и какие поля вписать не удалось (с причиной). */
 export interface FileCorrectionResult {
   card: DocumentCard;

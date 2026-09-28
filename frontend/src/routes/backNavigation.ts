@@ -30,7 +30,7 @@ export function parentRoute(pathname: string, entryRoute: string): string {
   if (/^\/documents\/\d+$/.test(pathname)) {
     return ROUTE_PATTERNS.home;
   }
-  if (pathname.startsWith('/admin/') || pathname === ROUTE_PATTERNS.companyRules) {
+  if (pathname.startsWith('/admin/') || pathname === ROUTE_PATTERNS.companyRules || pathname.startsWith('/company/routes/')) {
     return ROUTE_PATTERNS.company;
   }
   if (pathname === ROUTE_PATTERNS.createCompany || pathname.startsWith(ROUTE_PATTERNS.join)) {

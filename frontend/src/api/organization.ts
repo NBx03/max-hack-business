@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { CompanyRules, MemberView, OrganizationMetrics, RouteOverview, RuleSettingInput } from './types';
+import type { CompanyRules, MemberView, OrganizationMetrics, RouteOverview, RouteTemplateRequest, RuleSettingInput } from './types';
 
 export interface MetricsPeriod {
   from?: string;
@@ -49,6 +49,11 @@ export function setRouteRoleMandatory(documentTypeId: number, roleId: number, ma
     method: 'PATCH',
     body: { mandatory },
   });
+}
+
+/** Полная замена состава шаблона — этапы, роли на этапах, их порядок (#98) — только администратор. */
+export function replaceRouteTemplate(documentTypeId: number, request: RouteTemplateRequest): Promise<RouteOverview[]> {
+  return apiRequest<RouteOverview[]>(`/orgs/current/routes/${documentTypeId}`, { method: 'PUT', body: request });
 }
 
 /** Город и часовой пояс компании (#56) — только администратор. */
