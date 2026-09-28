@@ -61,8 +61,29 @@ public class DocumentPersistenceService {
             NewFile main,
             List<NewFile> attachments
     ) {
+        return create(orgId, authorId, title, false, visibility, containsSensitive, typeAutoDetected, prepared, main,
+                attachments);
+    }
+
+    /** titleAuto — название не вводил автор: дальше оно следует за заголовком документа ({@link #followSubject}). */
+    @Transactional
+    public CreatedVersion create(
+            long orgId,
+            long authorId,
+            String title,
+            boolean titleAuto,
+            Document.Visibility visibility,
+            boolean containsSensitive,
+            boolean typeAutoDetected,
+            DocumentRuleService.PreparedCheck prepared,
+            NewFile main,
+            List<NewFile> attachments
+    ) {
         validateNewDocumentFiles(main, attachments);
-        return insert(orgId, authorId, title, visibility, containsSensitive, typeAutoDetected, prepared, main, attachments);
+        CreatedVersion created = insert(
+                orgId, authorId, title, visibility, containsSensitive, typeAutoDetected, prepared, main, attachments);
+        markTitleAuto(created.documentId(), titleAuto);
+        return created;
     }
 
     /** Документ-форма (#59): версия хранит содержимое формы в content, файлов нет. */
@@ -75,7 +96,45 @@ public class DocumentPersistenceService {
             boolean containsSensitive,
             DocumentRuleService.PreparedCheck prepared
     ) {
-        return insert(orgId, authorId, title, visibility, containsSensitive, false, prepared, null, List.of());
+        return createForm(orgId, authorId, title, false, visibility, containsSensitive, prepared);
+    }
+
+    @Transactional
+    public CreatedVersion createForm(
+            long orgId,
+            long authorId,
+            String title,
+            boolean titleAuto,
+            Document.Visibility visibility,
+            boolean containsSensitive,
+            DocumentRuleService.PreparedCheck prepared
+    ) {
+        CreatedVersion created = insert(orgId, authorId, title, visibility, containsSensitive, false, prepared, null, List.of());
+        markTitleAuto(created.documentId(), titleAuto);
+        return created;
+    }
+
+    private void markTitleAuto(long documentId, boolean titleAuto) {
+        if (titleAuto) {
+            documentRepository.findById(documentId).ifPresent(document -> document.setTitleAuto(true));
+        }
+    }
+
+    /**
+     * Название следует за заголовком документа (замечание Булата 28.09): автор исправил «Заголовок» — в списках документ
+     * называется уже по-новому. Только если название не вводил сам автор; пустой заголовок название не стирает.
+     */
+    static void followSubject(Document document, DocumentRuleService.CheckData result) {
+        if (!document.isTitleAuto() || result == null) {
+            return;
+        }
+        result.fields().stream()
+                .filter(field -> "subject".equals(field.name()))
+                .map(DocumentCardResponse.FieldValue::value)
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> DocumentCommandService.truncateTitle(value.strip()))
+                .findFirst()
+                .ifPresent(document::setTitle);
     }
 
     /** main {@code null} — документ-форма: содержимое версии — поля, переданные автором. */
@@ -401,6 +460,7 @@ public class DocumentPersistenceService {
         target.setExtractedFields(fieldsJson(result, null));
         target.setValidationIssues(objectMapper.valueToTree(result.issues()));
         target.setCheckStatus("CHECKED");
+        followSubject(document, result);
         document.setUpdatedAt(now);
         return target.getVersionNo();
     }
@@ -494,11 +554,12 @@ public class DocumentPersistenceService {
             String summary,
             boolean replaceSummary
     ) {
-        documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
+        Document document = documentRepository.findByIdForUpdate(documentId).orElseThrow(NotFoundException::new);
         DocumentVersion version = currentAttempt(documentId, attempt);
         if (version == null) {
             return false;
         }
+        followSubject(document, result);
         version.setExtractedFields(fieldsJson(result, null));
         version.setValidationIssues(objectMapper.valueToTree(result.issues()));
         version.setCheckStatus("CHECKED");

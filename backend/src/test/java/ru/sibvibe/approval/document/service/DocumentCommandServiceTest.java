@@ -56,7 +56,7 @@ class DocumentCommandServiceTest {
         when(fileValidator.validateMain(multipart)).thenReturn(validated);
         when(rules.prepare(anyLong(), eq(5L), eq(Map.of()))).thenReturn(prepared);
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
-        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
+        when(persistence.create(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
                 .thenThrow(new IllegalStateException("db unavailable"));
 
         assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of()))
@@ -104,7 +104,7 @@ class DocumentCommandServiceTest {
 
         verify(storage).delete("main-key");
         verify(storage).delete("a-key");
-        verify(persistence, never()).create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any());
+        verify(persistence, never()).create(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), any(), any(), any());
     }
 
     /**
@@ -164,7 +164,7 @@ class DocumentCommandServiceTest {
         assertThatThrownBy(() -> service.create(user(), request(), multipart, List.of()))
                 .isInstanceOf(FileStorageException.class);
 
-        verify(persistence, never()).create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any());
+        verify(persistence, never()).create(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -178,7 +178,7 @@ class DocumentCommandServiceTest {
         when(rules.pending(prepared)).thenReturn(pending);
         when(analysis.analyze(2, false, prepared)).thenThrow(new IllegalArgumentException("broken rule"));
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
-        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
+        when(persistence.create(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
         when(views.card(1, user())).thenReturn(mock(DocumentCardResponse.class));
 
@@ -199,14 +199,14 @@ class DocumentCommandServiceTest {
                 .thenReturn(new DocumentTypeGuessService.Guess(prepared.type(), "О закупке ноутбуков"));
         when(rules.prepare(anyLong(), eq(5L), isNull())).thenReturn(prepared);
         when(storage.put(any(), any(), any(), anyLong())).thenReturn("new-key");
-        when(persistence.create(anyLong(), anyLong(), any(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
+        when(persistence.create(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new DocumentPersistenceService.CreatedVersion(1, 2, 1, "attempt-1"));
         when(analysis.analyze(2, false, prepared)).thenReturn(new DocumentAnalysisService.AnalysisResult(
                 new DocumentRuleService.CheckData(true, List.of(), List.of()), "Краткая сводка"));
 
         service.create(user(), new CreateDocumentRequest(null, " ", Document.Visibility.PRIVATE, false, null), multipart, List.of());
 
-        verify(persistence).create(10L, 7L, "О закупке ноутбуков", Document.Visibility.PRIVATE, false, true,
+        verify(persistence).create(10L, 7L, "О закупке ноутбуков", true, Document.Visibility.PRIVATE, false, true,
                 prepared, new DocumentPersistenceService.NewFile("new-key", "scan_17.pdf", "application/pdf", 1), List.of());
     }
 
@@ -316,7 +316,7 @@ class DocumentCommandServiceTest {
         assertThatThrownBy(() -> service.createForm(user(), new ru.sibvibe.approval.document.dto.CreateFormDocumentRequest(
                 5L, null, Document.Visibility.PRIVATE, false, Map.of())))
                 .isInstanceOf(DocumentApiException.class);
-        verify(persistence, never()).createForm(anyLong(), anyLong(), any(), any(), anyBoolean(), any());
+        verify(persistence, never()).createForm(anyLong(), anyLong(), any(), anyBoolean(), any(), anyBoolean(), any());
     }
 
     private CurrentUser user() {
