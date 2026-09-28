@@ -300,7 +300,19 @@ export interface DocumentCard {
   title: string;
   /** autoDetected — тип выбрал ИИ по тексту документа при загрузке. */
   /** code GENERIC — «Другой документ», вид вне шаблонов (DOC-7). isGeneric — вид без схемы полей. */
-  type: { id: number; code: string; name: string; isGeneric: boolean; autoDetected: boolean };
+  /**
+   * aiTypeId, aiTypeName — вид, который определил ИИ, если он не совпадает с выбранным автором (решение Булата 28.09):
+   * автор видит подсказку, согласующие — «Вид выбран автором · ИИ определил: …». null — совпадает или ИИ не определял.
+   */
+  type: {
+    id: number;
+    code: string;
+    name: string;
+    isGeneric: boolean;
+    autoDetected: boolean;
+    aiTypeId?: number | null;
+    aiTypeName?: string | null;
+  };
   status: DocumentStatus;
   /** Как статус видит человек (D4): «На утверждении», «Утверждён». Показывать — его. */
   displayStatus: DisplayStatus;

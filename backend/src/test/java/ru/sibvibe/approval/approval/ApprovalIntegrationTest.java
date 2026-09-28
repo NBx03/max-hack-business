@@ -536,8 +536,11 @@ class ApprovalIntegrationTest {
         assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + memoType + "/roles/" + company.roles.get("LAWYER"),
                 Map.of("mandatory", true)).status()).as("роли нет в шаблоне вида").isEqualTo(404);
         long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);
+        // «Другой документ» — как любой вид (решение Булата 28.09): по умолчанию обязательных нет, но компания может отметить
         assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + genericType + "/roles/" + director,
-                Map.of("mandatory", true)).status()).as("D3: у «Другого документа» обязательных нет").isEqualTo(400);
+                Map.of("mandatory", true)).status()).isEqualTo(200);
+        assertThat(call(company.alice, "PATCH", "/api/v1/orgs/current/routes/" + genericType + "/roles/" + director,
+                Map.of("mandatory", false)).status()).isEqualTo(200);
 
         // руководитель стал обязательным — без него отправить нельзя; директор больше не обязателен — без него можно
         Resp withoutHead = call(company.frank, "POST", "/api/v1/documents/" + memo + "/submit",
@@ -560,13 +563,10 @@ class ApprovalIntegrationTest {
         // #98: только администратор
         assertThat(call(company.frank, "PUT", url, Map.of("stages", List.of())).status()).isEqualTo(403);
 
-        // «Другой документ» — шаблон не редактируется, независимо от is_generic (ревью #126, п. 1: с #86 у него
-        // есть схема полей, is_generic у него давно false)
+        // «Другой документ» редактируется наравне с остальными (решение Булата 28.09)
         long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);
-        assertThat(jdbc.queryForObject("select is_generic from document_type where id = ?", Boolean.class, genericType))
-                .as("проверка на живой базе, а не на моке: is_generic у GENERIC не значит «это генерик»").isFalse();
-        assertThat(call(company.alice, "PUT", "/api/v1/orgs/current/routes/" + genericType, Map.of("stages", List.of()))
-                .status()).as("D3: шаблон «Другого документа» не редактируется").isEqualTo(400);
+        assertThat(call(company.alice, "PUT", "/api/v1/orgs/current/routes/" + genericType, Map.of("stages", List.of(
+                Map.of("participants", List.of(Map.of("roleId", director, "mandatory", false)))))).status()).isEqualTo(200);
 
         // пустой этап отвергается
         assertThat(call(company.alice, "PUT", url,

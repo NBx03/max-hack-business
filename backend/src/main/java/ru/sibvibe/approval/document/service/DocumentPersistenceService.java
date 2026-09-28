@@ -114,6 +114,14 @@ public class DocumentPersistenceService {
         return created;
     }
 
+    /** Вид, который определил ИИ (решение Булата 28.09): расхождение с выбранным автором видят автор и согласующие. */
+    @Transactional
+    public void recordAiType(long documentId, Long aiTypeId) {
+        if (aiTypeId != null) {
+            documentRepository.findById(documentId).ifPresent(document -> document.setAiTypeId(aiTypeId));
+        }
+    }
+
     private void markTitleAuto(long documentId, boolean titleAuto) {
         if (titleAuto) {
             documentRepository.findById(documentId).ifPresent(document -> document.setTitleAuto(true));

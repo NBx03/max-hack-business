@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { DocumentType, RouteOverview } from '../../api/types';
 import { Icon, List, Row } from '../../ui';
-import { isOutsideTemplates } from '../documents/documentKind';
 import { companyRouteTemplatePath } from '../../routes/paths';
 
 /** Как на экране загрузки: по алфавиту, «Другой документ» последним. */
@@ -15,7 +14,7 @@ function byName(types: DocumentType[]): DocumentType[] {
  * Кто и в каком порядке согласует каждый вид документа — стартовый маршрут (D3). Автор перед отправкой меняет
  * его как угодно, но обязательных не убирает: они отмечены замком. Администратор меняет сам шаблон — состав
  * этапов и ролей, их порядок (#98, отдельный экран `RouteTemplateScreen`) и то, какие роли обязательны (#109);
- * у «Другого документа» шаблон не редактируется — обязательных там нет, маршрут составляет автор.
+ * у «Другого документа» по умолчанию обязательных нет, но администратор может их отметить (решение Булата 28.09).
  *
  * Свёрнуто в одну строку (#56: «блок длинный и виден всегда»): маршруты нужны, когда человек хочет понять, кто
  * согласует его документ, а не при каждом открытии раздела. before — строки, которые стоят в том же списке выше
@@ -70,7 +69,7 @@ export function RoutesCard({
                 key={type.id}
                 title={type.name}
                 subtitle={<RouteLine route={byType.get(type.id)!} />}
-                onClick={isAdmin && !isOutsideTemplates(type.code) ? () => navigate(companyRouteTemplatePath(type.id)) : undefined}
+                onClick={isAdmin ? () => navigate(companyRouteTemplatePath(type.id)) : undefined}
               />
             ))}
           </List>

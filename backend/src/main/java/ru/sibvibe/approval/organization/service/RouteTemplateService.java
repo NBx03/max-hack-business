@@ -106,11 +106,8 @@ public class RouteTemplateService {
     @Transactional
     public List<RouteOverview> setMandatory(CurrentUser actor, long documentTypeId, long roleId, boolean mandatory) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
-        // D3: у «Другого документа» маршрут составляет автор — обязательных там нет.
-        Long genericTypeId = typeDirectory.idsByCode(Set.of(DefaultRouteTemplates.GENERIC)).get(DefaultRouteTemplates.GENERIC);
-        if (mandatory && genericTypeId != null && genericTypeId == documentTypeId) {
-            throw OrganizationErrors.validation("У «Другого документа» обязательных согласующих нет: маршрут составляет автор");
-        }
+        // «Другой документ» — как любой вид (решение Булата 28.09): по умолчанию обязательных нет, но администратор может
+        // отметить, например, Директора — тогда в обход обязательных не уйти ни выбором «Другого документа», ни сканом.
         ensureDefaultRoutes(orgId);
         List<ApprovalRoute> rows = routeRepository.findByOrgIdAndDocumentTypeIdOrderByStageOrderAscIdAsc(orgId, documentTypeId)
                 .stream().filter(route -> route.getRoleId() == roleId).toList();
@@ -148,12 +145,8 @@ public class RouteTemplateService {
         // в разных этапах, либо вставка упадёт на uq_route_stage_role (ревью #126, п. 3).
         organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
         typeDirectory.find(documentTypeId).orElseThrow(OrganizationErrors::notFound);
-        // D3: «Другой документ» — по коду, а не по is_generic. С #86 у него есть схема полей, и is_generic у него
-        // давно false — этот столбец больше не значит «это GENERIC» (ревью #126, п. 1; та же проверка, что в setMandatory).
-        Long genericTypeId = typeDirectory.idsByCode(Set.of(DefaultRouteTemplates.GENERIC)).get(DefaultRouteTemplates.GENERIC);
-        if (genericTypeId != null && genericTypeId == documentTypeId) {
-            throw OrganizationErrors.validation("Шаблон «Другого документа» не редактируется: обязательных там нет, маршрут составляет автор");
-        }
+        // «Другой документ» редактируется наравне с остальными видами (решение Булата 28.09): по умолчанию обязательных
+        // нет — свобода автора, — но компания может их отметить.
         Map<Long, Role> orgRoles = new HashMap<>();
         for (Role role : roleRepository.findByOrgIdOrderById(orgId)) {
             orgRoles.put(role.getId(), role);

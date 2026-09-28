@@ -101,6 +101,7 @@ public class DocumentCommandService {
             compensate(stored, storedAttachments, exception);
             throw exception;
         }
+        persistenceService.recordAiType(created.documentId(), choice.aiTypeId());
         runCheck(created.documentId(), created.checkAttempt(), request.containsSensitive(), prepared);
         return viewService.card(created.documentId(), currentUser);
     }
@@ -378,13 +379,16 @@ public class DocumentCommandService {
         // Название не ввёл автор — оно из документа или имени файла и дальше следует за заголовком документа.
         boolean titleAuto = title.isEmpty();
         if (request.documentTypeId() != null) {
+            // Вид выбрал автор, но ИИ всё равно определяет свой (если текст можно отправить в модель): расхождение увидят
+            // автор и согласующие — так в обход обязательных не уйти незаметно, выбрав «Другой документ» (решение Булата 28.09).
+            DocumentTypeGuessService.Guess guessed = request.containsSensitive()
+                    ? null
+                    : typeGuessService.guess(file.content(), file.mimeType());
             if (title.isEmpty()) {
-                String guessed = request.containsSensitive()
-                        ? null
-                        : typeGuessService.guess(file.content(), file.mimeType()).title();
-                title = titleOrFileName(guessed, file.fileName());
+                title = titleOrFileName(guessed == null ? null : guessed.title(), file.fileName());
             }
-            return new TypeChoice(request.documentTypeId(), title, false, titleAuto);
+            return new TypeChoice(request.documentTypeId(), title, false, titleAuto,
+                    guessed == null ? null : guessed.type().getId());
         }
         if (request.containsSensitive()) {
             throw DocumentApiException.validation("Выберите тип документа: с чувствительными данными документ "
@@ -392,7 +396,7 @@ public class DocumentCommandService {
         }
         DocumentTypeGuessService.Guess guess = typeGuessService.guess(file.content(), file.mimeType());
         return new TypeChoice(guess.type().getId(),
-                title.isEmpty() ? titleOrFileName(guess.title(), file.fileName()) : title, true, titleAuto);
+                title.isEmpty() ? titleOrFileName(guess.title(), file.fileName()) : title, true, titleAuto, guess.type().getId());
     }
 
     static String titleOrFileName(String guessed, String fileName) {
@@ -416,7 +420,7 @@ public class DocumentCommandService {
         return value.length() <= MAX_TITLE_LENGTH ? value : value.substring(0, MAX_TITLE_LENGTH).strip();
     }
 
-    private record TypeChoice(long typeId, String title, boolean autoDetected, boolean titleAuto) {}
+    private record TypeChoice(long typeId, String title, boolean autoDetected, boolean titleAuto, Long aiTypeId) {}
 
     private DocumentPersistenceService.NewFile upload(DocumentFileValidator.ValidatedFile file) {
         String key = fileStorage.put(
