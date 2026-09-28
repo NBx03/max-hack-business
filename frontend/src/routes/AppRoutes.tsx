@@ -11,6 +11,7 @@ import {
 } from '../screens/onboarding/OnboardingRoutes';
 import { CompanyScreen } from '../screens/company/CompanyScreen';
 import { RulesScreen } from '../screens/company/RulesScreen';
+import { RouteTemplateScreen } from '../screens/company/RouteTemplateScreen';
 import { DocumentCardScreen } from '../screens/documents/DocumentCardScreen';
 import { DocumentListRoute } from '../screens/documents/DocumentListScreen';
 import { DocumentSearchScreen } from '../screens/documents/DocumentSearchScreen';
@@ -98,6 +99,7 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       />
       <Route path={ROUTE_PATTERNS.company} element={companyScreen(<CompanyScreen />)} />
       <Route path={ROUTE_PATTERNS.companyRules} element={companyScreen(<RulesScreen />)} />
+      <Route path={ROUTE_PATTERNS.companyRouteTemplate} element={companyScreen(<RouteTemplateScreen />)} />
       <Route
         path={ROUTE_PATTERNS.adminInvite}
         element={companyScreen(<InviteScreen />)}

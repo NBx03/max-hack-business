@@ -15,9 +15,13 @@ public interface DocumentTypeDirectory {
     /** @return id типов по кодам; кодов, которых в базе ещё нет, в результате нет */
     Map<String, Long> idsByCode(Collection<String> codes);
 
-    /** Тип по id — для проверки, что документ такого типа существует и «Другой документ» ли он (#98). */
+    /**
+     * Тип по id — только для проверки, что тип существует (#98). Не несёт признака {@code is_generic}: с #86
+     * у «Другого документа» есть схема полей, и этот столбец у него давно {@code false} — не значит «GENERIC»
+     * (ревью #126, п. 1). «Другой документ» ищут по коду через {@link #idsByCode}, как в {@code setMandatory}.
+     */
     Optional<TypeInfo> find(long id);
 
-    record TypeInfo(long id, String code, boolean generic) {
+    record TypeInfo(long id, String code) {
     }
 }

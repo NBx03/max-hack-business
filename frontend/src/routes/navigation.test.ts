@@ -116,6 +116,8 @@ describe('parentRoute — куда ведут «назад» и ссылки «�
     expect(parentRoute('/admin/invite', '/home')).toBe('/company');
     expect(parentRoute('/admin/members', '/home')).toBe('/company');
     expect(parentRoute('/company/rules', '/home')).toBe('/company');
+    // #98: редактор шаблона маршрута - тоже внутри «Компании» (ревью #126, п. 4: свой экран вместо панели)
+    expect(parentRoute('/company/routes/100', '/home')).toBe('/company');
     expect(parentRoute('/company/create', '/welcome')).toBe('/welcome');
     expect(parentRoute('/join', '/welcome')).toBe('/welcome');
     expect(parentRoute('/join/personal/abc', '/welcome')).toBe('/welcome');

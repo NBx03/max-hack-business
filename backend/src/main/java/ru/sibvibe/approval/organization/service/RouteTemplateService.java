@@ -132,14 +132,27 @@ public class RouteTemplateService {
      * задачи — обязательность автору не даёт снять, а администратору шаблона это доступно. Замена полная: позиция
      * этапа в списке становится {@code stage_order} (нумеруется подряд с 1), прежние строки шаблона удаляются
      * и создаются заново в одной транзакции.
+     *
+     * <p>Шаблон не может остаться совсем без ролей (ревью #126, п. 2): {@code overview}/{@code templateFor} и
+     * {@code RouteBackfillRunner} доберут маршрут по умолчанию заново, как только строк для вида нет вовсе, —
+     * пустой шаблон в этом смысле неотличим от «маршрута ещё не создавали» и был бы молча восстановлен на первом же
+     * обращении. Хранить отдельный признак «шаблон задан компанией» — отдельная миграция и риск больше пользы;
+     * проще требовать хотя бы одну роль, как «Другой документ» и так требует (маршрут там составляет автор, но
+     * через свой отдельный запрет, не через пустой шаблон).
      */
     @Transactional
     public List<RouteOverview> replaceTemplate(CurrentUser actor, long documentTypeId, List<RouteTemplateRequest.StageInput> stages) {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
-        DocumentTypeDirectory.TypeInfo type = typeDirectory.find(documentTypeId).orElseThrow(OrganizationErrors::notFound);
-        // D3: у «Другого документа» маршрут составляет автор — шаблона у него нет, редактировать нечего.
-        if (type.generic()) {
-            throw OrganizationErrors.validation("У «Другого документа» шаблон не редактируется: маршрут составляет автор");
+        // Блокировка строки компании — как CompanyService.updateLocation: без неё два одновременных сохранения не
+        // видят строк друг друга (delete + saveAll без блокировки читает старый снимок) и роль может задвоиться
+        // в разных этапах, либо вставка упадёт на uq_route_stage_role (ревью #126, п. 3).
+        organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
+        typeDirectory.find(documentTypeId).orElseThrow(OrganizationErrors::notFound);
+        // D3: «Другой документ» — по коду, а не по is_generic. С #86 у него есть схема полей, и is_generic у него
+        // давно false — этот столбец больше не значит «это GENERIC» (ревью #126, п. 1; та же проверка, что в setMandatory).
+        Long genericTypeId = typeDirectory.idsByCode(Set.of(DefaultRouteTemplates.GENERIC)).get(DefaultRouteTemplates.GENERIC);
+        if (genericTypeId != null && genericTypeId == documentTypeId) {
+            throw OrganizationErrors.validation("Шаблон «Другого документа» не редактируется: обязательных там нет, маршрут составляет автор");
         }
         Map<Long, Role> orgRoles = new HashMap<>();
         for (Role role : roleRepository.findByOrgIdOrderById(orgId)) {
@@ -169,6 +182,9 @@ public class RouteTemplateService {
                 row.setMandatory(participant.mandatory());
                 rows.add(row);
             }
+        }
+        if (rows.isEmpty()) {
+            throw OrganizationErrors.validation("В шаблоне должна остаться хотя бы одна роль");
         }
         routeRepository.deleteByOrgIdAndDocumentTypeId(orgId, documentTypeId);
         routeRepository.saveAll(rows);

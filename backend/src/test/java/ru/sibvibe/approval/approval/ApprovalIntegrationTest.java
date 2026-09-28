@@ -560,10 +560,13 @@ class ApprovalIntegrationTest {
         // #98: только администратор
         assertThat(call(company.frank, "PUT", url, Map.of("stages", List.of())).status()).isEqualTo(403);
 
-        // «Другой документ» — шаблона нет, редактировать нечего
+        // «Другой документ» — шаблон не редактируется, независимо от is_generic (ревью #126, п. 1: с #86 у него
+        // есть схема полей, is_generic у него давно false)
         long genericType = jdbc.queryForObject("select id from document_type where code = 'GENERIC'", Long.class);
+        assertThat(jdbc.queryForObject("select is_generic from document_type where id = ?", Boolean.class, genericType))
+                .as("проверка на живой базе, а не на моке: is_generic у GENERIC не значит «это генерик»").isFalse();
         assertThat(call(company.alice, "PUT", "/api/v1/orgs/current/routes/" + genericType, Map.of("stages", List.of()))
-                .status()).as("D3: у «Другого документа» шаблона нет").isEqualTo(400);
+                .status()).as("D3: шаблон «Другого документа» не редактируется").isEqualTo(400);
 
         // пустой этап отвергается
         assertThat(call(company.alice, "PUT", url,
@@ -610,11 +613,13 @@ class ApprovalIntegrationTest {
             }
         }
 
-        // пустой шаблон допустим — маршрут полностью составляет автор
-        JsonNode cleared = ok(call(company.alice, "PUT", url, Map.of("stages", List.of())));
-        for (JsonNode route : cleared) {
+        // пустой шаблон отвергается (ревью #126, п. 2): без строк он неотличим от «ещё не создан» и был бы молча
+        // восстановлен по умолчанию на следующем же обращении — «Сохранить» выглядело бы так, будто ничего не изменилось
+        assertThat(call(company.alice, "PUT", url, Map.of("stages", List.of())).status()).isEqualTo(400);
+        JsonNode stillThere = ok(call(company.alice, "GET", "/api/v1/orgs/current/routes", null));
+        for (JsonNode route : stillThere) {
             if (route.path("documentTypeId").asLong() == memoType) {
-                assertThat(route.path("stages")).isEmpty();
+                assertThat(route.path("stages")).hasSize(2);
             }
         }
     }

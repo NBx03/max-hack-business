@@ -123,7 +123,9 @@ describe('тело запроса и изменения', () => {
     expect(isDirty(updated, MEMO_ROUTE)).toBe(true);
   });
 
-  it('пустой шаблон допустим — маршрут будет составлять автор', () => {
+  it('можно опустошить локально до нуля ролей — toRequest честно отдаёт пустой список', () => {
+    // Сохранить такое состояние нельзя (сервер отвергает пустой шаблон, ревью #126, п. 2) — экран блокирует
+    // «Сохранить», когда stages пуст; сама функция при этом не должна врать о состоянии.
     const state = initialState(MEMO_ROUTE);
     const withoutHead = removeRole(state, state.stages[0].slots[0].id);
     const cleared = removeRole(withoutHead, withoutHead.stages[0].slots[0].id);

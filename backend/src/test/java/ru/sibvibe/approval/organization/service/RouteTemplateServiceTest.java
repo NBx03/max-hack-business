@@ -6,7 +6,6 @@ import org.mockito.ArgumentCaptor;
 import ru.sibvibe.approval.common.api.DomainException;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.DocumentTypeDirectory;
-import ru.sibvibe.approval.organization.dto.RouteOverview;
 import ru.sibvibe.approval.organization.dto.RouteTemplateRequest;
 import ru.sibvibe.approval.organization.entity.ApprovalRoute;
 import ru.sibvibe.approval.organization.entity.Organization;
@@ -28,7 +27,9 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,6 +53,10 @@ class RouteTemplateServiceTest {
                     call.getArgument(3), call.getArgument(4)));
             return 1;
         });
+        // Нет вида «Другой документ» среди типов — по умолчанию для replaceTemplate; тесты #98 переопределяют,
+        // где им нужен настоящий id GENERIC (ревью #126, п. 1: генерик определяется по коду, не по is_generic).
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
+        when(organizationRepository.findByIdForUpdate(ORG)).thenReturn(Optional.of(org(ORG)));
     }
 
     @Test
@@ -195,17 +200,19 @@ class RouteTemplateServiceTest {
 
     @Test
     void replaceTemplateRequiresAdmin() {
-        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
-        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
-
         assertThatThrownBy(() -> service.replaceTemplate(nonAdmin(), TYPE, List.of()))
                 .isInstanceOf(DomainException.class)
                 .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("NOT_ADMIN"));
+        // до проверки прав дальше сервис не заходит — блокировку строки компании не берёт
+        verify(organizationRepository, never()).findByIdForUpdate(anyLong());
     }
 
     @Test
     void genericTypeTemplateIsNotEditable() {
-        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "GENERIC", true)));
+        // ревью #126, п. 1: is_generic у GENERIC давно false (с #86, схема полей «Другого документа») — сервис
+        // должен искать его по коду через idsByCode, как setMandatory, а не по TypeInfo.generic (такого поля больше нет).
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, DefaultRouteTemplates.GENERIC)));
+        when(directory.idsByCode(anyCollection())).thenReturn(Map.of(DefaultRouteTemplates.GENERIC, TYPE));
 
         assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of()))
                 .isInstanceOf(DomainException.class)
@@ -223,7 +230,7 @@ class RouteTemplateServiceTest {
 
     @Test
     void roleFromAnotherOrganizationIsNotFound() {
-        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO")));
         when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(role(ORG, 11, DefaultRoles.DIRECTOR)));
 
         assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of(stageOf(role(999, 55, "LAWYER")))))
@@ -233,7 +240,7 @@ class RouteTemplateServiceTest {
 
     @Test
     void emptyStageIsRejected() {
-        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO")));
         when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of(new RouteTemplateRequest.StageInput(List.of()))))
@@ -243,7 +250,7 @@ class RouteTemplateServiceTest {
 
     @Test
     void sameRoleTwiceInTheTemplateIsRejected() {
-        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO")));
         Role director = role(ORG, 11, DefaultRoles.DIRECTOR);
         when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(director));
 
@@ -253,13 +260,40 @@ class RouteTemplateServiceTest {
     }
 
     @Test
+    void emptyTemplateIsRejectedInsteadOfSilentlyComingBackAsTheDefault() {
+        // ревью #126, п. 2: без строк шаблон неотличим от «ещё не создан» — overview()/ensureDefaultRoutes
+        // тут же восстановил бы его по умолчанию, и «Сохранить» с пустым составом молча ничего бы не поменяло.
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO")));
+
+        assertThatThrownBy(() -> service.replaceTemplate(admin(), TYPE, List.of()))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code()).isEqualTo("VALIDATION_FAILED"));
+        verify(routeRepository, never()).deleteByOrgIdAndDocumentTypeId(anyLong(), anyLong());
+    }
+
+    @Test
+    void replaceTemplateLocksTheOrganizationRowAgainstConcurrentSaves() {
+        // ревью #126, п. 3: без блокировки строки компании второе одновременное сохранение не увидит того, что
+        // сделало первое (delete + saveAll читают старый снимок), и роль может задвоиться или упасть на уникальности.
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO")));
+        Role director = role(ORG, 11, DefaultRoles.DIRECTOR);
+        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(director));
+        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
+
+        service.replaceTemplate(admin(), TYPE, List.of(stageOf(director)));
+
+        var order = inOrder(organizationRepository, routeRepository);
+        order.verify(organizationRepository).findByIdForUpdate(ORG);
+        order.verify(routeRepository).deleteByOrgIdAndDocumentTypeId(ORG, TYPE);
+    }
+
+    @Test
     void replacesOldRowsAndRenumbersStagesFromOnePositionally() {
-        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
+        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO")));
         Role head = role(ORG, 11, DefaultRoles.DEPARTMENT_HEAD);
         Role director = role(ORG, 22, DefaultRoles.DIRECTOR);
         when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of(head, director));
         when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
-        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
 
         service.replaceTemplate(admin(), TYPE, List.of(
                 new RouteTemplateRequest.StageInput(List.of(new RouteTemplateRequest.RoleInput(head.getId(), false))),
@@ -277,20 +311,6 @@ class RouteTemplateServiceTest {
         assertThat(saved.get(1).getStageOrder()).isEqualTo(2);
         assertThat(saved.get(1).getRoleId()).isEqualTo(director.getId());
         assertThat(saved.get(1).isMandatory()).isTrue();
-    }
-
-    @Test
-    void emptyTemplateIsAllowedAndMeansTheAuthorBuildsTheRoute() {
-        when(directory.find(TYPE)).thenReturn(Optional.of(new DocumentTypeDirectory.TypeInfo(TYPE, "OFFICIAL_MEMO", false)));
-        when(roleRepository.findByOrgIdOrderById(ORG)).thenReturn(List.of());
-        when(routeRepository.findByOrgIdOrderByDocumentTypeIdAscStageOrderAscIdAsc(ORG)).thenReturn(List.of());
-        when(directory.idsByCode(anyCollection())).thenReturn(Map.of());
-
-        List<RouteOverview> result = service.replaceTemplate(admin(), TYPE, List.of());
-
-        verify(routeRepository).deleteByOrgIdAndDocumentTypeId(ORG, TYPE);
-        verify(routeRepository).saveAll(List.of());
-        assertThat(result).isEmpty();
     }
 
     private RouteTemplateRequest.StageInput stageOf(Role role) {

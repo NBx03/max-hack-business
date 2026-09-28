@@ -34,6 +34,6 @@ public class DocumentTypeDirectoryService implements DocumentTypeDirectory {
     @Override
     @Transactional(readOnly = true)
     public Optional<TypeInfo> find(long id) {
-        return typeRepository.findById(id).map(type -> new TypeInfo(type.getId(), type.getCode(), type.isGeneric()));
+        return typeRepository.findById(id).map(type -> new TypeInfo(type.getId(), type.getCode()));
     }
 }
