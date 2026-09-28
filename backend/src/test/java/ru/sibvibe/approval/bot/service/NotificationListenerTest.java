@@ -7,6 +7,7 @@ import ru.sibvibe.approval.approval.event.DocumentDecidedEvent;
 import ru.sibvibe.approval.approval.event.DocumentWithdrawnEvent;
 import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
 import ru.sibvibe.approval.bot.Notifier;
+import ru.sibvibe.approval.organization.event.AdminChangedEvent;
 import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
 import ru.sibvibe.approval.organization.event.JoinRequestSubmittedEvent;
 import ru.sibvibe.approval.organization.event.MemberJoinedByLinkEvent;
@@ -89,6 +90,24 @@ class NotificationListenerTest {
         verify(notifier, times(2)).send(eq(910000077L), texts.capture(), anyString(), any());
         assertThat(texts.getAllValues().get(0)).contains("одобрена");
         assertThat(texts.getAllValues().get(1)).contains("отклонена");
+    }
+
+    /** Сняли права с администратора: сообщение остальным администраторам и ему самому, тому, кто снял, — нет. */
+    @Test
+    void adminRightsChangeIsSeenByOtherAdminsAndTheTarget() {
+        when(directory.find(5L)).thenReturn(Optional.of(new Recipient(910000005L, "Иван Первый")));
+        when(directory.find(6L)).thenReturn(Optional.of(new Recipient(910000006L, "Пётр Второй")));
+        when(directory.activeAdmins(1L)).thenReturn(List.of(
+                new Recipient(910000005L, "Иван Первый"), new Recipient(910000007L, "Анна Третья")));
+
+        listener.on(new AdminChangedEvent(1L, 5L, 6L, AdminChangedEvent.Kind.REVOKED));
+
+        verify(notifier).send(eq(910000007L),
+                eq("Изменение прав: Пётр Второй больше не администратор компании. Кто изменил: Иван Первый."),
+                anyString(), any());
+        verify(notifier).send(eq(910000006L),
+                eq("У вас больше нет прав администратора компании. Кто изменил: Иван Первый."), anyString(), any());
+        verify(notifier, never()).send(eq(910000005L), anyString(), anyString(), any());
     }
 
     @Test

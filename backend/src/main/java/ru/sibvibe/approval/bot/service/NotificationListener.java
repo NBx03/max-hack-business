@@ -11,6 +11,7 @@ import ru.sibvibe.approval.approval.event.DocumentWithdrawnEvent;
 import ru.sibvibe.approval.approval.event.StuckStepReminderEvent;
 import ru.sibvibe.approval.bot.Notifier;
 import ru.sibvibe.approval.bot.config.BotConfiguration;
+import ru.sibvibe.approval.organization.event.AdminChangedEvent;
 import ru.sibvibe.approval.organization.event.JoinRequestDecidedEvent;
 import ru.sibvibe.approval.organization.event.JoinRequestSubmittedEvent;
 import ru.sibvibe.approval.organization.event.MemberJoinedByLinkEvent;
@@ -19,6 +20,7 @@ import ru.sibvibe.approval.organization.service.NotificationDirectoryService;
 import ru.sibvibe.approval.organization.service.NotificationDirectoryService.Recipient;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Единственный подписчик доменных событий {@code organization} и {@code approval} (ARCHITECTURE.md,
@@ -92,6 +94,37 @@ public class NotificationListener {
             String text = "По вашей личной ссылке в компании новый сотрудник: " + memberName + ".";
             notifier.send(admin.maxUserId(), text, OPEN, links.appLink());
         });
+    }
+
+    /**
+     * Изменились права администратора (решение Булата 28.09): администраторы равноправны, поэтому каждое такое действие
+     * видят все остальные администраторы и сам человек — с именем того, кто это сделал. Тот, кто сделал, сообщения
+     * не получает. Без глаголов с родом при именах: пол людей неизвестен.
+     */
+    @Async(BotConfiguration.NOTIFICATION_EXECUTOR)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void on(AdminChangedEvent event) {
+        Optional<Recipient> actor = directory.find(event.actorUserId());
+        Optional<Recipient> target = directory.find(event.targetUserId());
+        String actorName = actor.map(Recipient::displayName).orElse("Администратор");
+        String targetName = target.map(Recipient::displayName).orElse("Сотрудник");
+        String by = " Кто изменил: " + actorName + ".";
+        String toAdmins = switch (event.kind()) {
+            case GRANTED -> "Изменение прав: " + targetName + " теперь администратор компании." + by;
+            case REVOKED -> "Изменение прав: " + targetName + " больше не администратор компании." + by;
+            case EXCLUDED -> "Изменение прав: " + targetName + " больше не в компании — вместе с правами администратора." + by;
+        };
+        String toTarget = switch (event.kind()) {
+            case GRANTED -> "Вам выданы права администратора компании." + by;
+            case REVOKED -> "У вас больше нет прав администратора компании." + by;
+            case EXCLUDED -> "Вас исключили из компании." + by;
+        };
+        long actorMax = actor.map(Recipient::maxUserId).orElse(Long.MIN_VALUE);
+        long targetMax = target.map(Recipient::maxUserId).orElse(Long.MIN_VALUE);
+        directory.activeAdmins(event.orgId()).stream()
+                .filter(admin -> admin.maxUserId() != actorMax && admin.maxUserId() != targetMax)
+                .forEach(admin -> notifier.send(admin.maxUserId(), toAdmins, OPEN, links.appLink()));
+        target.ifPresent(person -> notifier.send(person.maxUserId(), toTarget, OPEN, links.appLink()));
     }
 
     /** Этап согласования стал активным - уведомляются все его согласующие. */
