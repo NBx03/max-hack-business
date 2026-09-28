@@ -406,6 +406,10 @@ export function DocumentCheckScreen() {
     setNextTypeId(card.type.id);
     setTypeSheetOpen(true);
   };
+  // Когда внизу главная «Исправить», кнопки «Изменить» у «Данных документа» нет: они делали одно и то же
+  // (замечание Булата 28.09). Без критичных замечаний внизу «Далее», и править поля можно только через «Изменить».
+  const footerEdits = !editing && !(isDraft && card.permissions.canSubmit)
+    && (isDraft || isReturned) && canEdit && (mustFix || isReturned);
   const footer = editing ? null : isDraft && card.permissions.canSubmit ? (
     <div style={{ ...stackStyle, gap: 8 }}>
       <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>Далее: выбрать согласующих</Button>
@@ -434,7 +438,7 @@ export function DocumentCheckScreen() {
             <>
               {recognized ? recognized.value : card.type.name}
               {(recognized ? recognized.fromAi : card.type.autoDetected) && <AiMark />}
-              {' · '}версия {card.currentVersionNo}
+              {', '}версия {card.currentVersionNo}
             </>
           )}
         </span>
@@ -555,9 +559,9 @@ export function DocumentCheckScreen() {
       <section ref={fieldsRef} style={{ ...sectionStyle, scrollMarginTop: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <Typography.Headline variant="medium">Данные документа</Typography.Headline>
-          {canEdit && !editing && (
+          {canEdit && !editing && !footerEdits && (
             <div style={{ flex: 'none', whiteSpace: 'nowrap' }}>
-              <Button compact variant={mustFix || isReturned ? 'primary' : 'secondary'} onClick={startEditing}>Изменить</Button>
+              <Button compact variant="secondary" onClick={startEditing}>Изменить</Button>
             </div>
           )}
         </div>
@@ -700,7 +704,7 @@ function HowChecked({
   /** Записка заполнена в приложении (#59): распознавать нечего — это не «распознавание недоступно». */
   isForm: boolean;
 }) {
-  const fill = canEdit ? 'Заполните поля кнопкой «Изменить»' : 'Поля заполняет автор';
+  const fill = canEdit ? 'Заполните поля вручную' : 'Поля заполняет автор';
   const text = isForm
     ? 'Записка заполнена в приложении — правила проверили её поля.'
     : textMissing && oldWord

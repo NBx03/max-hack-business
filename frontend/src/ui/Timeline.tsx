@@ -92,7 +92,7 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
               </span>
               <button type="button" className="ds-tl__toggle" aria-expanded={false} onClick={() => setExpanded(true)}>
                 <span className="ds-tl__toggle-count">
-                  {collapseLabel ? collapseLabel(collapsible.length) : `Пройдено этапов: ${collapsible.length}`} ·
+                  {collapseLabel ? collapseLabel(collapsible.length) : `Пройдено этапов: ${collapsible.length}`}.
                 </span>
                 Показать
                 <Icon name="chevronDown" size={16} />
@@ -141,7 +141,7 @@ export function TimelinePerson({
     // Решение — отдельной строкой под именем: справа длинная метка («Возвращено на доработку») сжимала имя на 360 px.
     <div className="ds-tl__person">
       <div className="ds-row__title" style={{ fontSize: 'var(--ds-text-s)' }}>{name}</div>
-      <div className="ds-row__subtitle">{[role, time].filter(Boolean).join(' · ')}</div>
+      <div className="ds-row__subtitle">{[role, time].filter(Boolean).join(', ')}</div>
       {status && <div style={{ marginTop: 6 }}>{status}</div>}
       {comment && <p className="ds-tl__comment">«{comment}»</p>}
     </div>

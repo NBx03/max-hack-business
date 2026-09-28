@@ -37,7 +37,7 @@ export function VersionHistory({
   const opened = doc.versions.find((version) => version.versionNo === openNo) ?? null;
 
   return (
-    <Section title={`Версии · ${doc.versions.length}`} hint="Нажмите на версию, чтобы посмотреть, с чем её отправляли и что решили">
+    <Section title={`Версии (${doc.versions.length})`} hint="Нажмите на версию, чтобы посмотреть, с чем её отправляли и что решили">
       <List label="Версии">
         {visible.map((version) => {
           const outcome = versionOutcome(doc, version);
@@ -45,7 +45,7 @@ export function VersionHistory({
           return (
             <Row
               key={version.versionNo}
-              title={`Версия ${version.versionNo}${current ? ' · текущая' : ''}`}
+              title={`Версия ${version.versionNo}${current ? ' (текущая)' : ''}`}
               subtitle={
                 <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', marginTop: 2 }}>
                   <StatusBadge meta={outcome.meta} />
@@ -69,7 +69,7 @@ export function VersionHistory({
       <BottomSheet
         open={opened !== null}
         onClose={() => setOpenNo(null)}
-        title={opened ? `Версия ${opened.versionNo}${opened.versionNo === doc.currentVersionNo ? ' · текущая' : ''}` : ''}
+        title={opened ? `Версия ${opened.versionNo}${opened.versionNo === doc.currentVersionNo ? ' (текущая' : ''}` : ''}
       >
         {opened && (
           <VersionDetails
@@ -109,7 +109,7 @@ function VersionDetails({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Muted>Создана {formatDateTime(version.createdAt)} · {version.createdBy.fullName}</Muted>
+      <Muted>Создана {formatDateTime(version.createdAt)}, {version.createdBy.fullName}</Muted>
 
       {stopTone ? (
         <Notice tone={stopTone} icon={outcome.meta.icon}>
@@ -141,7 +141,7 @@ function VersionDetails({
                 key={file.id}
                 before={<span style={{ color: 'var(--text-secondary)', display: 'inline-flex' }}><Icon name="file" size={22} /></span>}
                 title={file.fileName}
-                subtitle={`${file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'} · ${formatFileSize(file.size)} · скачать`}
+                subtitle={`${file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'}, ${formatFileSize(file.size)}, скачать`}
                 onClick={() => onDownload(file)}
               />
             ))}
@@ -151,7 +151,7 @@ function VersionDetails({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h3 className="ds-section__title">
-          Замечания проверки{version.issues && version.issues.length > 0 ? ` · ${version.issues.length}` : ''}
+          Замечания проверки{version.issues && version.issues.length > 0 ? ` (${version.issues.length}` : ''}
         </h3>
         {version.issues == null ? (
           <Muted>Эта версия не проверялась.</Muted>
@@ -174,7 +174,7 @@ function VersionDetails({
                 title={step.approver.fullName}
                 subtitle={
                   <span style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
-                    <span>{[step.role.name, step.decidedAt ? formatDateTime(step.decidedAt) : null].filter(Boolean).join(' · ')}</span>
+                    <span>{[step.role.name, step.decidedAt ? formatDateTime(step.decidedAt) : null].filter(Boolean).join(', ')}</span>
                     <span><StatusBadge meta={personMeta(step)} /></span>
                     {step.comment && <span style={{ color: 'var(--text-primary)' }}>«{step.comment}»</span>}
                   </span>

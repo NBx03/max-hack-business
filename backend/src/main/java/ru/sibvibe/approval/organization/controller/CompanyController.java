@@ -16,6 +16,7 @@ import ru.sibvibe.approval.common.dto.RoleRef;
 import ru.sibvibe.approval.common.dto.UserRef;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.dto.CompanyLocationRequest;
+import ru.sibvibe.approval.organization.dto.CompanyNameRequest;
 import ru.sibvibe.approval.organization.dto.CreateOrganizationRequest;
 import ru.sibvibe.approval.organization.dto.OrganizationCreatedResponse;
 import ru.sibvibe.approval.organization.dto.RoleNameRequest;
@@ -68,6 +69,15 @@ public class CompanyController {
             @Valid @RequestBody CompanyLocationRequest request
     ) {
         return companyService.updateLocation(currentUser, request);
+    }
+
+    /** Название компании (решение Булата 28.09) — только администратор, не у демо-песочницы. */
+    @PutMapping("/orgs/current/name")
+    public CompanyService.CompanyNameView rename(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @Valid @RequestBody CompanyNameRequest request
+    ) {
+        return companyService.rename(currentUser, request);
     }
 
     @GetMapping("/orgs/current/roles")

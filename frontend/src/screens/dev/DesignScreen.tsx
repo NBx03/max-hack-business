@@ -64,8 +64,8 @@ export function DesignScreen() {
     >
       <Section title="Палитра статусов — два варианта (DOC-6)">
         <div style={{ display: 'flex', gap: 12 }}>
-          <Palette variant="a" title="A · синий в работе" note="в коде" />
-          <Palette variant="b" title="B · янтарный в работе" note="для сравнения" />
+          <Palette variant="a" title="A — синий в работе" note="в коде" />
+          <Palette variant="b" title="B — янтарный в работе" note="для сравнения" />
         </div>
       </Section>
 
@@ -104,13 +104,13 @@ export function DesignScreen() {
         <List>
           <Row
             title="О закупке ноутбуков для отдела продаж"
-            subtitle="Служебная записка · Демо Автор · 24 сент."
+            subtitle="Служебная записка, Демо Автор, 24 сент."
             after={<StatusBadge meta={STATUSES[1]} />}
             onClick={() => undefined}
           />
           <Row
             title="Договор аренды офиса"
-            subtitle={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><AiMark /> Договор аренды · Демо Автор</span>}
+            subtitle={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><AiMark /> Договор аренды, Демо Автор</span>}
             after={<StatusBadge meta={STATUSES[0]} />}
             onClick={() => undefined}
           />

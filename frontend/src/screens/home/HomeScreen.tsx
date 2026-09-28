@@ -43,7 +43,7 @@ export function HomeScreen() {
   // Недавние — под плитками, чтобы не было пустого места до «Нового документа» (замечание Ильи, #56).
   const recent = useAsync(() => getDocuments(DOCUMENT_LISTS.mine.tab, { size: RECENT_COUNT }), []);
 
-  const who = actor ? [actor.user.fullName, roleLine(actor.roles, actor.isAdmin)].filter(Boolean).join(' · ') : undefined;
+  const who = actor ? [actor.user.fullName, roleLine(actor.roles, actor.isAdmin)].filter(Boolean).join(', ') : undefined;
 
   return (
     <Page

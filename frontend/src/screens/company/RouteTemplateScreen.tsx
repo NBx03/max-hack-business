@@ -192,8 +192,8 @@ function RouteTemplateEditor({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
               <h2 className="ds-section__title" style={{ flex: 1 }}>
                 Этап {index + 1}
-                {stage.slots.length > 1 && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · одновременно</span>}
-                {isEndorsement && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · Утверждение</span>}
+                {stage.slots.length > 1 && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> — одновременно</span>}
+                {isEndorsement && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> — утверждение</span>}
               </h2>
               {state.stages.length > 1 && (
                 <IconButton icon="more" label={`Порядок этапа ${index + 1}`} onClick={() => setStageMenu(index)} />
@@ -347,7 +347,7 @@ function RoleRow({
         </span>
         <span className="ds-row__subtitle">
           {slot.mandatory ? 'Обязательна — автор не убирает' : 'Не обязательна'}
-          {!hasCarrier && ' · сейчас ни у кого нет этой роли'}
+          {!hasCarrier && ', сейчас ни у кого нет этой роли'}
         </span>
       </button>
       <IconButton icon="close" label={`Убрать роль: ${slot.roleName}`} onClick={onRemove} />

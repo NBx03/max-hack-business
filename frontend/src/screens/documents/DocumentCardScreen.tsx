@@ -97,7 +97,7 @@ function timelineItems(doc: DocumentCard): TimelineItem[] {
       key: 'created',
       state: 'done',
       title: 'Создан',
-      meta: first ? `${formatDateTime(first.createdAt)} · ${doc.author.fullName}` : doc.author.fullName,
+      meta: first ? `${formatDateTime(first.createdAt)}, ${doc.author.fullName}` : doc.author.fullName,
       icon: 'draft',
     },
   ];
@@ -137,7 +137,7 @@ function timelineItems(doc: DocumentCard): TimelineItem[] {
         <TimelinePerson
           key={step.id}
           name={step.approver.fullName}
-          role={step.origin === 'ADDED_BY_AUTHOR' ? `${step.role.name} · добавлен автором` : step.role.name}
+          role={step.origin === 'ADDED_BY_AUTHOR' ? `${step.role.name}, добавлен автором` : step.role.name}
           status={state === 'future' && step.decision === 'PENDING' ? undefined : <StatusBadge meta={personMeta(step)} />}
           time={step.decidedAt ? formatDateTime(step.decidedAt) : null}
           comment={step.comment}
@@ -496,10 +496,10 @@ export function DocumentCardScreen() {
               {kind ? (
                 <>
                   <RecognizedKind value={kind.value} fromAi={kind.fromAi} />
-                  <span>{doc.author.fullName} · версия {doc.currentVersionNo}</span>
+                  <span>{doc.author.fullName}, версия {doc.currentVersionNo}</span>
                 </>
               ) : (
-                <span>{doc.type.name} · {doc.author.fullName} · версия {doc.currentVersionNo}</span>
+                <span>{doc.type.name}, {doc.author.fullName}, версия {doc.currentVersionNo}</span>
               )}
             </span>
           }
@@ -558,7 +558,7 @@ export function DocumentCardScreen() {
                 key={file.id}
                 before={<span style={{ color: 'var(--text-secondary)', display: 'inline-flex' }}><Icon name="file" size={22} /></span>}
                 title={file.fileName}
-                subtitle={`${file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'} · ${formatFileSize(file.size)}`}
+                subtitle={`${file.kind === 'MAIN' ? 'Основной файл' : 'Приложение'}, ${formatFileSize(file.size)}`}
                 onClick={() => void download(file)}
               />
             ))}

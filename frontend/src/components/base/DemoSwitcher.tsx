@@ -45,7 +45,7 @@ export function DemoSwitcher() {
       <div className="ds-demo-bar">
         <button type="button" className="ds-demo-bar__button" onClick={() => setSheetOpen(true)}>
           <span className="ds-demo-bar__label">
-            <strong>Демо</strong> · вы действуете как {me.actingAs.user.fullName} ({activeRole})
+            <strong>Демо:</strong> вы действуете как {me.actingAs.user.fullName} ({activeRole})
           </span>
           <Icon name="chevronDown" size={18} />
         </button>
