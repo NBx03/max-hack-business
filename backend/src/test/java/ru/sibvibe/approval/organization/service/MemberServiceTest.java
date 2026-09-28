@@ -145,12 +145,20 @@ class MemberServiceTest {
     }
 
     @Test
-    void administratorCannotChangeOwnRoles() {
+    void administratorChangesOwnRolesToo() {
         OrganizationMember self = member(ADMIN_USER, true);
         when(memberRepository.findByIdAndOrgIdForUpdate(MEMBER_ID, ORG)).thenReturn(Optional.of(self));
+        when(roleRepository.findByOrgIdAndIdIn(ORG, Set.of(5L))).thenReturn(List.of(role(5L)));
 
-        assertThatThrownBy(() -> service.setRoles(adminActor(), MEMBER_ID, List.of(5L)))
-                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("FORBIDDEN"));
+        service.setRoles(adminActor(), MEMBER_ID, List.of(5L));
+
+        verify(memberRoleRepository).save(org.mockito.ArgumentMatchers.any(MemberRole.class));
+    }
+
+    @Test
+    void ordinaryMemberCannotChangeAnyRoles() {
+        assertThatThrownBy(() -> service.setRoles(user(ORG, false), MEMBER_ID, List.of(5L)))
+                .isInstanceOfSatisfying(DomainException.class, e -> assertThat(e.code()).isEqualTo("NOT_ADMIN"));
     }
 
     @Test

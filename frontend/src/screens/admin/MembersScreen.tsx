@@ -17,7 +17,7 @@ function sameRoleIds(a: number[], b: number[]): boolean {
 }
 
 export function MembersScreen() {
-  const { me } = useSession();
+  const { me, refreshQuietly } = useSession();
   const [members, setMembers] = useState<MemberView[] | null>(null);
   const [roles, setRoles] = useState<RoleRef[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +107,8 @@ export function MembersScreen() {
       if (adminChanged) {
         applyUpdate(await setMemberAdmin(editing.memberId, editIsAdmin));
       }
+      // Свои роли видны и на главной, и в «Компании» — сессию обновляем сразу.
+      if (editing.user.id === selfUserId) await refreshQuietly();
       closeEdit();
       setToast(['Изменения сохранены.', returnedDocumentsText(returned)].filter(Boolean).join(' '));
     } catch (error) {
@@ -166,6 +168,8 @@ export function MembersScreen() {
     );
   }
 
+  const editingSelf = editing !== null && editing.user.id === selfUserId;
+
   return (
     <AdminScreen title="Участники" back={ADMIN_BACK}>
       <Muted>Нажмите на сотрудника, чтобы поменять роли или права администратора.</Muted>
@@ -178,16 +182,16 @@ export function MembersScreen() {
               before={<Initials name={member.user.fullName} />}
               title={isSelf ? `${member.user.fullName} (вы)` : member.user.fullName}
               // Права администратора — в строке ролей, как в «Компании»: метка справа сжимала имя в две строки (#56).
-              subtitle={member.isAdmin ? [roleNames(member.roles), 'администратор'].filter(Boolean).join(' · ') : roleNames(member.roles)}
-              // Свои роли и права администратор не меняет (CLAUDE.md) — у своей строки нет стрелки и нажатия.
-              onClick={isSelf ? undefined : () => openEdit(member)}
+              subtitle={member.isAdmin ? [roleNames(member.roles), 'администратор'].filter(Boolean).join(', ') : roleNames(member.roles)}
+              // Свои роли администратор тоже меняет (решение Булата 28.09); свои права и исключение — нет (лист ниже).
+              onClick={() => openEdit(member)}
             />
           );
         })}
       </List>
 
       {excludedMembers.length > 0 && (
-        <Section title={`Исключённые · ${excludedMembers.length}`} hint="Вернуться можно по коду компании — в заявке прежние роли будут уже отмечены — или по личной ссылке.">
+        <Section title={`Исключённые (${excludedMembers.length})`} hint="Вернуться можно по коду компании — в заявке прежние роли будут уже отмечены — или по личной ссылке.">
           {showExcluded ? (
             <List label="Исключённые">
               {excludedMembers.map((member) => (
@@ -215,17 +219,22 @@ export function MembersScreen() {
               Документы, которые ждут решения сотрудника в снятой роли, вернутся авторам — их можно отправить заново.
             </span>
           )}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Switch checked={editIsAdmin} disabled={saving || disabling} onChange={(event) => setEditIsAdmin(event.target.checked)} />
-            <Typography.Text>Права администратора</Typography.Text>
-          </label>
+          {/* У себя — только роли: снять с себя права или исключить себя нельзя (выхода из компании нет, решение 27.09). */}
+          {!editingSelf && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Switch checked={editIsAdmin} disabled={saving || disabling} onChange={(event) => setEditIsAdmin(event.target.checked)} />
+              <Typography.Text>Права администратора</Typography.Text>
+            </label>
+          )}
           {editError && <Notice tone="danger">{editError}</Notice>}
           <Button stretched variant="primary" loading={saving} disabled={saving || disabling} onClick={() => void save()}>
             Сохранить
           </Button>
-          <Button stretched variant="danger" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
-            Исключить из компании
-          </Button>
+          {!editingSelf && (
+            <Button stretched variant="danger" disabled={saving || disabling} onClick={() => setConfirmDisable(true)}>
+              Исключить из компании
+            </Button>
+          )}
         </div>
       </BottomSheet>
 

@@ -104,11 +104,37 @@ export function companyZoneOf(me: MeResponse | null): string {
   return supportedZone(company?.timeZone) ?? DEFAULT_ZONE;
 }
 
-/** Варианты выбора города: «Новосибирск · МСК+4» — сразу видно, какой у компании будет день. */
-export function cityOptions(): { value: string; label: string }[] {
-  return COMPANY_CITIES.map((item) => ({ value: item.city, label: `${item.city} · ${mskLabel(item.timeZone)}` }));
+/**
+ * Часовой пояс — то, что важно компании (решение Булата 28.09): выбирается пояс, а не город. Раньше был список городов,
+ * и компании из города, которого в нём нет, приходилось искать соседний. Один вариант на разницу с Москвой; значение —
+ * первый пояс с этой разницей (у МСК+4 и Новосибирск, и Красноярск), в подписи — крупные города пояса.
+ */
+export function zoneOptions(): { value: string; label: string; description: string }[] {
+  const groups = new Map<number, { zone: string; cities: string[] }>();
+  for (const { city, timeZone } of COMPANY_CITIES) {
+    const offset = MSK_OFFSET[timeZone];
+    const group = groups.get(offset);
+    if (group) group.cities.push(city);
+    else groups.set(offset, { zone: timeZone, cities: [city] });
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, group]) => ({ value: group.zone, label: zoneLabel(group.zone), description: group.cities.join(', ') }));
 }
 
-export function cityByName(city: string): CompanyCity | undefined {
-  return COMPANY_CITIES.find((item) => item.city === city);
+/** Вариант выбора, к которому относится пояс компании: у Красноярска это вариант «МСК+4» с Новосибирском. */
+export function zoneChoice(zone: string | null | undefined): string {
+  const offset = MSK_OFFSET[supportedZone(zone) ?? DEFAULT_ZONE];
+  return zoneOptions().find((option) => MSK_OFFSET[option.value] === offset)?.value ?? DEFAULT_ZONE;
+}
+
+/** «МСК+4 (UTC+7)»: по Москве — привычно в России, по UTC — однозначно. */
+export function zoneLabel(zone: string): string {
+  const utc = (MSK_OFFSET[zone] ?? 0) + 3;
+  return `${mskLabel(zone)} (UTC+${utc})`;
+}
+
+/** Что отправить серверу за выбранный пояс: сам пояс и его главный город (сервер сверяет пару «город — пояс»). */
+export function locationOf(zone: string): CompanyCity {
+  return defaultCity(zoneChoice(zone));
 }

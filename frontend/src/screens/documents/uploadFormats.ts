@@ -9,7 +9,7 @@ export const MAX_FILE_MB = 10;
 const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 
 /** Строка под зоной загрузки. */
-export const MAIN_FILE_CAPTION = `PDF или DOCX · до ${MAX_FILE_MB} МБ`;
+export const MAIN_FILE_CAPTION = `PDF или DOCX, до ${MAX_FILE_MB} МБ`;
 
 /** Совет для DOC — тот же, что у сервера (DocumentFileValidator). */
 export const DOC_NOT_SUPPORTED = 'DOC — устаревший формат Word. Откройте файл в Word и сохраните как DOCX: «Файл → Сохранить как → Документ Word (.docx)».';
@@ -77,7 +77,7 @@ export function versionSizeProblem(totalBytes: number): string | null {
   return `Все файлы вместе — ${total} МБ, а можно до ${MAX_VERSION_MB} МБ. Уберите часть приложений.`;
 }
 
-export const ATTACHMENT_CAPTION = `PDF, DOCX, XLSX, PNG, JPG · до ${MAX_FILE_MB} МБ каждый, до ${MAX_ATTACHMENTS} файлов`;
+export const ATTACHMENT_CAPTION = `PDF, DOCX, XLSX, PNG, JPG, до ${MAX_FILE_MB} МБ каждый, до ${MAX_ATTACHMENTS} файлов`;
 
 export const ATTACHMENT_ACCEPT = [
   '.pdf',

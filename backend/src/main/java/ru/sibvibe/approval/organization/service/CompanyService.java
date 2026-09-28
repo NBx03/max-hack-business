@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.sibvibe.approval.common.security.CurrentUser;
 import ru.sibvibe.approval.organization.dto.CompanyLocationRequest;
+import ru.sibvibe.approval.organization.dto.CompanyNameRequest;
 import ru.sibvibe.approval.organization.dto.CreateOrganizationRequest;
 import ru.sibvibe.approval.organization.dto.OrganizationCreatedResponse;
 import ru.sibvibe.approval.organization.entity.Organization;
@@ -95,6 +96,24 @@ public class CompanyService {
         }
         applyLocation(org, request.city(), request.timeZone());
         return new CompanyLocationView(org.getCity(), org.getTimeZone());
+    }
+
+    /**
+     * Название компании меняет администратор (решение Булата 28.09): ошиблись при создании или компания переименовалась.
+     * Бот и экраны читают название из базы, поэтому новое видно сразу везде. У демо-песочницы — нет: она общая заготовка.
+     */
+    @Transactional
+    public CompanyNameView rename(CurrentUser actor, CompanyNameRequest request) {
+        long orgId = OrganizationAccess.requireAdminOrg(actor);
+        Organization org = organizationRepository.findByIdForUpdate(orgId).orElseThrow(OrganizationErrors::notFound);
+        if (org.isDemo()) {
+            throw OrganizationErrors.forbidden("Название демо-компании не меняется");
+        }
+        org.setName(request.name().trim());
+        return new CompanyNameView(org.getName());
+    }
+
+    public record CompanyNameView(String name) {
     }
 
     private static void applyLocation(Organization org, String city, String timeZone) {

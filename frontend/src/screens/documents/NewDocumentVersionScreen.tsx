@@ -200,7 +200,7 @@ export function NewDocumentVersionScreen() {
         {currentMain && (
           <div style={sectionStyle}>
             <strong>Текущий основной файл</strong>
-            <span>{currentMain.fileName} · {formatFileSize(currentMain.size)}</span>
+            <span>{currentMain.fileName}, {formatFileSize(currentMain.size)}</span>
             <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
               {newMain ? 'Будет заменён новым файлом' : 'Останется в новой версии'}
             </span>

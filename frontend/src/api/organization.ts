@@ -57,6 +57,11 @@ export function replaceRouteTemplate(documentTypeId: number, request: RouteTempl
 }
 
 /** Город и часовой пояс компании (#56) — только администратор. */
+/** Название компании (решение Булата 28.09) — только администратор, не у демо-песочницы. */
+export function renameCompany(name: string): Promise<{ name: string }> {
+  return apiRequest<{ name: string }>('/orgs/current/name', { method: 'PUT', body: { name } });
+}
+
 export function updateCompanyLocation(city: string, timeZone: string): Promise<{ city: string; timeZone: string }> {
   return apiRequest<{ city: string; timeZone: string }>('/orgs/current/location', { method: 'PUT', body: { city, timeZone } });
 }

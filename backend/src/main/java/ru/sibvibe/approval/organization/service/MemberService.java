@@ -91,10 +91,9 @@ public class MemberService {
         long orgId = OrganizationAccess.requireAdminOrg(actor);
         OrganizationMember member = memberRepository.findByIdAndOrgIdForUpdate(memberId, orgId)
                 .orElseThrow(OrganizationErrors::notFound);
-        if (member.getUserId() == actor.userId()) {
-            // «Роль себе назначить нельзя» (CLAUDE.md): роли назначает другой администратор.
-            throw OrganizationErrors.forbidden("Нельзя менять собственные роли: попросите другого администратора");
-        }
+        // Свои роли администратор тоже меняет (решение Булата 28.09): роли — не привилегии (права администратора — отдельный
+        // флаг), и назначить любую роль любому он может и так. Раньше единственный администратор не мог взять себе
+        // даже вторую роль. Сотрудник без прав себе ничего не назначит — менять роли может только администратор.
         if (member.getStatus() != OrganizationMember.Status.ACTIVE) {
             throw OrganizationErrors.invalidState("Участник отключён");
         }

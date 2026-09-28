@@ -242,7 +242,7 @@ function RouteBuilder({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
             <h2 className="ds-section__title" style={{ flex: 1 }}>
               Этап {index + 1}
-              {stage.slots.length > 1 && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · одновременно</span>}
+              {stage.slots.length > 1 && <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> — одновременно</span>}
             </h2>
             {state.stages.length > 1 && (
               <IconButton icon="more" label={`Порядок этапа ${index + 1}`} onClick={() => setStageMenu(index)} />
@@ -274,13 +274,13 @@ function RouteBuilder({
         <section className="ds-card">
           <h2 className="ds-section__title">
             Этап {state.stages.length + 1}
-            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> · автоматически</span>
+            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}> — автоматически</span>
           </h2>
           <List label="Согласуется автоматически">
             <div className="ds-row" role="listitem">
               <span className="ds-row__body">
                 {/* В истории шаг хранит одну роль — первую; остальные названы ниже, чтобы конструктор и карточка не расходились. */}
-                <span className="ds-row__title">Вы · {authorRoles[0].name}</span>
+                <span className="ds-row__title">Вы ({authorRoles[0].name})</span>
                 <span className="ds-row__subtitle">
                   {authorRoles.length > 1
                     ? `Роли ${authorRoles.map((role) => `«${role.name}»`).join(', ')} в компании только у вас — согласуются автоматически одним шагом.`
@@ -408,7 +408,7 @@ function SlotRow({
     ? slot.name
     : nobody ? `${slot.roleName} — нет сотрудника с этой ролью` : `${slot.roleName}: выберите сотрудника`;
   const subtitle = slot.kind === 'person'
-    ? [slot.roleName, carried].filter(Boolean).join(' · ')
+    ? [slot.roleName, carried].filter(Boolean).join(', ')
     : nobody
       ? 'Назначить роль или сделать её необязательной может администратор'
       : `Роль есть у нескольких: ${slot.candidates.map((candidate) => candidate.fullName).join(', ')}`;
@@ -477,7 +477,7 @@ function AddSheet({
   const options: SelectOption<number>[] = pool.map((member) => ({
     value: member.user.id,
     label: member.user.fullName,
-    description: member.roles.map((role) => role.name).join(' · '),
+    description: member.roles.map((role) => role.name).join(', '),
     disabledReason: placeOf(state, member.user.id) ?? undefined,
   }));
   let title = 'Добавить согласующего';

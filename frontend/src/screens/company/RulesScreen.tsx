@@ -7,7 +7,7 @@ import type { CompanyRule, CompanyRules, RuleSettingInput, Severity } from '../.
 import { BottomSheet, Button, Chip, Chips, ErrorState, Icon, List, Row, Section, Toast, SelectField } from '../../ui';
 import { ROUTE_PATTERNS } from '../../routes/paths';
 import { useSession } from '../../app/SessionContext';
-import { mskLabel } from '../../app/companyTime';
+import { zoneLabel } from '../../app/companyTime';
 import { DocumentScreen, LoadingState, Notice, fieldStyle, labelStyle, stackStyle } from '../documents/DocumentFormParts';
 import { KIND_LABELS, SEVERITY_HINTS, SEVERITY_LABELS, ruleBasis, ruleTitle } from './ruleText';
 
@@ -159,7 +159,7 @@ function RuleGroups({ rules, onOpen }: { rules: CompanyRule[]; onOpen: (rule: Co
         const inGroup = rules.filter((rule) => (group.key === 'OFF' ? !rule.enabled : rule.enabled && rule.severity === group.key));
         if (inGroup.length === 0) return null;
         return (
-          <Section key={group.key} title={`${group.title} · ${inGroup.length}`} hint={group.hint}>
+          <Section key={group.key} title={`${group.title} (${inGroup.length})`} hint={group.hint}>
             <List label={group.title}>
               {inGroup.map((rule) => (
                 <Row
@@ -180,12 +180,12 @@ function RuleGroups({ rules, onOpen }: { rules: CompanyRule[]; onOpen: (rule: Co
 
 /** Вид правила и отметка «изменено» — одной короткой строкой под названием. */
 function ruleMarks(rule: CompanyRule): string {
-  return [KIND_LABELS[rule.kind], rule.customized ? 'изменено компанией' : null].filter(Boolean).join(' · ');
+  return [KIND_LABELS[rule.kind], rule.customized ? 'изменено компанией' : null].filter(Boolean).join(', ');
 }
 
 /**
  * У правила «не позже сегодняшнего дня» — чьё это «сегодня»: по городу компании (#56). Администратор видит, где его
- * поменять: «Компания» → «Город компании».
+ * поменять: «Компания» → «Часовой пояс».
  */
 function TodayZone({ rule }: { rule: CompanyRule }) {
   const { me } = useSession();
@@ -193,7 +193,7 @@ function TodayZone({ rule }: { rule: CompanyRule }) {
   if (rule.check !== 'DATE_NOT_FUTURE' || !company) return null;
   return (
     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-      «Сегодня» — по времени компании: {company.city}, {mskLabel(company.timeZone)}
+      «Сегодня» — по времени компании: {zoneLabel(company.timeZone)}
     </span>
   );
 }
@@ -398,7 +398,7 @@ function RuleEditor({
           )}
           {rule.customized && (
             <p className="ds-section__hint" style={{ margin: 0 }}>
-              В шаблоне: {SEVERITY_LABELS[rule.template.severity]} · {KIND_LABELS[rule.template.kind]}
+              В шаблоне: {SEVERITY_LABELS[rule.template.severity]}, {KIND_LABELS[rule.template.kind]}
             </p>
           )}
         </div>

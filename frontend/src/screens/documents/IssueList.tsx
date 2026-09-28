@@ -110,7 +110,7 @@ function IssueCard({
               ) : (
                 <span>{issue.sourceTitle}</span>
               )}
-              {issue.sourceRef && <span> · {issue.sourceRef}</span>}
+              {issue.sourceRef && <span>, {issue.sourceRef}</span>}
             </div>
           )}
           {onConfigure && (
