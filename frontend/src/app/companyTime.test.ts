@@ -40,8 +40,8 @@ describe('выбор часового пояса вместо города (ре
   it('по варианту на каждую разницу с Москвой, по порядку, с городами в подписи', () => {
     const options = zoneOptions();
     expect(options).toHaveLength(11);
-    expect(options[0].label).toBe('МСК−1 (UTC+2)');
-    const plus4 = options.find((option) => option.label === 'МСК+4 (UTC+7)');
+    expect(options[0].label).toBe('МСК−1');
+    const plus4 = options.find((option) => option.label === 'МСК+4');
     expect(plus4?.value).toBe('Asia/Novosibirsk');
     expect(plus4?.description).toContain('Красноярск');
   });
@@ -53,6 +53,6 @@ describe('выбор часового пояса вместо города (ре
 
   it('серверу уходит пояс и главный город пояса', () => {
     expect(locationOf('Asia/Krasnoyarsk')).toEqual({ city: 'Новосибирск', timeZone: 'Asia/Novosibirsk' });
-    expect(zoneLabel('Europe/Moscow')).toBe('МСК (UTC+3)');
+    expect(zoneLabel('Europe/Moscow')).toBe('МСК');
   });
 });

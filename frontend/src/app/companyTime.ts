@@ -128,10 +128,9 @@ export function zoneChoice(zone: string | null | undefined): string {
   return zoneOptions().find((option) => MSK_OFFSET[option.value] === offset)?.value ?? DEFAULT_ZONE;
 }
 
-/** «МСК+4 (UTC+7)»: по Москве — привычно в России, по UTC — однозначно. */
+/** «МСК+4»: в России время считают от Москвы, UTC не используют (решение Булата 29.09). */
 export function zoneLabel(zone: string): string {
-  const utc = (MSK_OFFSET[zone] ?? 0) + 3;
-  return `${mskLabel(zone)} (UTC+${utc})`;
+  return mskLabel(zone);
 }
 
 /** Что отправить серверу за выбранный пояс: сам пояс и его главный город (сервер сверяет пару «город — пояс»). */
