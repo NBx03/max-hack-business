@@ -56,3 +56,6 @@ databaseChangeLog:
   - include:
       file: 019-document-ai-type.sql
       relativeToChangelogFile: true
+  - include:
+      file: 020-vacation-employee-hint.sql
+      relativeToChangelogFile: true

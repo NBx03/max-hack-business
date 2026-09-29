@@ -22,8 +22,8 @@ import {
   type StatusMeta,
 } from '../../ui';
 
-// Витрина дизайн-системы — только в dev-сборке (AppRoutes). Здесь команда сравнивает два варианта палитры статусов
-// (DOC-6) на одном экране и видит все базовые компоненты в тёмной и светлой теме.
+// Витрина дизайн-системы — только в dev-сборке (AppRoutes): палитра статусов (DOC-6, вариант A) и все базовые
+// компоненты в тёмной и светлой теме.
 
 const STATUSES: StatusMeta[] = [
   { text: 'Черновик', tone: 'neutral', icon: 'draft' },
@@ -35,19 +35,6 @@ const STATUSES: StatusMeta[] = [
   { text: 'Утверждён', tone: 'success', icon: 'endorse' },
 ];
 
-function Palette({ variant, title, note }: { variant: 'a' | 'b'; title: string; note: string }) {
-  return (
-    <div data-palette={variant} style={{ flex: '1 1 0', minWidth: 0 }}>
-      <Section title={title} hint={note}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
-          {STATUSES.map((meta) => (
-            <StatusBadge key={meta.text} meta={meta} />
-          ))}
-        </div>
-      </Section>
-    </div>
-  );
-}
 
 export function DesignScreen() {
   const [chip, setChip] = useState('all');
@@ -55,17 +42,18 @@ export function DesignScreen() {
   const [person, setPerson] = useState<number | null>(null);
   return (
     <Page
-      header={<PageHeader back={{ to: '/home', label: 'Главная' }} title="Дизайн-система" subtitle="Витрина компонентов и палитр статусов (только dev)" />}
+      header={<PageHeader back={{ to: '/home', label: 'Главная' }} title="Дизайн-система" subtitle="Витрина компонентов и палитры статусов (только dev)" />}
       footer={
         <Button variant="primary" stretched>
           Главное действие
         </Button>
       }
     >
-      <Section title="Палитра статусов — два варианта (DOC-6)">
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Palette variant="a" title="A — синий в работе" note="в коде" />
-          <Palette variant="b" title="B — янтарный в работе" note="для сравнения" />
+      <Section title="Палитра статусов (DOC-6)">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+          {STATUSES.map((meta) => (
+            <StatusBadge key={meta.text} meta={meta} />
+          ))}
         </div>
       </Section>
 

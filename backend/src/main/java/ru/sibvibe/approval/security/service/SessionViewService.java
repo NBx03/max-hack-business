@@ -51,7 +51,7 @@ public class SessionViewService {
         if (currentUser.startParam() != null) {
             // Только вид ссылки, без значения: токен личного приглашения — секрет (приёмка 24.09, п. 15 —
             // проверяем, доходит ли параметр ссылки от клиента MAX до нас).
-            LOGGER.info("Запуск мини-приложения по ссылке: вид {}, компания {}, заявка {}",
+            LOGGER.debug("Запуск мини-приложения по ссылке: вид {}, компания {}, заявка {}",
                     startParamKind(currentUser.startParam()), membership != null, pending != null);
         }
         return new MeResponse(

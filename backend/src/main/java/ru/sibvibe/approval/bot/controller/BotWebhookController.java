@@ -66,7 +66,7 @@ public class BotWebhookController {
         // Тип события без содержимого: по логу видно, доходят ли сообщения боту (приёмка 24.09, п. 13).
         // Вид параметра ссылки (c_/p_/d_/другой, без значения — токен личной ссылки секретный): по логам стенда видно,
         // доходит ли startapp-параметр до bot_started (ревью Матвея на #112, п. 7).
-        LOGGER.info("Webhook бота: событие {}, параметр {}", update == null ? "без тела" : update.path("update_type").asText("?"),
+        LOGGER.debug("Webhook бота: событие {}, параметр {}", update == null ? "без тела" : update.path("update_type").asText("?"),
                 update == null ? "нет" : payloadKind(update.path("payload").asText("")));
         try {
             handler.handle(update);

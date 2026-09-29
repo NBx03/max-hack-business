@@ -67,7 +67,6 @@ export function AppRoutes({ me }: { me: MeResponse }) {
       navigate(launchTarget, { replace: true });
     }
     // Только при первом монтировании: дальше startParam уже отработал.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Экран ссылки открылся — дальше entryRoute уже без неё: охранники и «назад» ведут в обычные места.

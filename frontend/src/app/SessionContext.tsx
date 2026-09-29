@@ -123,7 +123,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     queue.current = run;
     return run;
     // loadNow не зависит от состояния — только от стабильных сеттеров.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadNow = async (silent: boolean) => {

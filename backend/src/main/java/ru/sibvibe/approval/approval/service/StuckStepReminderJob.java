@@ -42,7 +42,8 @@ import java.util.stream.Collectors;
  * ловит момент, когда вчерашняя отметка по времени суток чуть позже сегодняшнего запуска - время старта
  * {@code @Scheduled} плавает на доли секунды, и без запаса примерно в половине случаев законное повторное
  * напоминание отсекается, приходя не раз в сутки, а раз в двое. Запас укорачивает эффективный cooldown
- * на час вместо суток - для ежедневного запуска это не меняет частоту напоминаний по существу.
+ * на час вместо суток - для ежедневного запуска это не меняет частоту напоминаний по существу. Запас - не больше
+ * десятой части паузы: при короткой паузе и частом cron фиксированный час обнулил бы её (ревью #93).
  */
 @Service
 @ConditionalOnProperty(prefix = "app.reminders", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -50,6 +51,7 @@ public class StuckStepReminderJob {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(StuckStepReminderJob.class);
     private static final Duration CLOCK_DRIFT_MARGIN = Duration.ofHours(1);
+    private static final int MARGIN_SHARE_OF_COOLDOWN = 10;
 
     private final ApprovalStepRepository steps;
     private final DocumentStateService documents;
@@ -57,6 +59,7 @@ public class StuckStepReminderJob {
     private final Clock clock;
     private final Duration stuckAfter;
     private final Duration cooldown;
+    private final Duration margin;
 
     public StuckStepReminderJob(
             ApprovalStepRepository steps,
@@ -72,6 +75,8 @@ public class StuckStepReminderJob {
         this.clock = clock;
         this.stuckAfter = Duration.ofHours(stuckAfterHours);
         this.cooldown = Duration.ofHours(cooldownHours);
+        Duration share = this.cooldown.dividedBy(MARGIN_SHARE_OF_COOLDOWN);
+        this.margin = share.compareTo(CLOCK_DRIFT_MARGIN) < 0 ? share : CLOCK_DRIFT_MARGIN;
     }
 
     @Scheduled(cron = "${app.reminders.cron:0 0 8 * * *}", zone = "Europe/Moscow")
@@ -82,7 +87,7 @@ public class StuckStepReminderJob {
         // чтении в findByLastRemindedAt (ревью #93, пункт 5).
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Instant threshold = now.minus(stuckAfter);
-        Instant cooldownBefore = now.minus(cooldown).plus(CLOCK_DRIFT_MARGIN);
+        Instant cooldownBefore = now.minus(cooldown).plus(margin);
 
         int claimed = steps.markStuckAsReminded(now, threshold, cooldownBefore, ApprovalStep.Decision.PENDING);
         if (claimed == 0) {

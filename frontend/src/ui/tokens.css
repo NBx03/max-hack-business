@@ -54,8 +54,8 @@
  *   danger   — отклонён
  *   success  — согласован, утверждён
  *
- * Вариант A («синий в работе») — в коде. Вариант B («янтарный в работе») включается data-palette="b" на любом
- * контейнере — только для сравнения на странице /design (dev-сборка); команда выбирает на ревью PR.
+ * Палитра — вариант A «синий в работе», выбран командой (DOC-6): синий совпадает с акцентом MAX и линией таймлайна,
+ * янтарный остаётся за одним смыслом — «вернули, нужно действие автора».
  */
 :root {
   --status-neutral-fg: #4a4f5a;
@@ -112,29 +112,5 @@
     --status-success-bg: rgba(43, 198, 68, 0.16);
 
     --ds-ai: #cdb4ff;
-  }
-}
-
-/* Вариант B — только для сравнения палитр на /design. */
-[data-palette='b'] {
-  --status-progress-fg: #8a5700;
-  --status-progress-bg: #fff1d1;
-  --status-warning-fg: #a3410f;
-  --status-warning-bg: #ffe6da;
-}
-
-:root[data-theme='dark'] [data-palette='b'] {
-  --status-progress-fg: #ffcf66;
-  --status-progress-bg: rgba(255, 176, 32, 0.16);
-  --status-warning-fg: #ffa47d;
-  --status-warning-bg: rgba(255, 110, 50, 0.2);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme]) [data-palette='b'] {
-    --status-progress-fg: #ffcf66;
-    --status-progress-bg: rgba(255, 176, 32, 0.16);
-    --status-warning-fg: #ffa47d;
-    --status-warning-bg: rgba(255, 110, 50, 0.2);
   }
 }

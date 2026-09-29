@@ -75,7 +75,6 @@ export function RulesScreen() {
       setEditing(linkedType.rules.find((rule) => rule.id === linkedRuleId) ?? null);
     }
     // Только при загрузке и по ссылке: дальше вид выбирает человек.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data === null, linkedRuleId]);
 
   const selected = useMemo(() => data?.types.find((type) => type.documentTypeId === typeId) ?? null, [data, typeId]);
