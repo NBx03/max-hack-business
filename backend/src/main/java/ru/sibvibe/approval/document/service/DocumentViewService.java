@@ -156,10 +156,14 @@ public class DocumentViewService {
         }
         Document document = documentRepository.findById(documentId).orElseThrow(NotFoundException::new);
         var type = typeRepository.findById(document.getDocumentTypeId()).orElseThrow();
-        // Вид, который определил ИИ, — только если он не совпадает с выбранным (решение Булата 28.09).
+        // Вид, который определил ИИ, — только если он не совпадает с выбранным (решение Булата 28.09). «Другой документ»
+        // от ИИ — это «не уверен», а не другой вид: расхождения нет (замечание команды 29.09 — у записки, выбранной
+        // автором, предупреждение «ИИ определил: Другой документ» было ложным).
         var aiType = document.getAiTypeId() == null || document.getAiTypeId().equals(document.getDocumentTypeId())
                 ? null
-                : typeRepository.findById(document.getAiTypeId()).orElse(null);
+                : typeRepository.findById(document.getAiTypeId())
+                        .filter(found -> !DocumentTypeGuessService.OTHER_DOCUMENT.equals(found.getCode()))
+                        .orElse(null);
         List<DocumentVersion> versions = versionRepository.findByDocumentIdOrderByVersionNoAsc(documentId);
         Map<Long, List<DocumentFile>> files = fileRepository
                 .findByVersionIdInOrderByVersionIdAscPositionAsc(

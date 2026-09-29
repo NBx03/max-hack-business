@@ -42,9 +42,20 @@ function Dot({ item }: { item: TimelineItem }) {
   );
 }
 
+/**
+ * Что сворачивается: только пройденные этапы до первого непройденного. Этап после текущего тоже бывает пройден — например,
+ * сразу согласованный автором, у которого одного есть обязательная роль, — и раньше он попадал в свёрнутые:
+ * «Этапы 1–2 пройдены», хотя этап 2 ещё идёт (замечание команды 29.09).
+ */
+export function collapsibleItems(items: TimelineItem[]): TimelineItem[] {
+  const firstOpen = items.findIndex((item) => item.state !== 'done');
+  const passed = firstOpen === -1 ? items : items.slice(0, firstOpen);
+  return passed.filter((item) => item.collapsible && item.state === 'done');
+}
+
 export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; collapseLabel?: (count: number) => string }) {
   const [expanded, setExpanded] = useState(false);
-  const collapsible = items.filter((item) => item.collapsible && item.state === 'done');
+  const collapsible = collapsibleItems(items);
   const collapse = !expanded && collapsible.length >= 2;
   const firstCollapsed = collapse ? items.indexOf(collapsible[0]) : -1;
 
@@ -52,7 +63,7 @@ export function Timeline({ items, collapseLabel }: { items: TimelineItem[]; coll
   const firstCollapsible = canCollapse ? items.indexOf(collapsible[0]) : -1;
   const visible: (TimelineItem | 'toggle' | 'collapse')[] = [];
   items.forEach((item, index) => {
-    if (collapse && item.collapsible && item.state === 'done') {
+    if (collapse && collapsible.includes(item)) {
       if (index === firstCollapsed) visible.push('toggle');
       return;
     }

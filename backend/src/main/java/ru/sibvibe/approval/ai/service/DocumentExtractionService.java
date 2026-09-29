@@ -1,6 +1,8 @@
 package ru.sibvibe.approval.ai.service;
 
 import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import ru.sibvibe.approval.ai.DocumentClassifier;
@@ -31,6 +33,8 @@ import java.util.stream.Collectors;
 @Service
 public class DocumentExtractionService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(DocumentExtractionService.class);
+
     /** Вид документа понятен по началу: заголовок, адресат, первые абзацы. Минимизация — и здесь. */
     private static final int CLASSIFICATION_TEXT_LIMIT = 4_000;
     /**
@@ -46,8 +50,12 @@ public class DocumentExtractionService {
     /** Дата после числа дня по-русски всегда родительный падеж («15 января»), поэтому здесь — только он. */
     private static final String MONTH_NAMES =
             "января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря";
+    /**
+     * Число дня может стоять в кавычках — канцелярская запись «18» сентября 2026 г. (замечание команды 29.09: без этого
+     * такая дата в документе не узнавалась, и верная сводка отбрасывалась).
+     */
     private static final Pattern SUMMARY_WORD_DATE = Pattern.compile(
-            "(?iu)(?<![\\p{L}\\p{N}_])(\\d{1,2})[\\s\\u00A0\\u202F]+(" + MONTH_NAMES + ")"
+            "(?iu)(?<![\\p{L}\\p{N}_])(\\d{1,2})[»\"“]?[\\s\\u00A0\\u202F]+(" + MONTH_NAMES + ")"
                     + "(?:[\\s\\u00A0\\u202F]+(\\d{4}))?(?![\\p{L}\\p{N}_])");
     /**
      * Отдельно от даты целиком: неверный месяц должен отбрасывать сводку, даже без числа дня рядом («в декабре»).
@@ -188,20 +196,36 @@ public class DocumentExtractionService {
 
         long summaryBudget = Math.min(fieldsDeadline - System.nanoTime(), SUMMARY_MAX_WAIT.toNanos());
         if (summaryBudget <= 0) {
-            return new ExtractionOutcome(extractionResult, null, SummaryStatus.NOT_ATTEMPTED);
+            return summaryOutcome(extractionResult, null, SummaryStatus.NOT_ATTEMPTED, summaryBudget, 0);
         }
+        long summaryStarted = System.nanoTime();
         DocumentExtractor.SummaryResult summaryResult = summarizeWithinBudget(masked.text(), summaryBudget);
+        long summaryNanos = System.nanoTime() - summaryStarted;
         if (!summaryResult.available()) {
-            return new ExtractionOutcome(extractionResult, null, SummaryStatus.MODEL_UNAVAILABLE);
+            return summaryOutcome(extractionResult, null, SummaryStatus.MODEL_UNAVAILABLE, summaryBudget, summaryNanos);
         }
         if (summaryResult.summary() == null) {
-            return new ExtractionOutcome(extractionResult, null, SummaryStatus.NO_SUMMARY_FROM_MODEL);
+            return summaryOutcome(extractionResult, null, SummaryStatus.NO_SUMMARY_FROM_MODEL, summaryBudget, summaryNanos);
         }
         String summary = masked.restore(summaryResult.summary());
-        if (!summarySupportedBy(summary, original.fullText())) {
-            return new ExtractionOutcome(extractionResult, null, SummaryStatus.REJECTED_BY_FACT_CHECK);
+        Optional<String> unsupported = unsupportedFact(summary, original.fullText());
+        if (unsupported.isPresent()) {
+            LOGGER.info("Сводка ИИ отброшена: в документе не нашлось — {}", unsupported.get());
+            return summaryOutcome(extractionResult, null, SummaryStatus.REJECTED_BY_FACT_CHECK, summaryBudget, summaryNanos);
         }
-        return new ExtractionOutcome(extractionResult, summary, SummaryStatus.PRESENT);
+        return summaryOutcome(extractionResult, summary, SummaryStatus.PRESENT, summaryBudget, summaryNanos);
+    }
+
+    /**
+     * Почему у документа нет «Кратко от ИИ» — в лог (замечание команды 29.09: «иногда есть, иногда нет», а причина
+     * нигде не видна). Текст сводки в лог не пишется — только исход и время.
+     */
+    private static ExtractionOutcome summaryOutcome(
+            DocumentExtractor.ExtractionResult fields, String summary, SummaryStatus status, long budgetNanos, long tookNanos
+    ) {
+        LOGGER.info("Сводка ИИ: {} (бюджет {} мс, заняло {} мс)",
+                status, Math.max(0, budgetNanos / 1_000_000), tookNanos / 1_000_000);
+        return new ExtractionOutcome(fields, summary, status);
     }
 
     /**
@@ -270,32 +294,43 @@ public class DocumentExtractionService {
      * а не отгадывать их прописью в коде.
      */
     static boolean summarySupportedBy(String summary, String source) {
+        return unsupportedFact(summary, source).isEmpty();
+    }
+
+    /**
+     * Что из сводки не нашлось в документе — число, месяц или дата; пусто — сводка подтверждена. Нужно логу: без этого
+     * было не понять, почему у документа нет «Кратко от ИИ» (замечание команды 29.09).
+     */
+    static Optional<String> unsupportedFact(String summary, String source) {
         if (summary == null || summary.isBlank()) {
-            return true;
+            return Optional.empty();
         }
-        if (source == null || UNRESOLVED_PLACEHOLDER.matcher(summary).find()) {
-            return false;
+        if (source == null) {
+            return Optional.of("нет текста документа");
+        }
+        Matcher placeholder = UNRESOLVED_PLACEHOLDER.matcher(summary);
+        if (placeholder.find()) {
+            return Optional.of("метка " + placeholder.group());
         }
         Set<String> sourceNumbers = numericTokens(source);
         for (String number : numericTokens(summary)) {
             if (!sourceNumbers.contains(number)) {
-                return false;
+                return Optional.of("число «" + number + "»");
             }
         }
         Set<String> sourceMonthWords = monthWords(source);
         for (String month : monthWords(summary)) {
             if (!sourceMonthWords.contains(month)) {
-                return false;
+                return Optional.of("месяц «" + month + "…»");
             }
         }
         List<DateToken> sourceDates = dateTokens(source);
         for (DateToken date : dateTokens(summary)) {
-            boolean found = sourceDates.stream().anyMatch(date::matchesIgnoringAbsentYear);
-            if (!found) {
-                return false;
+            if (sourceDates.stream().noneMatch(date::matchesIgnoringAbsentYear)) {
+                return Optional.of("дата «" + date.day() + " " + date.month() + (date.year() == null ? "" : " " + date.year()) + "»");
             }
         }
-        return true;
+        return Optional.empty();
     }
 
     /**
