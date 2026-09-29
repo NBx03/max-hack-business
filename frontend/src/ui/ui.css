@@ -524,6 +524,12 @@ button.ds-row:active {
   color: var(--text-primary);
 }
 
+/* Содержимое панели прокручивается, а не сжимается: список с overflow: hidden иначе ужимался ниже своей высоты,
+   и строки наезжали друг на друга на узком экране (замечание 29.09, «Какие файлы подходят»). */
+.ds-sheet__body > * {
+  flex-shrink: 0;
+}
+
 .ds-sheet__body {
   overscroll-behavior: contain;
   flex: 1;
