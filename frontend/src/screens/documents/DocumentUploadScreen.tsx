@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { createDocument, getDocumentTypes } from '../../api/documents';
 import { errorMessage } from '../../api/errors';
 import type { DocumentType, Visibility } from '../../api/types';
+import { useSession } from '../../app/SessionContext';
 import { ROUTE_PATTERNS, documentCheckPath } from '../../routes/paths';
 import {
   AttachmentsField,
@@ -58,9 +59,22 @@ function sortTypes(types: DocumentType[]): DocumentType[] {
   return [...types].sort((left, right) => Number(left.code === 'GENERIC') - Number(right.code === 'GENERIC'));
 }
 
+/**
+ * Примеры для демонстрации: у проверяющего в MAX на телефоне нет наших тестовых файлов. Лежат в public/samples
+ * (копии testdata/documents), подставляются в ту же зону загрузки — дальше обычный путь, сервер проверяет файл как любой.
+ */
+const DEMO_SAMPLES = [
+  { key: 'memo', label: 'Служебная записка с ошибками', url: '/samples/memo-errors.docx', name: 'Служебная записка с ошибками.docx',
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  { key: 'act', label: 'Акт — документ вне шаблонов', url: '/samples/act-errors.pdf', name: 'Акт приёма-передачи.pdf', type: 'application/pdf' },
+] as const;
+
 /** 9. Новый документ — шаг 1 «Файл» (UPL-1…UPL-3, UPL-6). */
 export function DocumentUploadScreen() {
   const navigate = useNavigate();
+  const { me } = useSession();
+  const inDemo = Boolean(me?.actingAs);
+  const [sampleLoading, setSampleLoading] = useState<string | null>(null);
   const [types, setTypes] = useState<DocumentType[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [typeId, setTypeId] = useState<number>(AUTO);
@@ -102,6 +116,20 @@ export function DocumentUploadScreen() {
     const problem = fileProblem(file);
     setFileError(problem);
     if (!problem) setMainFile(file);
+  }
+
+  async function takeSample(sample: (typeof DEMO_SAMPLES)[number]) {
+    setSampleLoading(sample.key);
+    setFileError(null);
+    try {
+      const response = await fetch(sample.url);
+      if (!response.ok) throw new Error(String(response.status));
+      selectFile(new File([await response.blob()], sample.name, { type: sample.type }));
+    } catch {
+      setFileError('Не удалось загрузить пример, попробуйте ещё раз');
+    } finally {
+      setSampleLoading(null);
+    }
   }
 
   function addAttachments(selected: File[]) {
@@ -230,6 +258,21 @@ export function DocumentUploadScreen() {
             setSubmitError(null);
           }}
         />
+
+        {inDemo && !mainFile && (
+          <div style={{ ...sectionStyle, gap: 12 }}>
+            <span style={{ ...stackStyle, gap: 4 }}>
+              <strong>Нет файла под рукой?</strong>
+              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Возьмите пример — он проверится как обычный файл.</span>
+            </span>
+            {DEMO_SAMPLES.map((sample) => (
+              <Button key={sample.key} type="button" stretched loading={sampleLoading === sample.key}
+                disabled={submitting || sampleLoading !== null} onClick={() => void takeSample(sample)}>
+                {sample.label}
+              </Button>
+            ))}
+          </div>
+        )}
 
         {/* Записка-форма — без файлов, поэтому и без приложений: выбранные приложения пропали бы молча. */}
         {types.some((type) => type.code === 'OFFICIAL_MEMO') && !mainFile && attachments.length === 0 && (
