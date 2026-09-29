@@ -189,6 +189,20 @@ class DocumentExtractionServiceTest {
         assertThat(DocumentExtractionService.summarySupportedBy("Начало с 1 ноября на 14 дней.", source)).isTrue();
     }
 
+    /**
+     * Канцелярская дата с числом в кавычках — «18» сентября 2026 г. — та же дата, что «18 сентября 2026» в сводке
+     * (замечание команды 29.09: из-за неё верная сводка отбрасывалась, и «Кратко от ИИ» то было, то нет).
+     * Неверный день по-прежнему отбрасывает сводку.
+     */
+    @Test
+    void quotedDayInOfficialDateMatchesPlainDateInSummary() {
+        String source = "ПРИКАЗ от «18» сентября 2026 г. № 42 О проведении инвентаризации";
+
+        assertThat(DocumentExtractionService.summarySupportedBy("Приказ от 18 сентября 2026 года.", source)).isTrue();
+        assertThat(DocumentExtractionService.unsupportedFact("Приказ от 19 сентября 2026 года.", source))
+                .contains("дата «19 сентября 2026»");
+    }
+
     /** Ревью Mat10t к #104, п.6: месяц, которого нет в тексте, отбрасывает сводку, даже без числа дня рядом. */
     @Test
     void monthWordAbsentFromSourceIsRejectedEvenWithoutLeadingDay() {
