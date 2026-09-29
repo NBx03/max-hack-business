@@ -58,6 +58,19 @@ class StuckStepReminderJobTest {
     }
 
     @Test
+    void shortCooldownKeepsMostOfThePauseInsteadOfAFixedHour() {
+        when(steps.markStuckAsReminded(any(), any(), any(), any())).thenReturn(0);
+
+        // Пауза в час при частом cron: фиксированный запас в час обнулил бы её, и напоминание уходило бы
+        // на каждом запуске. Запас - десятая часть паузы, то есть 6 минут (ревью #93).
+        new StuckStepReminderJob(steps, documents, events, clock, 48, 1).remindStuckSteps();
+
+        verify(steps).markStuckAsReminded(
+                eq(NOW), eq(NOW.minusSeconds(48 * 3600)), eq(NOW.minusSeconds(54 * 60)),
+                eq(ApprovalStep.Decision.PENDING));
+    }
+
+    @Test
     void nothingClaimedMeansNoLookupsAndNoEvents() {
         when(steps.markStuckAsReminded(any(), any(), any(), any())).thenReturn(0);
 

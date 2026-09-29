@@ -109,7 +109,7 @@ export function watchRelaunch(): void {
     } catch {
       return;
     }
-    console.info('[approval] новый запуск мини-приложения:', reason, '(хэш)');
+    console.debug('[approval] новый запуск мини-приложения:', reason, '(хэш)');
     window.location.reload();
   };
   window.addEventListener('hashchange', () => check('hashchange'));
@@ -138,6 +138,6 @@ export function logLaunch(meStartParam: string | null): void {
     const prefix = value.slice(0, 2);
     return ['c_', 'p_', 'd_', 's_', 'a_'].includes(prefix) ? prefix : 'другой';
   };
-  console.info('[approval] запуск: параметр в мосте —', kind(bridgeParam), '; в /me —', kind(meStartParam),
+  console.debug('[approval] запуск: параметр в мосте —', kind(bridgeParam), '; в /me —', kind(meStartParam),
     '; уже обработан —', isLaunchHandled());
 }
