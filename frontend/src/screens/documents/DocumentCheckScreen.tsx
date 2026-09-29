@@ -339,6 +339,30 @@ export function DocumentCheckScreen() {
     }
   }
 
+  /**
+   * Возвращённый документ без замечаний — дальше, к маршруту: новая версия-черновик с теми же файлами и полями, как
+   * у «Проверить заново». Раньше внизу была только «Исправить записку», и без правки дальше было не пройти.
+   */
+  async function continueFromReturned() {
+    if (!card) return;
+    setBusy('recheck');
+    setActionError(null);
+    try {
+      const refreshed = await recheckDocument(card.id, card.currentVersionNo);
+      if (refreshed.permissions.canSubmit) {
+        navigate(routePreviewPath(refreshed.id), { state: { from: 'check' } });
+        return;
+      }
+      setCard(refreshed);
+      setFields(fieldsToRecord(refreshed.check));
+      setCorrection(null);
+    } catch (continueError) {
+      setActionError(errorMessage(continueError));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function saveDraft() {
     if (!card) return;
     navigate(documentCardPath(card.id), { state: { toast: 'Черновик сохранён — он в разделе «Мои»' } });
@@ -414,6 +438,17 @@ export function DocumentCheckScreen() {
     <div style={{ ...stackStyle, gap: 8 }}>
       <Button stretched variant="primary" onClick={() => navigate(routePreviewPath(card.id), { state: { from: 'check' } })}>Далее: выбрать согласующих</Button>
       <Button stretched variant="secondary" onClick={saveDraft}>Сохранить черновик</Button>
+    </div>
+  ) : isReturned && !mustFix && card.permissions.canUploadVersion ? (
+    <div style={{ ...stackStyle, gap: 8 }}>
+      <Button stretched variant="primary" loading={busy === 'recheck'} disabled={busy !== null} onClick={() => void continueFromReturned()}>
+        Далее: выбрать согласующих
+      </Button>
+      {canEdit && (
+        <Button stretched variant="secondary" disabled={busy !== null} onClick={startEditing}>
+          {isForm ? 'Исправить записку' : 'Исправить'}
+        </Button>
+      )}
     </div>
   ) : (isDraft || isReturned) && canEdit && (mustFix || isReturned) ? (
     // Отправить нельзя — главное действие здесь исправить (#56, аудит 27.09): раньше главной внизу была
